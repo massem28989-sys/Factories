@@ -316,10 +316,13 @@ async function pushAll(quiet){
     await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers}}]});
 
     DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
-  }catch(e){ DB.err=e.message; DB.busy=false; render(); toast('فشل الرفع: '+e.message,1); return false; }
+  }catch(e){ DB.err=e.message; DB.busy=false; if(!isTypingCount()) render(); toast('فشل الرفع: '+e.message,1); return false; }
   DB.busy=false;
-  render(); if(!quiet) toast('البيانات اترفعت للقاعدة'); return true;
+  if(!isTypingCount()) render();
+  if(!quiet) toast('البيانات اترفعت للقاعدة'); return true;
 }
+
+const isTypingCount = () => !!(document.activeElement && document.activeElement.hasAttribute('data-count'));
 
 async function pullAll(silent){
   if(!DB.on) return false;
