@@ -1,0 +1,1170 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<div id="root" dir="rtl">
+  <div class="boot">جاري تحميل بيانات المخزن…</div>
+</div>
+
+<style>
+:root{
+  --bg:#E8ECEE; --surface:#fff; --ink:#14181C; --muted:#69747E; --line:#CFD8DD;
+  --green:#2E6B4F; --amber:#A96A0E; --red:#B23B2E; --blue:#23506E;
+  --greenbg:#E4EFE8; --amberbg:#F7EDDC; --redbg:#F6E4E1; --bluebg:#E3EBF1;
+  --r:10px;
+}
+*{box-sizing:border-box}
+#root{
+  font-family:'IBM Plex Sans Arabic',system-ui,'Segoe UI',sans-serif;
+  color:var(--ink); background:var(--bg); min-height:100vh; padding:0 0 60px;
+  font-size:14px; line-height:1.5;
+}
+.boot{padding:40px;text-align:center;color:var(--muted)}
+.num{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; direction:ltr; display:inline-block}
+h1,h2,h3{margin:0;font-weight:700}
+button{font-family:inherit;font-size:inherit;cursor:pointer}
+input,select{font-family:inherit;font-size:inherit}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+
+/* ---------- header ---------- */
+header{background:var(--ink);color:#fff;padding:14px 0 0}
+.hrow{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-bottom:14px}
+.warnbar{background:#B87514;color:#fff;font-size:12.5px;padding:7px 12px;border-radius:8px;margin-bottom:12px}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.2px}
+.brand small{display:block;font-weight:400;font-size:11.5px;color:#93A0AA;letter-spacing:0}
+.hstat{margin-inline-start:auto;display:flex;gap:22px;flex-wrap:wrap}
+.hstat div{text-align:center}
+.hstat b{display:block;font-size:17px;font-weight:600;font-family:'IBM Plex Mono',monospace;direction:ltr}
+.hstat span{font-size:11px;color:#93A0AA}
+nav{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{background:none;border:0;color:#9AA7B1;padding:10px 14px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+nav button:hover{color:#fff}
+nav button.on{color:#fff;border-bottom-color:#fff}
+nav .lk{font-size:11px;margin-inline-end:5px;opacity:.85}
+nav .lk.open{opacity:.5}
+.lockrow{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid #EDF1F3;flex-wrap:wrap}
+.lockrow:last-child{border-bottom:0}
+.lockrow .nm{font-weight:500;flex:1 1 150px}
+
+/* ---------- panels ---------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-top:16px;overflow:hidden}
+.panel>h2{font-size:14px;padding:11px 14px;border-bottom:1px solid var(--line);background:#F6F8F9;display:flex;align-items:center;gap:10px}
+.panel>h2 em{font-style:normal;font-weight:400;color:var(--muted);font-size:12px}
+.pad{padding:14px}
+
+/* ---------- ledger strip (signature) ---------- */
+.ledger{display:flex;align-items:stretch;gap:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff;flex-wrap:wrap}
+.ledger .cell{flex:1 1 110px;padding:10px 12px;border-inline-start:1px solid var(--line);min-width:0}
+.ledger .cell:first-child{border-inline-start:0}
+.ledger .op{flex:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:16px;background:#F6F8F9;border-inline-start:1px solid var(--line)}
+.ledger .k{font-size:11px;color:var(--muted);white-space:nowrap}
+.ledger .v{font-size:19px;font-weight:600;font-family:'IBM Plex Mono',monospace;direction:ltr;text-align:start}
+.ledger .cell.book{background:var(--bluebg)}
+.ledger .cell.real{background:#F6F8F9}
+.ledger .cell.diff.ok{background:var(--greenbg)} .ledger .cell.diff.ok .v{color:var(--green)}
+.ledger .cell.diff.bad{background:var(--redbg)} .ledger .cell.diff.bad .v{color:var(--red)}
+
+/* ---------- table ---------- */
+.tblwrap{overflow:auto;max-height:min(66vh,720px)}
+table{width:100%;border-collapse:collapse}
+th{position:sticky;top:0;background:#F6F8F9;text-align:start;font-size:11.5px;color:var(--muted);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;z-index:2}
+td{padding:7px 10px;border-bottom:1px solid #EDF1F3;vertical-align:middle}
+tbody tr:hover{background:#FAFCFC}
+tr.catrow td{background:#EEF2F4;color:var(--muted);font-weight:600;font-size:12px;padding:6px 10px;border-bottom:1px solid var(--line)}
+tr.catrow:hover td{background:#EEF2F4}
+input.cell.syncing{background:#FCF6EA;border-color:#EDD9AE}
+input.cell.sync-err{background:#F6E4E1;border-color:#E6C6C1}
+td.n{font-family:'IBM Plex Mono',monospace;direction:ltr;text-align:start;font-variant-numeric:tabular-nums;white-space:nowrap}
+.iname{font-weight:500}
+.idesc{font-size:11px;color:var(--muted)}
+.chip{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:20px;background:#EEF2F4;color:var(--muted);white-space:nowrap}
+.chip.g{background:var(--greenbg);color:var(--green)} .chip.a{background:var(--amberbg);color:var(--amber)}
+.chip.r{background:var(--redbg);color:var(--red)} .chip.b{background:var(--bluebg);color:var(--blue)}
+.pos{color:var(--green)} .neg{color:var(--red)} .zero{color:var(--muted)}
+
+/* ---------- controls ---------- */
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);background:#FCFDFD}
+input[type=text],input[type=number],input[type=date],select{
+  border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:#fff;color:var(--ink);min-width:0}
+input:focus,select:focus{outline:2px solid var(--blue);outline-offset:-1px}
+input.cell{width:88px;text-align:start;font-family:'IBM Plex Mono',monospace;direction:ltr;padding:5px 7px}
+input.cell.filled{border-color:var(--green);background:#F4FAF6}
+.grow{flex:1 1 180px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 13px;font-weight:500;color:var(--ink)}
+.btn:hover{background:#F2F6F7}
+.btn.p{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn.p:hover{background:#2A333B}
+.btn.g{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.danger{color:var(--red);border-color:#E6C6C1}
+.btn.sm{padding:3px 9px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+label.f{display:block;font-size:11.5px;color:var(--muted);margin-bottom:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.hint{font-size:12px;color:var(--muted)}
+.empty{padding:34px 16px;text-align:center;color:var(--muted)}
+
+/* ---------- cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px}
+.card .k{font-size:11.5px;color:var(--muted)}
+.card .v{font-size:23px;font-weight:600;font-family:'IBM Plex Mono',monospace;direction:ltr;margin-top:3px}
+.card .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* ---------- toast / modal ---------- */
+#toast{position:fixed;inset-inline-start:50%;transform:translateX(50%);bottom:22px;z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{background:var(--ink);color:#fff;padding:9px 16px;border-radius:22px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.22)}
+.toast.err{background:var(--red)}
+.modal{position:fixed;inset:0;background:rgba(15,22,28,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal .box{background:#fff;border-radius:12px;max-width:520px;width:100%;max-height:88vh;overflow:auto}
+.modal h3{padding:13px 16px;border-bottom:1px solid var(--line);font-size:15px}
+.foot{display:flex;gap:8px;justify-content:flex-start;padding:12px 16px;border-top:1px solid var(--line);background:#FAFCFC}
+.rlines{display:flex;flex-direction:column;gap:7px}
+.rline{display:flex;gap:7px;align-items:center}
+.rline select{flex:1 1 auto;min-width:0}
+@media(max-width:640px){
+  .hstat{width:100%;margin:0;gap:14px;justify-content:space-between}
+  .ledger .cell{flex:1 1 84px;padding:8px} .ledger .v{font-size:16px}
+}
+</style>
+
+<script>
+/* ==================================================================
+   نظام مخزون مصنع الكنافة — ملف واحد، بيانات محفوظة في مساحة التخزين
+   ================================================================== */
+const SEED = [{"id": "i001", "name": "Abu Oud", "desc": "Tray (36 Pcs )", "unit": "حبة", "cat": "خامات", "qty": 240.0, "note": "", "price": 0.42}, {"id": "i002", "name": "Abu Oud stick", "desc": "Box (200 Pcs / 1 packet 50 pcs)", "unit": "باكيت", "cat": "خامات", "qty": 1631.0, "note": "", "price": 14.0}, {"id": "i003", "name": "Baklawa", "desc": "Plate ( 1 plate 12 Pcs)", "unit": "صحن", "cat": "خامات", "qty": 13.0, "note": "", "price": 50.0}, {"id": "i004", "name": "Bent Ali ( L ) plate 285g", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 106.0, "note": "", "price": 13.0}, {"id": "i005", "name": "BENT ALI (S)", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 106.0, "note": "", "price": 3.3}, {"id": "i006", "name": "Liean", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 3.0, "note": "", "price": 15.6}, {"id": "i007", "name": "Fatma", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 0.0, "note": "", "price": 16.32}, {"id": "i008", "name": "Pistachio sauce", "desc": "1 pc 5 KG", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 35.0}, {"id": "i009", "name": "Nutella", "desc": "825GM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 24.17}, {"id": "i010", "name": "Nutella Sauce Gallon", "desc": "1 pc 5 KG", "unit": "جالون", "cat": "خامات", "qty": 0.0, "note": "", "price": 115.0}, {"id": "i011", "name": "Wall Nuts", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 60.0, "note": "", "price": 36.0}, {"id": "i012", "name": "pistachio powder", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 30.0}, {"id": "i013", "name": "pistachio", "desc": "10 KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 100.0}, {"id": "i014", "name": "Kinder suace", "desc": "5KG", "unit": "جالون", "cat": "خامات", "qty": 8.0, "note": "", "price": 115.0}, {"id": "i015", "name": "Milk (unikai )", "desc": "1 Box 12 pcs", "unit": "لتر", "cat": "خامات", "qty": 68.0, "note": "", "price": 3.4167}, {"id": "i016", "name": "Milk KDD", "desc": "12 PCS", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 50.0}, {"id": "i017", "name": "nadec milk", "desc": "12*1ltr", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 45.0}, {"id": "i018", "name": "condensed milk", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 102.0, "note": "", "price": 125.0}, {"id": "i019", "name": "qhimar thick cream puck 250ml", "desc": "PC", "unit": "حبة", "cat": "خامات", "qty": 97.0, "note": "", "price": 4.63}, {"id": "i020", "name": "KDD Thick 250ML", "desc": "PC", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 3.125}, {"id": "i021", "name": "Milk Powder", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 39.5, "note": "", "price": 285.0}, {"id": "i022", "name": "Puck", "desc": "10*1LTR", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 220.0}, {"id": "i023", "name": "yoghurt", "desc": "1 Pc 9 KG", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 35.0}, {"id": "i024", "name": "willi Creamy Cheese", "desc": "1*6PCs", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 29.13}, {"id": "i025", "name": "ARLA CREEM CHEASE", "desc": "1 CART 10*1LTR", "unit": "حبة", "cat": "خامات", "qty": 8.0, "note": "", "price": 75.0}, {"id": "i026", "name": "kiri cheese", "desc": "4*(24P*2*800G)", "unit": "باكيت", "cat": "خامات", "qty": 37.0, "note": "", "price": 275.0}, {"id": "i027", "name": "Nabulsia cheese", "desc": "Box 5KG", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 127.0}, {"id": "i028", "name": "Rice Milk 200 G", "desc": "By Pcs", "unit": "حبة", "cat": "خامات", "qty": 60.0, "note": "", "price": 1.27}, {"id": "i029", "name": "Rice Milk 400G", "desc": "PCs", "unit": "حبة", "cat": "خامات", "qty": 14.0, "note": "", "price": 2.24}, {"id": "i030", "name": "Egyption Rice", "desc": "bag 25 KG", "unit": "كيلو", "cat": "خامات", "qty": 17.4, "note": "", "price": 6.75}, {"id": "i031", "name": "Wipping Cream ( macktop)", "desc": "Box 12 Pcs", "unit": "حبة", "cat": "خامات", "qty": 112.0, "note": "", "price": 0}, {"id": "i032", "name": "Rama Wipping Cream", "desc": "1 CART 8*1LTR", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 14.5}, {"id": "i033", "name": "milky chocolate new", "desc": "1 Packet 5 KG", "unit": "كيلو", "cat": "خامات", "qty": 75.0, "note": "", "price": 28.0}, {"id": "i034", "name": "white CHOCOLATE NEW", "desc": "1 Packet 5 KG", "unit": "كيلو", "cat": "خامات", "qty": 30.0, "note": "", "price": 28.0}, {"id": "i035", "name": "Butter Lurpak", "desc": "Box 20 Pcs", "unit": "حبة", "cat": "خامات", "qty": 348.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 165.0}, {"id": "i036", "name": "Coca Butter", "desc": "Box 25 kg", "unit": "كرتون", "cat": "خامات", "qty": 11.0, "note": "", "price": 175.0}, {"id": "i037", "name": "COCONUT POWDER", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 11.5987}, {"id": "i038", "name": "Egg", "desc": "Tray (30 Pcs)", "unit": "باكيت", "cat": "خامات", "qty": 10.0, "note": "", "price": 15.0}, {"id": "i039", "name": "Ice Box", "desc": "Box", "unit": "حبة", "cat": "خامات", "qty": 17.0, "note": "", "price": 4.7162}, {"id": "i040", "name": "Afia Oil", "desc": "9kg", "unit": "جالون", "cat": "خامات", "qty": 6.0, "note": "ملاحظة من الجرد القديم: 0.500 جرام", "price": 152.0}, {"id": "i041", "name": "elshrouq oil", "desc": "5 LTR", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 30.0}, {"id": "i042", "name": "cake", "desc": "Tray (18 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 15.0, "note": "", "price": 7.93}, {"id": "i043", "name": "choclate cake", "desc": "Tray (18 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 14.0, "note": "", "price": 11.13}, {"id": "i044", "name": "choclate chips", "desc": "1bag 5kg", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 28.0}, {"id": "i045", "name": "zafroon cake", "desc": "TRAY", "unit": "صاج", "cat": "خامات", "qty": 7.0, "note": "", "price": 0}, {"id": "i046", "name": "white chips", "desc": "1bag 5kg", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 28.0}, {"id": "i047", "name": "kaju", "desc": "7.8", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 70.0}, {"id": "i048", "name": "Almond Sliced", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 30.0}, {"id": "i049", "name": "trendy", "desc": "", "unit": "باكيت", "cat": "خامات", "qty": 16.0, "note": "", "price": 7.83}, {"id": "i050", "name": "Coca powder", "desc": "1 packet 25 kg", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 550.0}, {"id": "i051", "name": "Ghulash Broken جلاش مكسر", "desc": "1PKT 500GM", "unit": "باكيت", "cat": "خامات", "qty": 1.0, "note": "", "price": 20.0}, {"id": "i052", "name": "Frozen Croissant", "desc": "1 Box 60 pcs*80 GRM", "unit": "كرتون", "cat": "خامات", "qty": 26.0, "note": "", "price": 108.0}, {"id": "i053", "name": "Naama Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 160.0, "note": "", "price": 4.69}, {"id": "i054", "name": "Mabrooma Cheese", "desc": "Tray (24 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 24.0, "note": "", "price": 117.6}, {"id": "i055", "name": "Mabrooma Cream", "desc": "Tray (24 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 13.0, "note": "", "price": 45.84}, {"id": "i056", "name": "Lukmat Cream", "desc": "Packet (100 Pcs )", "unit": "باكيت", "cat": "خامات", "qty": 25.0, "note": "", "price": 53.0}, {"id": "i057", "name": "Lukmat Cheese", "desc": "Packet (100 Pcs )", "unit": "باكيت", "cat": "خامات", "qty": 25.0, "note": "", "price": 97.0}, {"id": "i058", "name": "White Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 140.0, "note": "", "price": 2.89}, {"id": "i059", "name": "Green Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 3.96}, {"id": "i060", "name": "Red Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 105.0, "note": "", "price": 4.29}, {"id": "i061", "name": "Ready Lian", "desc": "PC", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 15.6}, {"id": "i062", "name": "Sugar", "desc": "Bags ( 1 Bag 50 KG )", "unit": "شوال", "cat": "خامات", "qty": 3.0, "note": "", "price": 112.322}, {"id": "i063", "name": "Brown Sugar", "desc": "Bags ( 1 Bag 50 KG )", "unit": "كيلو", "cat": "خامات", "qty": 32.0, "note": "", "price": 12.1}, {"id": "i064", "name": "Sugar Syrup", "desc": "Gallon (1 gallon )30 liter", "unit": "جالون", "cat": "خامات", "qty": 6.0, "note": "", "price": 63.81}, {"id": "i065", "name": "Sugar Syrup Cup", "desc": "Box", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 0.0}, {"id": "i066", "name": "Ready Cheese", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 405.0, "note": "", "price": 25.71}, {"id": "i067", "name": "cheese (Elshikh)", "desc": "Tanka", "unit": "تنكة", "cat": "خامات", "qty": 0.0, "note": "", "price": 285.0}, {"id": "i068", "name": "cheese (Genedy)", "desc": "Tanka 11 kg", "unit": "تنكة", "cat": "خامات", "qty": 25.0, "note": "", "price": 260.0}, {"id": "i069", "name": "papa chu", "desc": "Pcs", "unit": "حبة", "cat": "خامات", "qty": 2000.0, "note": "", "price": 0.1847}, {"id": "i070", "name": "vanillia ice cream 350 Ghram", "desc": "1 Packet 10 Pcs", "unit": "حبة", "cat": "خامات", "qty": 102.0, "note": "", "price": 30.0}, {"id": "i071", "name": "Salt", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 1.8, "note": "", "price": 0.42}, {"id": "i072", "name": "Digestive Biscuits", "desc": "24*400 g", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 5.5}, {"id": "i073", "name": "Louts biscuits", "desc": "250 GM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 6.08}, {"id": "i074", "name": "semolina", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 7.0}, {"id": "i075", "name": "Saffron", "desc": "GRM", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 5.25}, {"id": "i076", "name": "lemon salt", "desc": "KG", "unit": "جرام", "cat": "خامات", "qty": 200.0, "note": "", "price": 0.72}, {"id": "i077", "name": "Bicarbonate of soda", "desc": "1 Pc 100 GRM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 1.25}, {"id": "i078", "name": "Honey", "desc": "Gallon 3 KG", "unit": "جالون", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0. 3\" — اتسجلت صفر", "price": 33.6}, {"id": "i079", "name": "crystal plate Mini", "desc": "1 cartoon 8 KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0.oon 8\" — اتسجلت صفر", "price": 8.125}, {"id": "i080", "name": "crystal plate Large", "desc": "( 1 box 56 plate)", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0.x 56\" — اتسجلت صفر", "price": 1.567}, {"id": "i081", "name": "Plate Mini Stanlis", "desc": "Pcs", "unit": "صحن", "cat": "خامات", "qty": 0.0, "note": "", "price": 1.56}, {"id": "i082", "name": "Baking paper", "desc": "1 Box (10m*30CM)", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 105.0}, {"id": "i083", "name": "Flour Naama (Tempmpt45 )", "desc": "Bags ( 1 Bag 25 KG )", "unit": "شوال", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0. 1 Bag 25\" — اتسجلت صفر", "price": 148.5}, {"id": "i084", "name": "Flour (Genan)", "desc": "Bags ( 1 Bag 50 KG )", "unit": "شوال", "cat": "خامات", "qty": 3.0, "note": "", "price": 115.0}, {"id": "i085", "name": "maida Flour", "desc": "Bags ( 1 Bag 10 KG )", "unit": "شوال", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0. 1 Bag 10\" — اتسجلت صفر", "price": 27.0}, {"id": "i086", "name": "corn Flour", "desc": "1 Bag 25 KG", "unit": "كيلو", "cat": "خامات", "qty": 29.5, "note": "", "price": 78.0}, {"id": "i087", "name": "white flour churres 10 kg", "desc": "1 Bag 10 KG", "unit": "كيلو", "cat": "خامات", "qty": 90.0, "note": "", "price": 60.0}, {"id": "i088", "name": "cookies flour", "desc": "15KG", "unit": "باكيت", "cat": "خامات", "qty": 25.0, "note": "", "price": 300.0}, {"id": "i089", "name": "chocolate cookies flour", "desc": "15KG", "unit": "باكيت", "cat": "خامات", "qty": 28.0, "note": "ملاحظة من الجرد القديم: 1.500 كيلو", "price": 348.0}, {"id": "i090", "name": "Ghulash Pastry", "desc": "1 cartoon 12*500G", "unit": "كرتون", "cat": "خامات", "qty": 47.0, "note": "", "price": 108.5}, {"id": "i091", "name": "Trendy ajeen", "desc": "", "unit": "صاج", "cat": "خامات", "qty": 0.0, "note": "", "price": 7.83}, {"id": "i092", "name": "Baking Powder", "desc": "24*450G", "unit": "كرتون", "cat": "خامات", "qty": 2.0, "note": "", "price": 275.0}, {"id": "i093", "name": "Croissant ready", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 1.8}, {"id": "i094", "name": "Vegetable Ghee - Zubaida 16 KG", "desc": "Tanka 16 Kg", "unit": "تنكة", "cat": "خامات", "qty": 0.0, "note": "", "price": 180.0}, {"id": "i095", "name": "Haloop Gold Ghee", "desc": "Tanka 15 Kg", "unit": "تنكة", "cat": "خامات", "qty": 0.0, "note": "", "price": 930.0}, {"id": "i096", "name": "Cadbury Cocoa Powder", "desc": "1 Pc 250 GRM", "unit": "حبة", "cat": "خامات", "qty": 0.5, "note": "", "price": 17.25}, {"id": "i097", "name": "Cocoa powder", "desc": "1 Bag 25 KG", "unit": "باكيت", "cat": "خامات", "qty": 5.0, "note": "ملاحظة من الجرد القديم: 5كيلو", "price": 20.0}, {"id": "i098", "name": "Custard", "desc": "24*1 Pc 450 GRM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 5.083}, {"id": "i099", "name": "Brownies", "desc": "Tray= 50 PC / 4 KG", "unit": "صاج", "cat": "خامات", "qty": 12.0, "note": "", "price": 22.8125}, {"id": "i100", "name": "KDD Cream", "desc": "12*1LTR", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 120.0}, {"id": "i101", "name": "Tarmiso Cream", "desc": "KG", "unit": "باكيت", "cat": "خامات", "qty": 2.0, "note": "", "price": 26.3}, {"id": "i102", "name": "Vanilla pwoder", "desc": "800 grm", "unit": "حبة", "cat": "خامات", "qty": 7.0, "note": "", "price": 36.0}, {"id": "i103", "name": "Cook powder", "desc": "ماده العجين", "unit": "كيلو", "cat": "خامات", "qty": 17.0, "note": "", "price": 8.25}, {"id": "i104", "name": "Green Colour", "desc": "Galoon 1 KG", "unit": "كيلو", "cat": "خامات", "qty": 30.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 45.0}, {"id": "i105", "name": "Red Colour", "desc": "1 Pc 240 GRM", "unit": "حبة", "cat": "خامات", "qty": 57.0, "note": "", "price": 45.0}, {"id": "i106", "name": "glees white", "desc": "1 Gallon 7 KG", "unit": "جالون", "cat": "خامات", "qty": 3.0, "note": "", "price": 91.0}, {"id": "i107", "name": "glees caramel", "desc": "1 Gallon 7 KG", "unit": "جالون", "cat": "خامات", "qty": 6.0, "note": "", "price": 91.0}, {"id": "i108", "name": "Orange Colour", "desc": "1 Pc 240 GRM", "unit": "حبة", "cat": "خامات", "qty": 54.0, "note": "", "price": 45.0}, {"id": "i109", "name": "Lemon yellow colour", "desc": "Box 10 * 1KG", "unit": "حبة", "cat": "خامات", "qty": 24.0, "note": "", "price": 50.0}, {"id": "i110", "name": "cinnamon powder", "desc": "100GH", "unit": "جرام", "cat": "خامات", "qty": 350.0, "note": "", "price": 18.0}, {"id": "i111", "name": "cardmom powder", "desc": "150GH", "unit": "جرام", "cat": "خامات", "qty": 300.0, "note": "", "price": 13.2}, {"id": "i112", "name": "yeast", "desc": "20*500GH", "unit": "كيلو", "cat": "خامات", "qty": 4.5, "note": "", "price": 9.5}, {"id": "i113", "name": "kinder t4", "desc": "", "unit": "باكيت", "cat": "خامات", "qty": 17.0, "note": "", "price": 22.5}, {"id": "i114", "name": "potato fresh", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 3.25}, {"id": "i115", "name": "Digestive cheese cake", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 2.9}, {"id": "i116", "name": "Louts Cheese Cake", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.5}, {"id": "i117", "name": "Oreo Cheese Cake", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0}, {"id": "i118", "name": "STRAWBERRY SAUCE", "desc": "PKT 500GM", "unit": "باكيت", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 7.6}, {"id": "i119", "name": "London Cookies Ajeen", "desc": "KG", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 34.0, "note": "", "price": 20.5044}, {"id": "i120", "name": "classic cookies ajeen", "desc": "KG", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 1.0, "note": "", "price": 21.5}, {"id": "i121", "name": "chocolate cookies ajeen", "desc": "KG", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 29.0, "note": "", "price": 21.5}, {"id": "i122", "name": "classic cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 100.0, "note": "", "price": 2.34}, {"id": "i123", "name": "chocolate cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 100.0, "note": "", "price": 2.34}, {"id": "i124", "name": "London cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 300.0, "note": "", "price": 2.81}, {"id": "i125", "name": "Molten cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 1.88}, {"id": "i126", "name": "Qatayaf", "desc": "KG = 25 PC", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.23}, {"id": "i127", "name": "Ghulash cream", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0.34}, {"id": "i128", "name": "Ghulash 1 line Larg", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 49.0, "note": "", "price": 2.7}, {"id": "i129", "name": "Fresh Cream- قشطه بلدي", "desc": "1 PKT ( 500 G )", "unit": "باكيت", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0.0}, {"id": "i130", "name": "Tamarind - تمر هندي", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 5.5}, {"id": "i131", "name": "Qamar Eldin - قمر الدين", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 6.0}, {"id": "i132", "name": "Licorice - عرقسوس", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0.0}, {"id": "i133", "name": "Karkadia - كركديه", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 1.87}, {"id": "i134", "name": "Rice Milk 300G", "desc": "( For Faroooooooooj Only )", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0}, {"id": "i135", "name": "Molten cookies kinder", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.5}, {"id": "i136", "name": "Molten cookies nutela", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.5}, {"id": "i137", "name": "elqalba", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 12.19}, {"id": "i138", "name": "basbosa", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 10.5}, {"id": "i139", "name": "اكياس شفافه كبير (30/40)", "desc": "1 Packet 25 KG", "unit": "كيلو", "cat": "تعبئة وتغليف", "qty": 31.0, "note": "", "price": 7.74}, {"id": "i140", "name": "اكياس شفافه صغير(30/27)", "desc": "1 Packet 25 KG", "unit": "كيلو", "cat": "تعبئة وتغليف", "qty": 29.0, "note": "", "price": 5.1}, {"id": "i141", "name": "Zipper Bags (27*40)", "desc": "BOX", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 160.0}, {"id": "i142", "name": "piping bag", "desc": "55cm - TPLPP015)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 11.0, "note": "", "price": 25.0}, {"id": "i143", "name": "ciling film", "desc": "Pcs", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 8.0, "note": "", "price": 25.0}, {"id": "i144", "name": "Bent Ali Foil plate (L)", "desc": "Box (1000 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 1011.0, "note": "", "price": 140.0}, {"id": "i145", "name": "Bent Ali Foil plate (S)", "desc": "Box (1000 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 209.0, "note": "", "price": 120.0}, {"id": "i146", "name": "dubai cake plate (L) 655", "desc": "Box (100 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 250.0, "note": "", "price": 163.0}, {"id": "i147", "name": "dubai cake plate (S) 604", "desc": "Box (100 Pcs)", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 186.0}, {"id": "i148", "name": "Plate dubai cake medium (L.M 611)", "desc": "Box (100 Pcs)", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 102.0}, {"id": "i149", "name": "Cookies cup", "desc": "Box(1500PCS)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 6250.0, "note": "", "price": 110.0}, {"id": "i150", "name": "Qashtota Plate 24 onz", "desc": "Box (300 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 384.0, "note": "", "price": 0.4}, {"id": "i151", "name": "Qashtota Cover 24 onz", "desc": "Box (300 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 384.0, "note": "", "price": 0.4}, {"id": "i152", "name": "sushi container Black Base", "desc": "1 Box 500 Pcs", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 0}, {"id": "i153", "name": "Lids for sushi container", "desc": "1 Box 500 Pcs", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 0}, {"id": "i154", "name": "Black Spoon", "desc": "1 Box 500 Pcs", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 1.0, "note": "", "price": 0.0691}, {"id": "i155", "name": "Kunafa Cutter", "desc": "Pcs", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 0}, {"id": "i156", "name": "Aluminum foil", "desc": "Box", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 30.8607}, {"id": "i157", "name": "Nylon Foil", "desc": "1 Box  1.7 KG", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 18.5619}, {"id": "i158", "name": "Green Sponge", "desc": "1 Packet 18 Pc", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 52.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 0}, {"id": "i159", "name": "payrex", "desc": "6 pcs", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 61.0, "note": "", "price": 12.5}, {"id": "i160", "name": "سمنه مخلوط", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 23.0, "note": "", "price": 0}, {"id": "i161", "name": "molten kinder sos", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 14.0, "note": "", "price": 0}, {"id": "i162", "name": "molten nutella sos", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 16.0, "note": "", "price": 0}, {"id": "i163", "name": "molten cokies sos", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 15.0, "note": "", "price": 0}, {"id": "i164", "name": "gloves", "desc": "", "unit": "باكيت", "cat": "تعبئة وتغليف", "qty": 12.0, "note": "", "price": 0}, {"id": "i165", "name": "molten cookies ajeen", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 71.0, "note": "", "price": 0}, {"id": "i166", "name": "dinisor chocolate", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 416.0, "note": "", "price": 0}, {"id": "i167", "name": "dis wash", "desc": "", "unit": "جالون", "cat": "تعبئة وتغليف", "qty": 5.0, "note": "", "price": 0}, {"id": "i168", "name": "puratos whippak", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 41.0, "note": "", "price": 160.0}, {"id": "i169", "name": "flour cleaner", "desc": "", "unit": "جالون", "cat": "تعبئة وتغليف", "qty": 2.0, "note": "", "price": 0}, {"id": "i170", "name": "vanilla lequad", "desc": "28 ml", "unit": "حبة", "cat": "خامات", "qty": 40.0, "note": "", "price": 0}, {"id": "i171", "name": "بسكويت بتى بور", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 152.0, "note": "", "price": 2.82}, {"id": "i172", "name": "بسكويت كوفي جوى", "desc": "8 حبه", "unit": "باكيت", "cat": "خامات", "qty": 9.0, "note": "", "price": 12.95}, {"id": "i173", "name": "كيكة قهوه", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 35.0, "note": "", "price": 0}, {"id": "i174", "name": "hair net", "desc": "", "unit": "باكيت", "cat": "تعبئة وتغليف", "qty": 4.0, "note": "", "price": 0}, {"id": "i175", "name": "appron", "desc": "", "unit": "باكيت", "cat": "تعبئة وتغليف", "qty": 3.0, "note": "", "price": 0}, {"id": "i176", "name": "kunafa roll", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 1080.0, "note": "", "price": 0}, {"id": "i177", "name": "ghulash cheese", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 880.0, "note": "", "price": 0}, {"id": "i178", "name": "ghulash nuts", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 635.0, "note": "", "price": 0}, {"id": "i179", "name": "ghulash one line small", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 499.0, "note": "", "price": 0}];
+
+// ---- الاتصال بقاعدة البيانات: يتحط مرة واحدة هنا من صاحب النظام على GitHub ----
+const SUPABASE_URL = 'https://wmzzftcnfnpnnqirkeer.supabase.co';   // مثال: https://xxxxx.supabase.co
+const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtenpmdGNuZm5wbm5xaXJrZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDMwMDcsImV4cCI6MjEwMTMxOTAwN30.2urxyAAQV4OXzQQ-1JkPjb_scyJKeOjl7cEtfEDEzV4';
+
+// ---- الدور والمصنع يتحددوا من رابط الصفحة ----
+const QS = new URLSearchParams(location.search);
+let ROLE = QS.get('manager')!==null ? 'manager' : 'owner';
+let FACTORY = QS.get('factory') || 'kunafa';
+let FACTORIES = [{id:'kunafa',name:'مصنع الكنافة'}];
+
+const KEY_MAIN = 'kunafa:main:v1:'+FACTORY;     // items + recipes + settings
+const KEY_TX   = 'kunafa:tx:v1:'+FACTORY;       // moves + counts
+const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
+
+let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'] };
+let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
+const TABS_OWNER = [['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
+const TABS_MANAGER = [['count','تسجيل الجرد']];
+const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
+const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<5)+h)^t.charCodeAt(i))>>>0; return h.toString(36); };
+const isLocked = k => !!S.locks[k];
+const canOpen  = k => !isLocked(k) || !!SESS[k];
+let tab = 'count';
+let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', rlines:[{itemId:'',qty:''}], editing:null, modal:null };
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const n2 = v => (Math.round((+v||0)*100)/100);
+const fmt = (v,d=2) => {const x=n2(v); return x.toLocaleString('en-US',{minimumFractionDigits:Number.isInteger(x)?0:d,maximumFractionDigits:d});};
+const money = v => fmt(v,2);
+const today = () => new Date().toISOString().slice(0,10);
+const uid = p => p+Math.random().toString(36).slice(2,9);
+const item = id => S.items.find(i=>i.id===id);
+const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
+
+function toast(msg,err){
+  let box=$('#toast');
+  if(!box){ box=document.createElement('div'); box.id='toast'; box.dir='rtl'; document.body.appendChild(box); }
+  const t=document.createElement('div'); t.className='toast'+(err?' err':''); t.textContent=msg;
+  box.appendChild(t); setTimeout(()=>t.remove(),2600);
+}
+
+/* ---------- storage ---------- */
+let MODE = 'memory';   // cloud | browser | memory
+const MEM = {};
+const hasStore = () => typeof window!=='undefined' && window.storage && typeof window.storage.set==='function';
+function lsOK(){ try{ const k='__t'; window.localStorage.setItem(k,'1'); window.localStorage.removeItem(k); return true; }catch(e){ return false; } }
+
+async function sget(k){
+  if(hasStore()){
+    try{ const r=await window.storage.get(k); if(r&&r.value){ MODE='cloud'; return JSON.parse(r.value); } }catch(e){}
+  }
+  if(lsOK()){
+    try{ const v=window.localStorage.getItem(k); if(v){ if(MODE!=='cloud') MODE='browser'; return JSON.parse(v); } }catch(e){}
+  }
+  return MEM[k]!==undefined? MEM[k] : null;
+}
+async function sset(k,v){
+  MEM[k]=v; const txt=JSON.stringify(v); let saved=false;
+  if(hasStore()){ try{ await window.storage.set(k,txt); MODE='cloud'; saved=true; }catch(e){} }
+  if(!saved && lsOK()){ try{ window.localStorage.setItem(k,txt); MODE='browser'; saved=true; }catch(e){} }
+  if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
+  return saved;
+}
+async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers}); schedulePush(); return r; }
+async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
+
+async function load(){
+  if(DB_CONFIGURED){
+    const ok = await connectDB();
+    if(ok){
+      await loadFactories();
+      const gotData = await pullAll(true);
+      if(gotData && ROLE!=='manager' && !S.items.length && FACTORY==='kunafa'){
+        // أول مرة يشتغل فيها النظام على القاعدة — نزرع بيانات جرد شهر ٧ الأصلية
+        S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
+        S.recipes=[]; S.locks={}; S.period='2026-07';
+        await pushAll(true);
+      }
+      return;
+    }
+  }
+  if(ROLE==='manager') return; // هتبين حالة الخطأ في شاشة المدير نفسها
+  // وضع تجربة محلي (لسه محطتش بيانات القاعدة، أو مفيش نت)
+  const main = await sget(KEY_MAIN);
+  const tx   = await sget(KEY_TX);
+  const hist = await sget(KEY_HIST);
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; }
+  else{
+    S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
+    S.recipes = []; S.locks = {};
+    S.period = '2026-07';
+    await saveMain();
+  }
+  S.moves = tx?.moves||[]; S.counts = tx?.counts||{}; S.runs = tx?.runs||[];
+  S.closed = hist?.periods||[];
+}
+
+/* ---------- قاعدة البيانات (Supabase) — مفتاح ثابت مضمّن، متصل دايمًا ---------- */
+const KEY_DB='kunafa:db:v1';
+const DB_CONFIGURED = /^https?:\/\//.test(SUPABASE_URL) && SUPABASE_KEY.length>20;
+let DB={url:SUPABASE_URL,key:SUPABASE_KEY,on:false,last:'',err:'',busy:false,dirty:false};
+let BK={dirty:0,lastAt:''};
+let pushTimer=null;
+
+async function sb(path,opts={}){
+  const base=DB.url.replace(/\/+$/,'');
+  const r=await fetch(base+'/rest/v1/'+path,{
+    method:opts.method||'GET',
+    headers:{apikey:DB.key,Authorization:'Bearer '+DB.key,'Content-Type':'application/json',
+             Prefer:opts.prefer||'return=minimal'},
+    body:opts.body?JSON.stringify(opts.body):undefined});
+  if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,180)||('HTTP '+r.status)); }
+  const t=await r.text(); return t?JSON.parse(t):null;
+}
+const UPSERT={method:'POST',prefer:'resolution=merge-duplicates,return=minimal'};
+let PENDING_SYNCS = 0;
+async function syncOneCount(itemId, qty){
+  if(!DB.on) return false;
+  PENDING_SYNCS++;
+  try{
+    if(qty===null){
+      await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(S.period)+'&item_id=eq.'+encodeURIComponent(itemId), {method:'DELETE'});
+    }else{
+      await sb('stock_counts', {...UPSERT, body:[{factory:FACTORY, period:S.period, item_id:itemId, qty:qty}]});
+    }
+    return true;
+  }catch(e){ return false; }
+  finally{ PENDING_SYNCS--; }
+}
+const fEq = ()=>'factory=eq.'+encodeURIComponent(FACTORY);
+
+async function connectDB(){
+  if(!DB_CONFIGURED){ DB.on=false; DB.err='لسه محتاج تحط رابط ومفتاح Supabase في الملف (تعليمات في تبويب المصانع)'; return false; }
+  DB.busy=true;
+  try{
+    await sb('stock_items?select=id&limit=1',{prefer:'return=representation'});
+    DB.on=true; DB.err='';
+  }catch(e){ DB.on=false; DB.err='الاتصال فشل: '+e.message; }
+  DB.busy=false; return DB.on;
+}
+
+function schedulePush(){
+  if(!DB.on) return;
+  DB.dirty=true; clearTimeout(pushTimer);
+  pushTimer=setTimeout(()=>pushAll(true),1500);
+}
+
+async function pushAll(quiet){
+  if(!DB.on||DB.busy) return false;
+  DB.busy=true; DB.err=''; if(!quiet) render();
+  try{
+    const P=S.period, F=FACTORY;
+    if(S.items.length) await sb('stock_items',{...UPSERT,body:S.items.map(i=>({
+      id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
+      opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
+      pack_unit:i.packUnit||'',pack_size:+i.packSize||0}))});
+
+    await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
+    if(S.moves.length) await sb('stock_moves',{method:'POST',body:S.moves.map(m=>({
+      id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
+      party:m.party||'',reason:m.reason||'',move_date:m.date}))});
+
+    await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
+    const cs=Object.entries(S.counts).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
+    if(cs.length) await sb('stock_counts',{method:'POST',body:cs});
+
+    await sb('stock_recipes?'+fEq(),{method:'DELETE'});
+    if(S.recipes.length) await sb('stock_recipes',{method:'POST',body:S.recipes.map(r=>({
+      id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}))});
+
+    await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
+    if((S.runs||[]).length) await sb('stock_runs',{method:'POST',body:S.runs.map((r,i)=>({
+      id:F+'-'+P+'-'+i,factory:F,period:P,run_date:r.date,name:r.name,batches:+r.batches||0,out_qty:+r.outQty||0,cost:+r.cost||0}))});
+
+    if(S.closed.length) await sb('stock_periods',{...UPSERT,body:S.closed.map(c=>({
+      factory:F,period:c.period,closed_at:c.date,value:+c.value||0,snapshot:c.items}))});
+
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers}}]});
+
+    DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
+  }catch(e){ DB.err=e.message; DB.busy=false; if(!isTypingCount()) render(); toast('فشل الرفع: '+e.message,1); return false; }
+  DB.busy=false;
+  if(!isTypingCount()) render();
+  if(!quiet) toast('البيانات اترفعت للقاعدة'); return true;
+}
+
+const isTypingCount = () => !!(document.activeElement && document.activeElement.hasAttribute('data-count'));
+
+async function pullAll(silent){
+  if(!DB.on) return false;
+  DB.busy=true; DB.err=''; if(!silent) render();
+  try{
+    const F=FACTORY;
+    const st=await sb('stock_settings?'+fEq()+'&k=eq.state&select=v',{prefer:'return=representation'});
+    const period=(st&&st[0]&&st[0].v&&st[0].v.period)||S.period||'2026-07';
+    const items=await sb('stock_items?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
+    S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
+      opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',
+      packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي'];
+    const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date}));
+    const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty);
+    const rc=await sb('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
+    S.recipes=rc.map(r=>({id:r.id,name:r.name,outItemId:r.out_item,outQty:+r.out_qty,lines:r.lines||[]}));
+    const rn=await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    S.runs=rn.map(r=>({date:r.run_date,name:r.name,batches:+r.batches,outQty:+r.out_qty,cost:+r.cost}));
+    const pd=await sb('stock_periods?'+fEq()+'&select=*&order=period',{prefer:'return=representation'})||[];
+    S.closed=pd.map(p=>({period:p.period,value:+p.value,date:p.closed_at,items:p.snapshot||[]}));
+    if(ROLE!=='manager'){ await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed}); }
+    DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
+  }catch(e){ DB.err=e.message; DB.busy=false; if(!silent) render(); if(!silent) toast('فشل التحميل: '+e.message,1); return false; }
+  DB.busy=false; if(!silent) render(); if(!silent) toast('البيانات اتحمّلت من القاعدة'); return true;
+}
+async function pullAll_silent(){ return pullAll(true); }
+
+async function loadFactories(){
+  try{
+    const rows=await sb('stock_factories?select=*&order=name',{prefer:'return=representation'});
+    if(rows&&rows.length) FACTORIES=rows.map(r=>({id:r.id,name:r.name}));
+    else await sb('stock_factories',{...UPSERT,body:[{id:'kunafa',name:'مصنع الكنافة'}]});
+  }catch(e){ /* الجدول لسه مش موجود — النظام يشتغل بالقايمة الافتراضية */ }
+}
+async function addFactory(id,name){
+  await sb('stock_factories',{...UPSERT,body:[{id,name}]});
+  await loadFactories();
+}
+
+/* ---------- calculations ---------- */
+function calc(it){
+  let inQ=0,outQ=0,inVal=0;
+  for(const m of S.moves){
+    if(m.itemId!==it.id) continue;
+    if(m.dir==='in'){ inQ+=m.qty; inVal+=m.qty*(m.price||0); } else outQ+=m.qty;
+  }
+  const book = n2(it.opening + inQ - outQ);
+  const counted = S.counts[it.id];
+  const has = counted!==undefined && counted!==null && counted!=='';
+  const real = has? +counted : null;
+  return { inQ:n2(inQ), outQ:n2(outQ), inVal, book, real, has, diff: has? n2(real-book):null,
+           value: n2((has?real:book)*(it.price||0)) };
+}
+function totals(){
+  let value=0, counted=0, low=0, gain=0, loss=0, lossVal=0;
+  for(const it of S.items){
+    const c=calc(it); value+=c.value; if(c.has) counted++;
+    const onhand = c.has?c.real:c.book;
+    if(it.min>0 && onhand<=it.min) low++;
+    if(c.has&&c.diff>0) gain+=1;
+    if(c.has&&c.diff<0){ loss+=1; lossVal += Math.abs(c.diff)*(it.price||0); }
+  }
+  return {value,counted,low,gain,loss,lossVal,total:S.items.length};
+}
+function recipeCost(r){
+  return r.lines.reduce((s,l)=>{const it=item(l.itemId); return s + (it? (it.price||0)*l.qty : 0);},0);
+}
+
+/* ================================================================
+   RENDER
+   ================================================================ */
+function render(){
+  const t=totals();
+  const isMgr=ROLE==='manager';
+  const _scrollY = window.scrollY;
+  const _tbw = document.querySelector('.tblwrap');
+  const _tbScroll = _tbw ? _tbw.scrollTop : 0;
+  $('#root').innerHTML = `
+  <div id="toast"></div>
+  <header>
+    <div class="wrap">
+      ${(DB.on&&!DB.err)?'':(!isMgr&&MODE==='memory')?`<div class="warnbar">الحفظ التلقائي متوقف — شغالين على الذاكرة بس. نزّل <b>نسخة احتياطية</b> من تبويب التقارير قبل ما تقفل الصفحة، أو نزّل ملف التطبيق وافتحه من جهازك عشان الحفظ يشتغل.</div>`:''}
+      ${isMgr&&DB.err?`<div class="warnbar">مش قادر أوصل بصاحب المصنع دلوقتي: ${esc(DB.err)}</div>`:''}
+      <div class="hrow">
+        <div class="brand">${isMgr?'جرد مصنع الكنافة':'مخزن مصنع الكنافة'}
+          <small>الفترة الحالية: ${periodLabel(S.period)}${isMgr?'':' · جرد شهري'}</small></div>
+        <div class="hstat">
+          ${isMgr?`<div><b>${t.counted}/${t.total}</b><span>أصناف اتعدّت</span></div>`:`
+          <div><b>${money(t.value)}</b><span>قيمة المخزون (د.إ)</span></div>
+          <div><b>${t.counted}/${t.total}</b><span>أصناف متجردة</span></div>
+          <div><b>${t.low}</b><span>تحت الحد الأدنى</span></div>
+          <div><b style="font-size:13px;color:${DB.on?(DB.err?'#F0C9C3':'#9FD6B6'):MODE==='memory'?'#F0C9C3':'#D9E0E5'}">${DB.on?(DB.busy?'بيزامن…':DB.err?'خطأ مزامنة':DB.dirty?'في الانتظار':'في القاعدة ✓'):MODE==='cloud'?'محفوظ ☁':MODE==='browser'?'على الجهاز':'مش محفوظ'}</b><span>حالة الحفظ</span></div>
+          <div><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">⭳ حفظ نسخة${BK.dirty>0?` (${BK.dirty} تعديل)`:''}</button></div>`}
+        </div>
+      </div>
+      ${isMgr?'':`<nav>
+        ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${v}</button>`).join('')}
+        ${Object.values(SESS).some(Boolean)?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">قفل الجلسة</button>`:''}
+      </nav>`}
+    </div>
+  </header>
+  <div class="wrap">${({count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  ${ui.modal?ui.modal:''}`;
+  $('#root').dataset.ready='1';
+  bind();
+  window.scrollTo(0, _scrollY);
+  const _tbw2 = document.querySelector('.tblwrap');
+  if(_tbw2) _tbw2.scrollTop = _tbScroll;
+}
+
+/* ---------- filters ---------- */
+const CATEGORY_ORDER = ['خامات','منتجات جديدة','تعبئة وتغليف'];
+const catRank = c => { const i=CATEGORY_ORDER.indexOf(c); return i===-1?999:i; };
+function sortItemsList(list){
+  return list.slice().sort((a,b)=>{
+    const ra=catRank(a.cat), rb=catRank(b.cat);
+    if(ra!==rb) return ra-rb;
+    if(a.cat!==b.cat) return a.cat.localeCompare(b.cat,'ar');
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+function filtered(){
+  const q=ui.q.trim().toLowerCase();
+  const list = S.items.filter(it=>{
+    if(ui.cat!=='الكل' && it.cat!==ui.cat) return false;
+    if(q && !(it.name.toLowerCase().includes(q)||(it.desc||'').toLowerCase().includes(q))) return false;
+    if(ui.only!=='الكل'){
+      const c=calc(it);
+      if(ui.only==='ناقص' && !(c.has&&c.diff<0)) return false;
+      if(ui.only==='زيادة' && !(c.has&&c.diff>0)) return false;
+      if(ui.only==='لسه' && c.has) return false;
+      if(ui.only==='تحت الحد' && !(it.min>0 && (c.has?c.real:c.book)<=it.min)) return false;
+    }
+    return true;
+  });
+  return sortItemsList(list);
+}
+const cats = ()=>['الكل',...[...new Set(S.items.map(i=>i.cat))].sort((a,b)=>{
+  const ra=catRank(a), rb=catRank(b); return ra!==rb? ra-rb : a.localeCompare(b,'ar');
+})];
+function filterBar(withOnly){
+  return `<div class="bar">
+    <input type="text" class="grow" id="q" placeholder="دور على صنف…" value="${esc(ui.q)}">
+    <select id="cat">${cats().map(c=>`<option ${ui.cat===c?'selected':''}>${c}</option>`).join('')}</select>
+    ${withOnly?`<select id="only">${['الكل','لسه','ناقص','زيادة','تحت الحد'].map(c=>`<option ${ui.only===c?'selected':''}>${c}</option>`).join('')}</select>`:''}
+  </div>`;
+}
+
+/* ================= 1. الجرد الشهري ================= */
+function viewCount(){
+  if(ROLE==='manager') return viewCountManager();
+  const t=totals(), list=filtered();
+  const sumOpen=S.items.reduce((s,i)=>s+i.opening*(i.price||0),0);
+  let sumIn=0,sumOut=0;
+  for(const it of S.items){const c=calc(it); sumIn+=c.inVal; sumOut+=c.outQ*(it.price||0);}
+  const book=sumOpen+sumIn-sumOut, real=t.value, d=n2(real-book);
+  return `
+  <div class="panel"><div class="pad">
+    <div class="ledger">
+      <div class="cell"><div class="k">أول المدة</div><div class="v">${money(sumOpen)}</div></div>
+      <div class="op">+</div>
+      <div class="cell"><div class="k">وارد</div><div class="v">${money(sumIn)}</div></div>
+      <div class="op">−</div>
+      <div class="cell"><div class="k">منصرف</div><div class="v">${money(sumOut)}</div></div>
+      <div class="op">=</div>
+      <div class="cell book"><div class="k">الرصيد الدفتري</div><div class="v">${money(book)}</div></div>
+      <div class="op">⟷</div>
+      <div class="cell real"><div class="k">الجرد الفعلي</div><div class="v">${money(real)}</div></div>
+      <div class="cell diff ${d<0?'bad':'ok'}"><div class="k">الفرق</div><div class="v">${d>0?'+':''}${money(d)}</div></div>
+    </div>
+    <div class="hint" style="margin-top:9px">القيم بالدرهم. اكتب الكمية اللي عدّيتها في المخزن في عمود «الفعلي» — الفرق بيتحسب لوحده. اضغط ↓ أو Enter بعد ما تكتب الرقم عشان تنتقل للصنف اللي بعده على طول من غير ما تلمس الماوس.</div>
+  </div></div>
+
+  <div class="panel">
+    <h2>ورقة الجرد <em>${t.counted} من ${t.total} صنف اتعدّوا</em>
+      ${DB.on?`<span class="chip ${DB.err?'r':'b'}" style="margin-inline-start:auto">${DB.busy?'بيحدّث…':DB.err?'خطأ اتصال':'آخر تحديث من المدير: '+(DB.last||'—')}</span>
+      <button class="btn sm" data-act="db-pull-quiet">تحديث دلوقتي</button>`:'<span style="margin-inline-start:auto"></span>'}
+      <button class="btn sm" data-act="fill-book">اعتبر كل اللي فاضي مطابق للدفتري</button></h2>
+    ${filterBar(true)}
+    <div class="tblwrap"><table>
+      <thead><tr><th>الصنف</th><th>الوحدة</th><th>أول المدة</th><th>وارد</th><th>منصرف</th><th>دفتري</th><th>الفعلي</th><th>الفرق</th><th>قيمة الفرق</th></tr></thead>
+      <tbody>${(()=>{let lastCat=null; return list.map((it,idx)=>{const c=calc(it);
+        const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="9">${esc(it.cat)}</td></tr>`) : '';
+        return hdr+`<tr>
+          <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}</div></td>
+          <td><span class="chip">${esc(it.unit)}</span></td>
+          <td class="n">${fmt(it.opening)}</td>
+          <td class="n pos">${c.inQ?'+'+fmt(c.inQ):'—'}</td>
+          <td class="n neg">${c.outQ?'−'+fmt(c.outQ):'—'}</td>
+          <td class="n"><b>${fmt(c.book)}</b></td>
+          <td><input type="number" step="any" class="cell${c.has?' filled':''}" data-count="${it.id}" data-row="${idx}" value="${c.has?c.real:''}" placeholder="—"></td>
+          <td class="n ${c.has?(c.diff>0?'pos':c.diff<0?'neg':'zero'):''}">${c.has?(c.diff>0?'+':'')+fmt(c.diff):'—'}</td>
+          <td class="n ${c.has&&c.diff<0?'neg':''}">${c.has&&it.price?money(c.diff*it.price):'—'}</td>
+        </tr>`;}).join('');})()||`<tr><td colspan="9" class="empty">مفيش أصناف بالفلتر ده</td></tr>`}
+      </tbody></table></div>
+  </div>`;
+}
+
+/* ================= 2/3. وارد و منصرف ================= */
+const OUT_REASONS=['صرف للإنتاج','صرف للفروع','هالك / تالف','مرتجع للمورد','عينات','أخرى'];
+/* ---------- شاشة الجرد لوضع المدير: بسيطة، من غير أسعار ولا تبويبات تانية ---------- */
+function viewCountManager(){
+  const t=totals(), list=filtered();
+  if(!S.items.length){
+    return `<div class="panel"><div class="empty">
+      ${DB.err? 'مش قادر أوصل لقاعدة البيانات: '+esc(DB.err) : 'بيتحمّل...'}
+      <div style="margin-top:10px"><button class="btn p" data-act="db-pull-quiet">حاول تاني</button></div>
+    </div></div>`;
+  }
+  return `
+  <div class="panel"><div class="pad">
+    <div class="hint">اكتب الكمية اللي عدّيتها فعليًا في المخزن قدام كل صنف. لما تخلص، دوس <b>«إرسال الجرد»</b> تحت. تقدر تدوس ↓ أو Enter بعد كل رقم عشان تنتقل للصنف اللي بعده.</div>
+  </div></div>
+  <div class="panel">
+    <h2>جرد ${periodLabel(S.period)} <em>${t.counted} من ${t.total} صنف اتعدّوا</em></h2>
+    ${filterBar(false)}
+    <div class="tblwrap"><table>
+      <thead><tr><th>الصنف</th><th>الوحدة</th><th>الفعلي</th></tr></thead>
+      <tbody>${(()=>{let lastCat=null; return list.map((it,idx)=>{const c=calc(it);
+        const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="3">${esc(it.cat)}</td></tr>`) : '';
+        return hdr+`<tr>
+          <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}</div></td>
+          <td><span class="chip">${esc(it.unit)}</span></td>
+          <td><input type="number" step="any" class="cell${c.has?' filled':''}" data-count="${it.id}" data-row="${idx}" value="${c.has?c.real:''}" placeholder="—"></td>
+        </tr>`;}).join('');})()||`<tr><td colspan="3" class="empty">مفيش أصناف بالفلتر ده</td></tr>`}
+      </tbody></table></div>
+    <div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn p" data-act="mgr-submit" ${DB.busy?'disabled':''}>${DB.busy?'بيترفع…':'إرسال الجرد لصاحب المصنع'}</button>
+      ${S.submittedAt?`<span class="hint">آخر إرسال: ${esc(S.submittedAt)}</span>`:''}
+      ${DB.err?`<span class="chip r">${esc(DB.err)}</span>`:''}
+    </div>
+  </div>`;
+}
+
+function viewMove(dir){
+
+  const isIn=dir==='in';
+  const rows=S.moves.filter(m=>m.dir===dir).slice().reverse();
+  return `
+  <div class="panel">
+    <h2>${isIn?'تسجيل وارد للمخزن':'تسجيل منصرف من المخزن'}</h2>
+    <div class="pad">
+      <div class="grid">
+        <div style="grid-column:span 2"><label class="f">التصنيف <span style="color:var(--muted)">(اختياري، لتضييق القايمة)</span></label>
+          <select id="m-cat" style="width:100%">${cats().map(c=>`<option ${ui.moveCat===c?'selected':''}>${c}</option>`).join('')}</select></div>
+        <div style="grid-column:span 2"><label class="f">الصنف</label>
+          <select id="m-item" style="width:100%"><option value="">— اختار الصنف —</option>
+          ${S.items.filter(i=>ui.moveCat==='الكل'||i.cat===ui.moveCat).map(i=>`<option value="${i.id}">${esc(i.name)} (${esc(i.unit)}) · ${esc(i.cat)}</option>`).join('')}</select></div>
+        <div id="m-qtybox"><label class="f">الكمية</label>
+          <div style="display:flex;gap:6px">
+            <input type="number" step="any" id="m-packs" style="width:78px" placeholder="عدد">
+            <select id="m-unitmode" style="flex:1;min-width:0"></select>
+          </div>
+          <div class="hint" id="m-conv" style="margin-top:4px"></div>
+        </div>
+        ${isIn?`<div><label class="f">سعر الوحدة (د.إ)</label><input type="number" step="any" id="m-price" style="width:100%"></div>
+        <div><label class="f">المورد</label>
+          <div style="display:flex;gap:6px">
+            <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
+            <button type="button" class="btn sm" data-act="add-supplier">+ مورد جديد</button>
+          </div></div>`
+        :`<div><label class="f">جهة الصرف</label><select id="m-reason" style="width:100%">${OUT_REASONS.map(r=>`<option>${r}</option>`).join('')}</select></div>
+        <div><label class="f">ملاحظة</label><input type="text" id="m-party" style="width:100%"></div>`}
+        <div><label class="f">التاريخ</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <input type="hidden" id="m-qty" value="">
+        <button class="btn p" data-act="add-move" data-dir="${dir}">${isIn?'إضافة الوارد':'تسجيل المنصرف'}</button>
+        ${isIn?'<span class="hint">لما تكتب سعر الوحدة، سعر الصنف في كارت الأصناف بيتحدّث تلقائي.</span>':'<span class="hint">لو الرصيد مش كفاية هيحذرك بس هيسجّل.</span>'}
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>حركات ${isIn?'الوارد':'المنصرف'} في ${periodLabel(S.period)} <em>${rows.length} حركة</em></h2>
+    <div class="tblwrap"><table>
+      <thead><tr><th>التاريخ</th><th>الصنف</th><th>الكمية</th>${isIn?'<th>سعر الوحدة</th><th>الإجمالي</th><th>المورد</th>':'<th>جهة الصرف</th><th>ملاحظة</th>'}<th></th></tr></thead>
+      <tbody>${rows.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
+        return `<tr><td class="n">${m.date}</td><td>${esc(it.name)}</td>
+        <td class="n">${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span></td>
+        ${isIn?`<td class="n">${money(m.price||0)}</td><td class="n"><b>${money(m.qty*(m.price||0))}</b></td><td>${esc(m.party||'—')}</td>`
+              :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(m.reason||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
+        <td><button class="btn sm danger" data-del="${m.id}">حذف</button></td></tr>`;}).join('')
+        ||`<tr><td colspan="7" class="empty">لسه مفيش حركات ${isIn?'وارد':'منصرف'} الشهر ده</td></tr>`}
+      </tbody></table></div>
+  </div>`;
+}
+
+/* ================= 4. الإنتاج والوصفات ================= */
+function viewProd(){
+  return `
+  <div class="panel">
+    <h2>وصفات الإنتاج <em>الوصفة بتخصم الخامات وتضيف المنتج بضغطة واحدة</em>
+      <button class="btn sm p" data-act="new-recipe" style="margin-inline-start:auto">وصفة جديدة</button></h2>
+    ${S.recipes.length? `<div class="tblwrap"><table>
+      <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th>تكلفة التشغيلة</th><th>تكلفة الوحدة</th><th></th></tr></thead>
+      <tbody>${S.recipes.map(r=>{const out=item(r.outItemId); const c=recipeCost(r);
+        return `<tr><td class="iname">${esc(r.name)}</td>
+          <td class="n">${fmt(r.outQty)} <span class="chip">${esc(out?out.unit:'')}</span> ${esc(out?out.name:'—')}</td>
+          <td>${r.lines.map(l=>`<span class="chip">${esc((item(l.itemId)||{}).name||'?')} · ${fmt(l.qty)}</span>`).join(' ')}</td>
+          <td class="n"><b>${money(c)}</b></td>
+          <td class="n">${money(r.outQty? c/r.outQty:0)}</td>
+          <td style="white-space:nowrap">
+            <button class="btn sm g" data-run="${r.id}">تشغيل</button>
+            <button class="btn sm danger" data-delr="${r.id}">حذف</button></td></tr>`;}).join('')}
+      </tbody></table></div>`
+      : `<div class="empty">لسه مفيش وصفات. اعمل وصفة لكل منتج (كنافة، مبرومة، كوكيز…) عشان الخامات تتخصم لوحدها وتعرف تكلفة الحبة.</div>`}
+  </div>
+  <div class="panel"><h2>تشغيلات الإنتاج الشهر ده</h2>
+    <div class="tblwrap"><table><thead><tr><th>التاريخ</th><th>الوصفة</th><th>عدد التشغيلات</th><th>الناتج</th><th>التكلفة</th></tr></thead>
+    <tbody>${(S.runs||[]).slice().reverse().map(r=>`<tr><td class="n">${r.date}</td><td>${esc(r.name)}</td><td class="n">${fmt(r.batches)}</td><td class="n">${fmt(r.outQty)}</td><td class="n">${money(r.cost)}</td></tr>`).join('')
+      ||`<tr><td colspan="5" class="empty">لسه مفيش تشغيلات</td></tr>`}</tbody></table></div>
+  </div>`;
+}
+
+/* ================= 5. كارت الأصناف ================= */
+function viewItems(){
+  const list=filtered();
+  return `
+  <div class="panel">
+    <h2>كارت الأصناف <em>${S.items.length} صنف · حط السعر والحد الأدنى عشان التقارير تشتغل</em>
+      <button class="btn sm p" data-act="new-item" style="margin-inline-start:auto">صنف جديد</button></h2>
+    ${filterBar(true)}
+    <div class="tblwrap"><table>
+      <thead><tr><th>الصنف</th><th>القسم</th><th>الوحدة</th><th>الشدّ</th><th>الرصيد الحالي</th><th>سعر الوحدة</th><th>الحد الأدنى</th><th>القيمة</th><th></th></tr></thead>
+      <tbody>${(()=>{let lastCat=null; return list.map(it=>{const c=calc(it); const onhand=c.has?c.real:c.book; const low=it.min>0&&onhand<=it.min;
+        const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="9">${esc(it.cat)}</td></tr>`) : '';
+        return hdr+`<tr>
+        <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}${it.note?' · <span style="color:var(--amber)">'+esc(it.note)+'</span>':''}</div></td>
+        <td><span class="chip">${esc(it.cat)}</span></td>
+        <td><span class="chip">${esc(it.unit)}</span></td>
+        <td>${it.packSize?`<span class="chip b">${esc(it.packUnit||'عبوة')} = ${fmt(it.packSize)} ${esc(it.unit)}</span>`:'<span class="hint">—</span>'}</td>
+        <td class="n">${fmt(onhand)} ${low?'<span class="chip a">تحت الحد</span>':''}</td>
+        <td><input type="number" step="any" class="cell" data-price="${it.id}" value="${it.price||''}" placeholder="0"></td>
+        <td><input type="number" step="any" class="cell" data-min="${it.id}" value="${it.min||''}" placeholder="0"></td>
+        <td class="n"><b>${money(c.value)}</b></td>
+        <td><button class="btn sm" data-edit="${it.id}">تعديل</button></td></tr>`;}).join('');})()
+        ||`<tr><td colspan="9" class="empty">مفيش نتايج</td></tr>`}
+      </tbody></table></div>
+  </div>`;
+}
+
+/* ================= 6. التقارير والإقفال ================= */
+function viewRep(){
+  const t=totals();
+  const byCat={};
+  for(const it of S.items){const c=calc(it); byCat[it.cat]=(byCat[it.cat]||0)+c.value;}
+  const varis=S.items.map(it=>({it,c:calc(it)})).filter(x=>x.c.has&&x.c.diff!==0&&x.it.price>0)
+    .sort((a,b)=>Math.abs(b.c.diff*b.it.price)-Math.abs(a.c.diff*a.it.price)).slice(0,12);
+  const low=S.items.map(it=>({it,c:calc(it)})).filter(x=>x.it.min>0&&(x.c.has?x.c.real:x.c.book)<=x.it.min);
+  const noPrice=S.items.filter(i=>!i.price).length;
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">قيمة المخزون</div><div class="v">${money(t.value)}</div><div class="s">درهم إماراتي</div></div>
+    <div class="card"><div class="k">عجز الجرد</div><div class="v" style="color:var(--red)">${money(t.lossVal)}</div><div class="s">${t.loss} صنف ناقص</div></div>
+    <div class="card"><div class="k">أصناف زيادة</div><div class="v" style="color:var(--green)">${t.gain}</div><div class="s">أكتر من الدفتري</div></div>
+    <div class="card"><div class="k">تحت الحد الأدنى</div><div class="v" style="color:var(--amber)">${t.low}</div><div class="s">محتاجة طلبية</div></div>
+    <div class="card"><div class="k">من غير سعر</div><div class="v">${noPrice}</div><div class="s">مش داخلة في القيمة</div></div>
+  </div></div></div>
+
+  <div class="panel"><h2>قيمة المخزون حسب القسم</h2><div class="pad">
+    ${Object.entries(byCat).map(([c,v])=>`<div style="margin-bottom:9px">
+      <div style="display:flex;justify-content:space-between;font-size:12.5px"><span>${esc(c)}</span><span class="num">${money(v)}</span></div>
+      <div style="height:7px;background:#EEF2F4;border-radius:5px;overflow:hidden;margin-top:3px">
+        <div style="height:100%;width:${t.value?Math.max(2,v/t.value*100):0}%;background:var(--blue)"></div></div></div>`).join('')}
+  </div></div>
+
+  <div class="panel"><h2>أكبر فروقات الجرد <em>بالقيمة</em></h2>
+    ${varis.length?`<div class="tblwrap"><table><thead><tr><th>الصنف</th><th>دفتري</th><th>فعلي</th><th>الفرق</th><th>قيمة الفرق</th></tr></thead>
+    <tbody>${varis.map(({it,c})=>`<tr><td>${esc(it.name)}</td><td class="n">${fmt(c.book)}</td><td class="n">${fmt(c.real)}</td>
+      <td class="n ${c.diff<0?'neg':'pos'}">${c.diff>0?'+':''}${fmt(c.diff)}</td>
+      <td class="n ${c.diff<0?'neg':'pos'}"><b>${money(c.diff*it.price)}</b></td></tr>`).join('')}</tbody></table></div>`
+    :`<div class="empty">لما تدخل الجرد الفعلي والأسعار، الفروقات هتظهر هنا مرتبة بالقيمة.</div>`}
+  </div>
+
+  <div class="panel"><h2>أصناف محتاجة طلبية</h2>
+    ${low.length?`<div class="tblwrap"><table><thead><tr><th>الصنف</th><th>الرصيد</th><th>الحد الأدنى</th><th>الناقص</th></tr></thead>
+    <tbody>${low.map(({it,c})=>{const oh=c.has?c.real:c.book;return `<tr><td>${esc(it.name)}</td><td class="n">${fmt(oh)} ${esc(it.unit)}</td><td class="n">${fmt(it.min)}</td><td class="n neg">${fmt(it.min-oh)}</td></tr>`;}).join('')}</tbody></table></div>`
+    :`<div class="empty">مفيش صنف تحت الحد الأدنى — أو لسه محددتش الحدود الدنيا في كارت الأصناف.</div>`}
+  </div>
+
+  <div class="panel"><h2>إقفال الشهر</h2><div class="pad">
+    <div class="hint" style="margin-bottom:10px">الإقفال بيخلي <b>الجرد الفعلي</b> هو رصيد أول المدة للشهر الجاي، ويحفظ نسخة من ${periodLabel(S.period)} في الأرشيف، ويفضّي الوارد والمنصرف. الأصناف اللي متجردتش هتاخد رصيدها الدفتري.</div>
+    <div class="hint" style="margin-bottom:10px;background:#FCF6EA;border:1px solid #EDD9AE;border-radius:8px;padding:9px">
+      <b>عشان بياناتك متضيعش خالص:</b> النظام بيحفظ لوحده جوا المتصفح، بس ده مش مضمون ١٠٠٪.
+      خليك دايمًا فاتح <b>نفس الملف بالظبط</b> من نفس المكان (متنزّلش نسخة جديدة كل مرة)، من نفس المتصفح، من غير تصفح خفي.
+      وكل ما تخلص شغل، دوس <b>«حفظ نسخة»</b> فوق واحفظ الملف اللي بينزل في مكان ثابت — ده أضمن حاجة عندك، مش أي حفظ تلقائي.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn p" data-act="close-month">إقفال ${periodLabel(S.period)}</button>
+      <button class="btn" data-act="export">تنزيل الجرد CSV</button>
+      <button class="btn g" data-act="backup">تنزيل نسخة احتياطية${BK.dirty>0?` (${BK.dirty} تعديل من غير حفظ)`:''}</button>
+      <label class="btn" style="display:inline-flex;align-items:center">استرجاع نسخة
+        <input type="file" id="restore" accept=".json,application/json" style="display:none"></label>
+      <button class="btn danger" data-act="reset">إعادة ضبط كل البيانات</button>
+    </div>
+    ${S.closed.length?`<div style="margin-top:14px"><div class="hint" style="margin-bottom:6px">الشهور المقفولة</div>
+      ${S.closed.slice().reverse().map(p=>`<span class="chip b" style="margin-inline-end:6px">${periodLabel(p.period)} · ${money(p.value)} د.إ</span>`).join('')}</div>`:''}
+  </div></div>`;
+}
+
+/* ================= 7. قاعدة البيانات ================= */
+function viewFac(){
+  const managerLink = location.origin+location.pathname+'?manager&factory='+encodeURIComponent(FACTORY);
+  return `
+  <div class="panel">
+    <h2>حالة الاتصال بقاعدة البيانات <em>${DB.on?'متصل ✓':'مش متصل'}</em></h2>
+    <div class="pad">
+      ${!DB_CONFIGURED?`
+        <div class="warnbar">النظام لسه محتاج رابط ومفتاح Supabase. من على GitHub، افتح الملف للتعديل، ودور على السطرين دول في أول الكود واستبدلهم ببيانات مشروعك:</div>
+        <pre style="background:#F6F8F9;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;overflow:auto;direction:ltr;text-align:left;font-family:'IBM Plex Mono',monospace;font-size:12.5px">const SUPABASE_URL = 'https://xxxxx.supabase.co';
+const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
+        <div class="hint" style="margin-top:8px">لقيت الرابط والمفتاح دول في Supabase تحت <b>Project Settings ← API</b>.</div>
+      `: DB.err? `<div class="warnbar">${esc(DB.err)}</div>
+        <button class="btn" data-act="db-retry" style="margin-top:8px">حاول الاتصال تاني</button>`
+      : `<div class="hint">متصل تمام. أي تعديل بيترفع للقاعدة أوتوماتيك خلال ثانيتين. آخر مزامنة: <span class="num">${esc(DB.last||'—')}</span></div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" data-act="db-push">ارفع اللي عندي دلوقتي</button>
+          <button class="btn" data-act="db-pull">حمّل أحدث نسخة من القاعدة</button>
+        </div>`}
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>المصانع <em>${FACTORIES.length} مصنع</em></h2>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">كل مصنع ليه بيانات منفصلة تمامًا (أصناف، جرد، وصفات). بتنتقل بينهم من هنا.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        ${FACTORIES.map(f=>`<button class="btn ${f.id===FACTORY?'p':''}" data-act="switch-fac" data-id="${esc(f.id)}">${esc(f.name)}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="text" id="new-fac-name" placeholder="اسم المصنع الجديد، مثال: مصنع الفراخ" style="flex:1;min-width:0">
+        <button class="btn g" data-act="add-fac" ${DB.on?'':'disabled'}>+ إضافة مصنع</button>
+      </div>
+      ${!DB.on?`<div class="hint" style="margin-top:6px">لازم تكون متصل بالقاعدة عشان تضيف مصنع جديد.</div>`:''}
+    </div>
+  </div>
+
+  <div class="panel"><h2>رابط المدير لمصنع «${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name)}»</h2><div class="pad">
+    ${DB.on?`
+      <div class="hint">ابعت الرابط ده للمدير (واتساب/إيميل). هيفتحه ويشوف بس شاشة إدخال الجرد من غير أسعار ولا تبويبات تانية. أي رقم يكتبه بيوصلك أوتوماتيك.</div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <input type="text" readonly id="mgr-link" dir="ltr" value="${esc(managerLink)}" style="flex:1;min-width:0;font-family:'IBM Plex Mono',monospace;font-size:12px">
+        <button class="btn" data-act="copy-link">نسخ الرابط</button>
+      </div>
+      <div class="hint" style="margin-top:8px"><b>تنبيه:</b> أي حد معاه الرابط ده يقدر يبعت أرقام جرد. ابعته للمدير بنفسك بس.</div>
+    `:`<div class="hint">لازم تتصل بالقاعدة الأول عشان الرابط يشتغل.</div>`}
+  </div></div>
+
+  <div class="panel"><h2>إزاي تستضيف النظام على رابط ثابت (GitHub Pages) — مرة واحدة بس <em>مجاني بالكامل</em></h2><div class="pad">
+    <ol style="margin:0;padding-inline-start:20px;line-height:2">
+      <li>لو لسه معملتش القاعدة: ادخل <b dir="ltr">supabase.com</b> واعمل حساب مجاني ← <b>New project</b> ← منطقة قريبة (Frankfurt).</li>
+      <li>في Supabase ← <b>SQL Editor</b>، الصق كود إنشاء الجداول (في ملف SQL اللي مع التطبيق) واضغط <b>Run</b>.</li>
+      <li>ادخل <b dir="ltr">github.com</b> واعمل حساب مجاني ← اعمل <b>repository</b> جديد اسمه مثلاً <b dir="ltr">kunafa-stock</b>.</li>
+      <li>ارفع فيه ملف النظام باسم <b dir="ltr">index.html</b> بالظبط (Add file ← Upload files).</li>
+      <li>افتح الملف من جوا الـ repo واضغط قلم التعديل (✎) ودوّر على السطرين بتوع <b dir="ltr">SUPABASE_URL</b> و <b dir="ltr">SUPABASE_KEY</b> فوق واستبدلهم ببيانات مشروعك، واحفظ (Commit changes).</li>
+      <li>من إعدادات الـ repo: <b>Settings ← Pages</b> ← اختار <b dir="ltr">Branch: main</b> ← Save. بعد دقيقة هيديك رابط زي <b dir="ltr">yourname.github.io/kunafa-stock</b> — ده رابطك الثابت للأبد.</li>
+      <li>افتح الرابط، روح تبويب «المصانع» هنا، واضغط «ارفع اللي عندي دلوقتي» عشان الأصناف تتسجل في القاعدة.</li>
+    </ol>
+    <div class="hint" style="margin-top:12px"><b>مهم:</b> الرابط ده وحده كل حاجة — إنت بتفتحه عادي، والمدير بيفتح نفسه + <b dir="ltr">?manager</b> في الآخر. مفيش تنزيل ملفات تاني.</div>
+  </div></div>`;
+}
+
+/* ================= 8. الصلاحيات والأقفال ================= */
+function viewSec(){
+  const nL=TABS.filter(t=>isLocked(t[0])).length;
+  return `
+  <div class="panel">
+    <h2>أقفال التبويبات <em>${nL} من ${TABS.length} مقفول</em></h2>
+    <div class="pad" style="border-bottom:1px solid var(--line)">
+      <div class="hint">حط باسورد لأي تبويب عشان محدش يفتحه غيرك. لما حد يضغط عليه هيتطلب منه الباسورد، ولما يدخله يفضل مفتوح لحد ما تضغط <b>«قفل الجلسة»</b> أو تقفل الصفحة.</div>
+    </div>
+    ${TABS.map(([k,v])=>{
+      const L=isLocked(k), open=canOpen(k);
+      return `<div class="lockrow">
+        <span class="nm">${v}</span>
+        ${L?`<span class="chip ${open?'g':'r'}">${open?'مفتوح دلوقتي':'مقفول'}</span>`:`<span class="chip">من غير باسورد</span>`}
+        ${(!L||open)?`
+          <input type="password" class="cell" style="width:130px" data-pw="${k}" placeholder="${L?'باسورد جديد':'اكتب الباسورد'}">
+          <button class="btn sm p" data-act="set-lock" data-k="${k}">${L?'تغيير':'اقفل'}</button>
+          ${L?`<button class="btn sm danger" data-act="remove-lock" data-k="${k}">شيل القفل</button>`:''}
+        `:`<button class="btn sm" data-act="ask-unlock" data-k="${k}">افتح بالباسورد</button>`}
+      </div>`;}).join('')}
+  </div>
+  <div class="panel"><div class="pad">
+    <div class="hint"><b>مهم تعرفه:</b> القفل ده لمنع الفتح بالغلط بين الموظفين — مش تشفير بنكي. حد فاهم في التقنية يقدر يتخطاه. لو محتاج صلاحيات حقيقية بحسابات لكل موظف، ده محتاج سيرفر وقاعدة بيانات.</div>
+    <div class="hint" style="margin-top:8px">لو نسيت باسورد تبويب، اضغط <b>«إعادة ضبط كل البيانات»</b> في تبويب التقارير — بس ده بيمسح كل حاجة، فنزّل CSV الأول.</div>
+  </div></div>`;
+}
+
+/* ================= modals ================= */
+function unlockModal(k){
+  const name=(TABS.find(t=>t[0]===k)||['',''])[1];
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:360px">
+    <h3>🔒 ${esc(name)}</h3>
+    <div class="pad">
+      <label class="f">اكتب الباسورد عشان تفتح التبويب ده</label>
+      <input type="password" id="u-pw" style="width:100%" autofocus>
+    </div>
+    <div class="foot"><button class="btn p" data-act="try-unlock" data-k="${k}">فتح</button>
+      <button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+function itemModal(it){
+  const e = it||{id:'',name:'',desc:'',unit:'حبة',cat:'خامات',price:'',min:'',opening:0};
+  const units=['حبة','كيلو','جرام','لتر','باكيت','كرتون','جالون','صاج','صحن','شوال','تنكة'];
+  return `<div class="modal" data-close="1"><div class="box">
+    <h3>${it?'تعديل صنف':'صنف جديد'}</h3>
+    <div class="pad"><div class="grid">
+      <div style="grid-column:1/-1"><label class="f">اسم الصنف</label><input type="text" id="f-name" value="${esc(e.name)}" style="width:100%"></div>
+      <div style="grid-column:1/-1"><label class="f">الوصف / حجم العبوة</label><input type="text" id="f-desc" value="${esc(e.desc)}" style="width:100%"></div>
+      <div><label class="f">الوحدة</label><select id="f-unit" style="width:100%">${units.map(u=>`<option ${e.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
+      <div><label class="f">القسم</label>
+        <select id="f-cat" style="width:100%" onchange="document.getElementById('f-cat-new').style.display=this.value==='__new__'?'block':'none'">
+          ${cats().filter(c=>c!=='الكل').map(c=>`<option ${e.cat===c?'selected':''}>${c}</option>`).join('')}
+          <option value="__new__">+ تصنيف جديد…</option>
+        </select>
+        <input type="text" id="f-cat-new" placeholder="اسم التصنيف الجديد" style="width:100%;margin-top:6px;display:none"></div>
+      <div><label class="f">رصيد أول المدة</label><input type="number" step="any" id="f-open" value="${e.opening||0}" style="width:100%"></div>
+      <div><label class="f">سعر الوحدة</label><input type="number" step="any" id="f-price" value="${e.price||''}" style="width:100%"></div>
+      <div><label class="f">الحد الأدنى</label><input type="number" step="any" id="f-min" value="${e.min||''}" style="width:100%"></div>
+      <div style="grid-column:1/-1;border-top:1px solid var(--line);margin-top:4px;padding-top:10px">
+        <label class="f">الشدّ <span style="color:var(--muted)">(اختياري — لو الصنف بيتحسب بالعبوة زي الكرتونة أو الشوال)</span></label>
+      </div>
+      <div><label class="f">اسم العبوة</label><input type="text" id="f-packunit" placeholder="مثال: كرتونة" value="${esc(e.packUnit||'')}" style="width:100%"></div>
+      <div><label class="f">العبوة فيها كام ${esc(e.unit)}</label><input type="number" step="any" id="f-packsize" placeholder="مثال: 24" value="${e.packSize||''}" style="width:100%"></div>
+    </div></div>
+    <div class="foot"><button class="btn p" data-act="save-item" data-id="${e.id}">حفظ</button>
+      <button class="btn" data-close="1">إلغاء</button>
+      ${it?`<button class="btn danger" data-act="del-item" data-id="${e.id}" style="margin-inline-start:auto">حذف الصنف</button>`:''}</div>
+  </div></div>`;
+}
+function recipeModal(){
+  const opts=S.items.map(i=>`<option value="${i.id}">${esc(i.name)} (${esc(i.unit)})</option>`).join('');
+  return `<div class="modal" data-close="1"><div class="box">
+    <h3>وصفة جديدة</h3>
+    <div class="pad">
+      <div class="grid" style="margin-bottom:12px">
+        <div style="grid-column:1/-1"><label class="f">اسم الوصفة</label><input type="text" id="r-name" placeholder="مثال: تشغيلة كنافة مبرومة قشطة" style="width:100%"></div>
+        <div style="grid-column:span 2"><label class="f">المنتج الناتج</label><select id="r-out" style="width:100%"><option value="">— اختار —</option>${opts}</select></div>
+        <div><label class="f">الكمية الناتجة</label><input type="number" step="any" id="r-outqty" style="width:100%"></div>
+      </div>
+      <label class="f">الخامات المستهلكة في التشغيلة الواحدة</label>
+      <div class="rlines" id="rlines">
+        ${ui.rlines.map((l,i)=>`<div class="rline">
+          <select data-rl="${i}"><option value="">— خامة —</option>${S.items.map(x=>`<option value="${x.id}" ${l.itemId===x.id?'selected':''}>${esc(x.name)} (${esc(x.unit)})</option>`).join('')}</select>
+          <input type="number" step="any" class="cell" data-rq="${i}" value="${l.qty}" placeholder="كمية">
+          <button class="btn sm danger" data-rdel="${i}">×</button></div>`).join('')}
+      </div>
+      <button class="btn sm" data-act="add-line" style="margin-top:8px">+ خامة</button>
+    </div>
+    <div class="foot"><button class="btn p" data-act="save-recipe">حفظ الوصفة</button><button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+function runModal(r){
+  return `<div class="modal" data-close="1"><div class="box">
+    <h3>تشغيل: ${esc(r.name)}</h3>
+    <div class="pad">
+      <label class="f">عدد التشغيلات</label>
+      <input type="number" step="any" id="run-b" value="1" style="width:100%">
+      <div class="hint" style="margin-top:10px">التشغيلة الواحدة بتنتج <b>${fmt(r.outQty)} ${esc((item(r.outItemId)||{}).unit||'')}</b> بتكلفة <b>${money(recipeCost(r))} د.إ</b> وبتستهلك:</div>
+      <div style="margin-top:6px">${r.lines.map(l=>`<span class="chip" style="margin:2px">${esc((item(l.itemId)||{}).name||'?')} · ${fmt(l.qty)}</span>`).join('')}</div>
+    </div>
+    <div class="foot"><button class="btn g" data-act="do-run" data-id="${r.id}">سجّل الإنتاج</button><button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+
+/* ================================================================
+   EVENTS
+   ================================================================ */
+function bind(){
+  const root=$('#root');
+  root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.tab;
+    if(!canOpen(k)){ ui.modal=unlockModal(k); return render(); }
+    tab=k;ui.q='';ui.only='الكل';render();});
+  const mCat=$('#m-cat'); if(mCat) mCat.onchange=e=>{ui.moveCat=e.target.value; render();};
+  const mItem=$('#m-item');
+  if(mItem){
+    const refreshUnitMode=()=>{
+      const it=item(mItem.value);
+      const sel=$('#m-unitmode'); if(!sel) return;
+      if(!it){ sel.innerHTML='<option value="1">وحدة</option>'; }
+      else if(it.packSize>0){
+        sel.innerHTML=`<option value="1">${esc(it.unit)}</option><option value="${it.packSize}" selected>${esc(it.packUnit||'عبوة')} (${fmt(it.packSize)} ${esc(it.unit)})</option>`;
+      } else { sel.innerHTML=`<option value="1">${esc(it.unit)}</option>`; }
+      updateConv();
+    };
+    const updateConv=()=>{
+      const it=item(mItem.value); const mul=+($('#m-unitmode')?.value||1); const packs=+($('#m-packs')?.value||0);
+      const total = n2(packs*mul);
+      const qEl=$('#m-qty'); if(qEl) qEl.value = total||'';
+      const cv=$('#m-conv');
+      if(cv) cv.textContent = it? `= ${fmt(total)} ${it.unit}` : '';
+    };
+    mItem.onchange=refreshUnitMode; refreshUnitMode();
+    const mp=$('#m-packs'); if(mp) mp.oninput=updateConv;
+    const mu=$('#m-unitmode'); if(mu) mu.onchange=updateConv;
+  }
+  const q=$('#q'); if(q){ q.oninput=e=>{ui.q=e.target.value; const p=e.target.selectionStart; render(); const n=$('#q'); n.focus(); n.setSelectionRange(p,p);}; }
+  const c=$('#cat'); if(c) c.onchange=e=>{ui.cat=e.target.value;render();};
+  const o=$('#only'); if(o) o.onchange=e=>{ui.only=e.target.value;render();};
+
+  root.querySelectorAll('[data-count]').forEach(inp=>{
+    inp.onchange=e=>{
+      const id=e.target.dataset.count, v=e.target.value;
+      const qty = (v===''||v===null) ? null : +v;
+      if(qty===null) delete S.counts[id]; else S.counts[id]=qty;
+      saveTx();
+      render();
+      syncOneCount(id, qty).then(ok=>{
+        if(!ok && DB.on) toast('رقم صنف متسجّلش، دخله تاني',1);
+      });
+    };
+    inp.onkeydown=e=>{
+      if(e.key!=='ArrowDown'&&e.key!=='ArrowUp'&&e.key!=='Enter') return;
+      e.preventDefault();
+      const row=+e.target.dataset.row, next=row+(e.key==='ArrowUp'?-1:1);
+      e.target.blur();
+      setTimeout(()=>{
+        const t=document.querySelector(`[data-count][data-row="${next}"]`);
+        if(t){ t.focus(); t.select(); }
+      },40);
+    };
+  });
+  root.querySelectorAll('[data-price]').forEach(inp=>inp.onchange=async e=>{
+    const it=item(e.target.dataset.price); it.price=+e.target.value||0; await saveMain(); render();});
+  root.querySelectorAll('[data-min]').forEach(inp=>inp.onchange=async e=>{
+    const it=item(e.target.dataset.min); it.min=+e.target.value||0; await saveMain(); render();});
+  root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ui.modal=itemModal(item(b.dataset.edit));render();});
+  root.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+    S.moves=S.moves.filter(m=>m.id!==b.dataset.del); await saveTx(); toast('اتحذفت الحركة'); render();});
+  root.querySelectorAll('[data-delr]').forEach(b=>b.onclick=async()=>{
+    S.recipes=S.recipes.filter(r=>r.id!==b.dataset.delr); await saveMain(); render();});
+  root.querySelectorAll('[data-run]').forEach(b=>b.onclick=()=>{ui.modal=runModal(S.recipes.find(r=>r.id===b.dataset.run));render();});
+  root.querySelectorAll('[data-close]').forEach(el=>el.onclick=e=>{if(e.target===el){ui.modal=null;render();}});
+  root.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=()=>{readLines();ui.rlines.splice(+b.dataset.rdel,1);if(!ui.rlines.length)ui.rlines=[{itemId:'',qty:''}];ui.modal=recipeModal();render();});
+  root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
+  const rf=$('#restore');
+  if(rf) rf.onchange=e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const fr=new FileReader();
+    fr.onload=async()=>{
+      try{
+        const d=JSON.parse(fr.result);
+        if(!d.items||!Array.isArray(d.items)) throw new Error('الملف مش نسخة احتياطية صحيحة');
+        if(!confirm('هيتم استبدال كل البيانات الحالية بالنسخة دي. متأكد؟')) return;
+        S.items=d.items; S.recipes=d.recipes||[]; S.locks=d.locks||{}; S.period=d.period||S.period;
+        S.moves=d.moves||[]; S.counts=d.counts||{}; S.runs=d.runs||[]; S.closed=d.closed||[];
+        SESS={}; await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed});
+        BK.dirty=0; toast('النسخة اترجّعت'); render();
+      }catch(err){ toast('الملف مش سليم: '+err.message,1); }
+    };
+    fr.readAsText(f);
+  };
+  const upw=$('#u-pw'); if(upw){ upw.focus();
+    upw.onkeydown=e=>{ if(e.key==='Enter'){ const btn=root.querySelector('[data-act="try-unlock"]'); act('try-unlock',btn.dataset); } }; }
+  root.querySelectorAll('[data-pw]').forEach(el=>el.onkeydown=e=>{ if(e.key==='Enter') act('set-lock',{k:el.dataset.pw}); });
+}
+function readLines(){
+  const box=$('#rlines'); if(!box) return;
+  ui.rlines = [...box.querySelectorAll('.rline')].map(el=>({
+    itemId: el.querySelector('select').value, qty: el.querySelector('input').value }));
+}
+
+async function act(a,d){
+  if(a==='set-lock'){
+    const el=document.querySelector(`[data-pw="${d.k}"]`); const v=(el?el.value:'').trim();
+    if(v.length<3) return toast('الباسورد لازم يكون 3 حروف على الأقل',1);
+    S.locks[d.k]=hsh(v); SESS[d.k]=true; await saveMain(); toast('التبويب اتقفل'); return render();
+  }
+  if(a==='remove-lock'){ delete S.locks[d.k]; delete SESS[d.k]; await saveMain(); toast('القفل اتشال'); return render(); }
+  if(a==='ask-unlock'){ ui.modal=unlockModal(d.k); return render(); }
+  if(a==='try-unlock'){
+    const v=$('#u-pw').value;
+    if(hsh(v)!==S.locks[d.k]) return toast('الباسورد غلط',1);
+    SESS[d.k]=true; ui.modal=null; tab=d.k; ui.q=''; ui.only='الكل'; toast('اتفتح'); return render();
+  }
+  if(a==='lock-all'){
+    SESS={}; if(isLocked(tab)) tab='count';
+    toast('كل التبويبات المقفولة رجعت مقفولة'); return render();
+  }
+  if(a==='new-item'){ ui.modal=itemModal(null); return render(); }
+  if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.modal=recipeModal(); return render(); }
+  if(a==='add-line'){ readLines(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(); return render(); }
+
+  if(a==='save-item'){
+    const name=$('#f-name').value.trim(); if(!name) return toast('اكتب اسم الصنف',1);
+    let cat=$('#f-cat').value;
+    if(cat==='__new__'){ cat=$('#f-cat-new').value.trim(); if(!cat) return toast('اكتب اسم التصنيف الجديد',1); }
+    const rec={name, desc:$('#f-desc').value.trim(), unit:$('#f-unit').value, cat,
+      opening:+$('#f-open').value||0, price:+$('#f-price').value||0, min:+$('#f-min').value||0,
+      packUnit:$('#f-packunit').value.trim(), packSize:+$('#f-packsize').value||0};
+    if(d.id){ Object.assign(item(d.id),rec); } else { S.items.push({id:uid('i'),note:'',...rec}); }
+    await saveMain(); ui.modal=null; toast('اتحفظ'); return render();
+  }
+  if(a==='del-item'){
+    S.items=S.items.filter(i=>i.id!==d.id); S.moves=S.moves.filter(m=>m.itemId!==d.id); delete S.counts[d.id];
+    await saveMain(); await saveTx(); ui.modal=null; toast('الصنف اتحذف'); return render();
+  }
+  if(a==='add-supplier'){
+    const name=prompt('اسم المورد الجديد:'); if(!name||!name.trim()) return;
+    if(!S.suppliers.includes(name.trim())) S.suppliers.push(name.trim());
+    await saveMain(); toast('اتضاف المورد'); return render();
+  }
+  if(a==='add-move'){
+    const id=$('#m-item').value, qty=+$('#m-qty').value;
+    if(!id) return toast('اختار الصنف',1);
+    if(!qty||qty<=0) return toast('اكتب كمية صحيحة',1);
+    const isIn=d.dir==='in', it=item(id);
+    if(!isIn){ const c=calc(it); if(qty>c.book) toast(`تحذير: الرصيد الدفتري ${fmt(c.book)} بس`,1); }
+    const m={id:uid('m'),dir:d.dir,itemId:id,qty,date:$('#m-date').value||today(),
+      price:isIn?(+$('#m-price').value||0):0, party:$('#m-party')?$('#m-party').value.trim():'',
+      reason:isIn?'':$('#m-reason').value};
+    S.moves.push(m);
+    if(isIn && m.price>0){ it.price=m.price; await saveMain(); }
+    await saveTx(); toast(isIn?'الوارد اتسجل':'المنصرف اتسجل'); return render();
+  }
+  if(a==='save-recipe'){
+    readLines();
+    const name=$('#r-name').value.trim(), outId=$('#r-out').value, outQty=+$('#r-outqty').value;
+    if(!name||!outId||!outQty) return toast('اكتب اسم الوصفة والمنتج والكمية',1);
+    const lines=ui.rlines.filter(l=>l.itemId&&+l.qty>0).map(l=>({itemId:l.itemId,qty:+l.qty}));
+    if(!lines.length) return toast('ضيف خامة واحدة على الأقل',1);
+    S.recipes.push({id:uid('r'),name,outItemId:outId,outQty,lines});
+    await saveMain(); ui.modal=null; toast('الوصفة اتحفظت'); return render();
+  }
+  if(a==='do-run'){
+    const r=S.recipes.find(x=>x.id===d.id), b=+$('#run-b').value||0;
+    if(b<=0) return toast('اكتب عدد التشغيلات',1);
+    const date=today();
+    for(const l of r.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*b),date,price:0,party:r.name,reason:'صرف للإنتاج'});
+    const cost=recipeCost(r)*b, outQty=n2(r.outQty*b);
+    S.moves.push({id:uid('m'),dir:'in',itemId:r.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج: '+r.name});
+    S.runs=S.runs||[]; S.runs.push({date,name:r.name,batches:b,outQty,cost});
+    await saveTx(); ui.modal=null; toast('الإنتاج اتسجل والخامات اتخصمت'); return render();
+  }
+  if(a==='fill-book'){
+    for(const it of S.items){ if(S.counts[it.id]===undefined) S.counts[it.id]=calc(it).book; }
+    await saveTx(); toast('كل الأصناف الفاضية اتسجلت مطابقة'); return render();
+  }
+  if(a==='close-month'){
+    if(!confirm(`إقفال ${periodLabel(S.period)}؟ الجرد الفعلي هيبقى أول المدة للشهر الجاي.`)) return;
+    const t=totals();
+    S.closed.push({period:S.period,value:t.value,date:today(),
+      items:S.items.map(i=>({id:i.id,name:i.name,closing:(S.counts[i.id]!==undefined?+S.counts[i.id]:calc(i).book),price:i.price}))});
+    for(const it of S.items){ const c=calc(it); it.opening = c.has? c.real : c.book; }
+    S.moves=[]; S.counts={}; S.runs=[];
+    const [y,m]=S.period.split('-').map(Number); const nd=new Date(y,m,1);
+    S.period=`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
+    await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed});
+    toast('الشهر اتقفل — بدأنا '+periodLabel(S.period)); return render();
+  }
+  if(a==='db-retry'){
+    DB.busy=true; render();
+    const ok=await connectDB();
+    if(ok){ await loadFactories(); await pullAll(true); }
+    DB.busy=false; render();
+    return toast(ok?'الاتصال تمام':'لسه مش شغال',!ok);
+  }
+  if(a==='db-push'){ return void pushAll(false); }
+  if(a==='switch-fac'){
+    location.search = (QS.get('manager')!==null?'?manager&':'?') + 'factory=' + encodeURIComponent(d.id);
+    return;
+  }
+  if(a==='add-fac'){
+    const name=$('#new-fac-name').value.trim();
+    if(!name) return toast('اكتب اسم المصنع',1);
+    const id=name.trim().toLowerCase().replace(/[^a-z0-9\u0600-\u06FF]+/g,'-').replace(/^-+|-+$/g,'')||('f'+Date.now());
+    if(FACTORIES.some(f=>f.id===id)) return toast('فيه مصنع بنفس الاسم قبل كده',1);
+    try{ await addFactory(id,name); toast('اتضاف — بتنقل ليه دلوقتي'); location.search='?factory='+encodeURIComponent(id); }
+    catch(e){ toast('فشلت الإضافة: '+e.message,1); }
+    return;
+  }
+  if(a==='copy-link'){
+    const el=$('#mgr-link'); el.select();
+    try{ await navigator.clipboard.writeText(el.value); toast('اتنسخ الرابط'); }
+    catch(e){ document.execCommand('copy'); toast('اتنسخ الرابط'); }
+    return;
+  }
+  if(a==='db-pull-quiet'){ await pullAll(true); return render(); }
+  if(a==='mgr-submit'){
+    DB.busy=true; render();
+    const ok=await pushAll(true);
+    DB.busy=false;
+    if(ok){
+      S.submittedAt=new Date().toLocaleString('en-GB');
+      try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'manager_submission',v:{at:S.submittedAt,period:S.period}}]}); }catch(e){}
+      toast('اتبعت الجرد لصاحب المصنع');
+    }
+    return render();
+  }
+  if(a==='db-pull'){ if(!confirm('هيتم استبدال البيانات اللي على الجهاز ده باللي في القاعدة. متأكد؟')) return; return void pullAll(); }
+  if(a==='backup'){
+    const data={v:1,savedAt:new Date().toISOString(),period:S.period,items:S.items,recipes:S.recipes,
+      locks:S.locks,moves:S.moves,counts:S.counts,runs:S.runs||[],closed:S.closed};
+    const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
+    const a3=document.createElement('a'); a3.href=url; a3.download=`نسخة-احتياطية-مخزن-${S.period}.json`; a3.click(); URL.revokeObjectURL(url);
+    BK.dirty=0; BK.lastAt=new Date().toLocaleString('en-GB');
+    toast('النسخة الاحتياطية اتنزّلت — احفظها في مكان ثابت'); return render();
+  }
+  if(a==='export'){
+    const rows=[['الصنف','الوصف','القسم','الوحدة','أول المدة','وارد','منصرف','دفتري','فعلي','الفرق','سعر الوحدة','القيمة']];
+    for(const it of S.items){const c=calc(it);
+      rows.push([it.name,it.desc,it.cat,it.unit,it.opening,c.inQ,c.outQ,c.book,c.has?c.real:'',c.has?c.diff:'',it.price||0,c.value]);}
+    const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    const a2=document.createElement('a'); a2.href=url; a2.download=`جرد-${S.period}.csv`; a2.click(); URL.revokeObjectURL(url);
+    return toast('اتنزّل الملف');
+  }
+  if(a==='reset'){
+    if(!confirm('هيتم مسح كل الحركات والأسعار والرجوع لبيانات جرد شهر 7 الأصلية. متأكد؟')) return;
+    try{ await window.storage.delete(KEY_MAIN); await window.storage.delete(KEY_TX); await window.storage.delete(KEY_HIST);}catch(e){}
+    S={items:[],recipes:[],period:'',closed:[],moves:[],counts:{}}; await load(); toast('اترجع للأصل'); return render();
+  }
+}
+
+async function boot(){
+  try{ await load(); }
+  catch(e){
+    console.error(e);
+    STORAGE_OK=false;
+    if(ROLE!=='manager' && (!S.items || !S.items.length)){
+      S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
+      S.recipes=[]; S.locks={}; S.period='2026-07';
+    }
+  }
+  try{ render(); }
+  catch(e){ console.error(e); document.getElementById('root').innerHTML='<div class="boot">مشكلة في العرض: '+esc(e.message)+'</div>'; }
+  if(ROLE==='owner' && DB.on){
+    setInterval(async ()=>{
+      const typing = document.activeElement && document.activeElement.hasAttribute('data-count');
+      if(tab==='count' && !typing && !DB.busy && !ui.modal){ await pullAll(true); render(); }
+    }, 25000);
+  }
+}
+boot();
+window.addEventListener('beforeunload', e => {
+  if(PENDING_SYNCS>0 || (BK.dirty>0 && MODE!=='cloud' && !DB.on)){
+    e.preventDefault(); e.returnValue = '';
+  }
+});
+</script>
