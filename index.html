@@ -151,7 +151,7 @@ const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
 let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'] };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
 const TABS_OWNER = [['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
-const TABS_MANAGER = [['count','تسجيل الجرد']];
+const TABS_MANAGER = [['count','تسجيل الجرد'],['in','وارد'],['out','منصرف']];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<5)+h)^t.charCodeAt(i))>>>0; return h.toString(36); };
 const isLocked = k => !!S.locks[k];
@@ -421,10 +421,10 @@ function render(){
           <div><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">⭳ حفظ نسخة${BK.dirty>0?` (${BK.dirty} تعديل)`:''}</button></div>`}
         </div>
       </div>
-      ${isMgr?'':`<nav>
+      <nav>
         ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${v}</button>`).join('')}
-        ${Object.values(SESS).some(Boolean)?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">قفل الجلسة</button>`:''}
-      </nav>`}
+        ${(!isMgr&&Object.values(SESS).some(Boolean))?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">قفل الجلسة</button>`:''}
+      </nav>
     </div>
   </header>
   <div class="wrap">${({count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
@@ -1036,12 +1036,25 @@ async function act(a,d){
     if(!qty||qty<=0) return toast('اكتب كمية صحيحة',1);
     const isIn=d.dir==='in', it=item(id);
     if(!isIn){ const c=calc(it); if(qty>c.book) toast(`تحذير: الرصيد الدفتري ${fmt(c.book)} بس`,1); }
-    const m={id:uid('m'),dir:d.dir,itemId:id,qty,date:$('#m-date').value||today(),
+    const date=$('#m-date').value||today();
+    let autoMsg='';
+    if(!isIn){
+      const r=S.recipes.find(x=>x.outItemId===id);
+      if(r && r.outQty>0){
+        const b = qty / r.outQty;
+        for(const l of r.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*b),date,price:0,party:r.name,reason:'صرف للإنتاج (تلقائي)'});
+        const cost=recipeCost(r)*b, outQty=n2(r.outQty*b);
+        S.moves.push({id:uid('m'),dir:'in',itemId:r.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+r.name});
+        S.runs=S.runs||[]; S.runs.push({date,name:r.name,batches:n2(b),outQty,cost});
+        autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
+      }
+    }
+    const m={id:uid('m'),dir:d.dir,itemId:id,qty,date,
       price:isIn?(+$('#m-price').value||0):0, party:$('#m-party')?$('#m-party').value.trim():'',
       reason:isIn?'':$('#m-reason').value};
     S.moves.push(m);
     if(isIn && m.price>0){ it.price=m.price; await saveMain(); }
-    await saveTx(); toast(isIn?'الوارد اتسجل':'المنصرف اتسجل'); return render();
+    await saveTx(); toast((isIn?'الوارد اتسجل':'المنصرف اتسجل')+autoMsg); return render();
   }
   if(a==='save-recipe'){
     readLines();
