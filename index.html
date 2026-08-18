@@ -5,7 +5,7 @@
 <div id="root" dir="rtl">
   <div class="boot">جاري تحميل بيانات المخزن…</div>
 </div>
-
+ 
 <style>
 :root{
   --bg:#E8ECEE; --surface:#fff; --ink:#14181C; --brand:#14181C; --brand-bg:#EEF1F3; --muted:#69747E; --line:#CFD8DD;
@@ -25,7 +25,7 @@ h1,h2,h3{margin:0;font-weight:700}
 button{font-family:inherit;font-size:inherit;cursor:pointer}
 input,select{font-family:inherit;font-size:inherit}
 .wrap{max-width:1180px;margin:0 auto;padding:0 16px}
-
+ 
 /* ---------- header ---------- */
 header{background:var(--brand);color:#fff;padding:14px 0 0}
 .hrow{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-bottom:14px}
@@ -46,13 +46,13 @@ nav .lk.open{opacity:.5}
 .lockrow{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid #EDF1F3;flex-wrap:wrap}
 .lockrow:last-child{border-bottom:0}
 .lockrow .nm{font-weight:500;flex:1 1 150px}
-
+ 
 /* ---------- panels ---------- */
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-top:16px;overflow:hidden}
 .panel>h2{font-size:14.5px;font-weight:700;padding:12px 14px;border-bottom:2px solid var(--brand-bg);background:#F6F8F9;display:flex;align-items:center;gap:10px}
 .panel>h2 em{font-style:normal;font-weight:400;color:var(--muted);font-size:12px}
 .pad{padding:14px}
-
+ 
 /* ---------- ledger strip (signature) ---------- */
 .ledger{display:flex;align-items:stretch;gap:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff;flex-wrap:wrap}
 .ledger .cell{flex:1 1 110px;padding:10px 12px;border-inline-start:1px solid var(--line);min-width:0}
@@ -64,7 +64,7 @@ nav .lk.open{opacity:.5}
 .ledger .cell.real{background:#F6F8F9}
 .ledger .cell.diff.ok{background:var(--greenbg)} .ledger .cell.diff.ok .v{color:var(--green)}
 .ledger .cell.diff.bad{background:var(--redbg)} .ledger .cell.diff.bad .v{color:var(--red)}
-
+ 
 /* ---------- table ---------- */
 .tblwrap{overflow:auto;max-height:min(66vh,720px)}
 table{width:100%;border-collapse:collapse}
@@ -82,7 +82,7 @@ td.n{font-family:'IBM Plex Mono',monospace;direction:ltr;text-align:start;font-v
 .chip.g{background:var(--greenbg);color:var(--green)} .chip.a{background:var(--amberbg);color:var(--amber)}
 .chip.r{background:var(--redbg);color:var(--red)} .chip.b{background:var(--brand-bg);color:var(--brand)}
 .pos{color:var(--green)} .neg{color:var(--red)} .zero{color:var(--muted)}
-
+ 
 /* ---------- controls ---------- */
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);background:#FCFDFD}
 .cattabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -108,14 +108,14 @@ label.f{display:block;font-size:12px;font-weight:600;color:var(--ink);margin-bot
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .hint{font-size:12px;color:var(--muted)}
 .empty{padding:34px 16px;text-align:center;color:var(--muted)}
-
+ 
 /* ---------- cards ---------- */
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:13px}
 .card .k{font-size:11.5px;color:var(--muted)}
 .card .v{font-size:23px;font-weight:600;font-family:'IBM Plex Mono',monospace;direction:ltr;margin-top:3px}
 .card .s{font-size:11.5px;color:var(--muted);margin-top:2px}
-
+ 
 /* ---------- toast / modal ---------- */
 #toast{position:fixed;inset-inline-start:50%;transform:translateX(50%);bottom:22px;z-index:60;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{background:var(--brand);color:#fff;padding:9px 16px;border-radius:22px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.22)}
@@ -140,17 +140,17 @@ label.f{display:block;font-size:12px;font-weight:600;color:var(--ink);margin-bot
   .foot,.modal h3{display:none}
 }
 </style>
-
+ 
 <script>
 /* ==================================================================
    نظام مخزون مصنع الكنافة — ملف واحد، بيانات محفوظة في مساحة التخزين
    ================================================================== */
 const SEED = [{"id": "i001", "name": "Abu Oud", "desc": "Tray (36 Pcs )", "unit": "حبة", "cat": "خامات", "qty": 240.0, "note": "", "price": 0.42}, {"id": "i002", "name": "Abu Oud stick", "desc": "Box (200 Pcs / 1 packet 50 pcs)", "unit": "باكيت", "cat": "خامات", "qty": 1631.0, "note": "", "price": 14.0}, {"id": "i003", "name": "Baklawa", "desc": "Plate ( 1 plate 12 Pcs)", "unit": "صحن", "cat": "خامات", "qty": 13.0, "note": "", "price": 50.0}, {"id": "i004", "name": "Bent Ali ( L ) plate 285g", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 106.0, "note": "", "price": 13.0}, {"id": "i005", "name": "BENT ALI (S)", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 106.0, "note": "", "price": 3.3}, {"id": "i006", "name": "Liean", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 3.0, "note": "", "price": 15.6}, {"id": "i007", "name": "Fatma", "desc": "Plate", "unit": "صحن", "cat": "خامات", "qty": 0.0, "note": "", "price": 16.32}, {"id": "i008", "name": "Pistachio sauce", "desc": "1 pc 5 KG", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 35.0}, {"id": "i009", "name": "Nutella", "desc": "825GM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 24.17}, {"id": "i010", "name": "Nutella Sauce Gallon", "desc": "1 pc 5 KG", "unit": "جالون", "cat": "خامات", "qty": 0.0, "note": "", "price": 115.0}, {"id": "i011", "name": "Wall Nuts", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 60.0, "note": "", "price": 36.0}, {"id": "i012", "name": "pistachio powder", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 30.0}, {"id": "i013", "name": "pistachio", "desc": "10 KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 100.0}, {"id": "i014", "name": "Kinder suace", "desc": "5KG", "unit": "جالون", "cat": "خامات", "qty": 8.0, "note": "", "price": 115.0}, {"id": "i015", "name": "Milk (unikai )", "desc": "1 Box 12 pcs", "unit": "لتر", "cat": "خامات", "qty": 68.0, "note": "", "price": 3.4167}, {"id": "i016", "name": "Milk KDD", "desc": "12 PCS", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 50.0}, {"id": "i017", "name": "nadec milk", "desc": "12*1ltr", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 45.0}, {"id": "i018", "name": "condensed milk", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 102.0, "note": "", "price": 125.0}, {"id": "i019", "name": "qhimar thick cream puck 250ml", "desc": "PC", "unit": "حبة", "cat": "خامات", "qty": 97.0, "note": "", "price": 4.63}, {"id": "i020", "name": "KDD Thick 250ML", "desc": "PC", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 3.125}, {"id": "i021", "name": "Milk Powder", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 39.5, "note": "", "price": 285.0}, {"id": "i022", "name": "Puck", "desc": "10*1LTR", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 220.0}, {"id": "i023", "name": "yoghurt", "desc": "1 Pc 9 KG", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 35.0}, {"id": "i024", "name": "willi Creamy Cheese", "desc": "1*6PCs", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 29.13}, {"id": "i025", "name": "ARLA CREEM CHEASE", "desc": "1 CART 10*1LTR", "unit": "حبة", "cat": "خامات", "qty": 8.0, "note": "", "price": 75.0}, {"id": "i026", "name": "kiri cheese", "desc": "4*(24P*2*800G)", "unit": "باكيت", "cat": "خامات", "qty": 37.0, "note": "", "price": 275.0}, {"id": "i027", "name": "Nabulsia cheese", "desc": "Box 5KG", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 127.0}, {"id": "i028", "name": "Rice Milk 200 G", "desc": "By Pcs", "unit": "حبة", "cat": "خامات", "qty": 60.0, "note": "", "price": 1.27}, {"id": "i029", "name": "Rice Milk 400G", "desc": "PCs", "unit": "حبة", "cat": "خامات", "qty": 14.0, "note": "", "price": 2.24}, {"id": "i030", "name": "Egyption Rice", "desc": "bag 25 KG", "unit": "كيلو", "cat": "خامات", "qty": 17.4, "note": "", "price": 6.75}, {"id": "i031", "name": "Wipping Cream ( macktop)", "desc": "Box 12 Pcs", "unit": "حبة", "cat": "خامات", "qty": 112.0, "note": "", "price": 0}, {"id": "i032", "name": "Rama Wipping Cream", "desc": "1 CART 8*1LTR", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 14.5}, {"id": "i033", "name": "milky chocolate new", "desc": "1 Packet 5 KG", "unit": "كيلو", "cat": "خامات", "qty": 75.0, "note": "", "price": 28.0}, {"id": "i034", "name": "white CHOCOLATE NEW", "desc": "1 Packet 5 KG", "unit": "كيلو", "cat": "خامات", "qty": 30.0, "note": "", "price": 28.0}, {"id": "i035", "name": "Butter Lurpak", "desc": "Box 20 Pcs", "unit": "حبة", "cat": "خامات", "qty": 348.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 165.0}, {"id": "i036", "name": "Coca Butter", "desc": "Box 25 kg", "unit": "كرتون", "cat": "خامات", "qty": 11.0, "note": "", "price": 175.0}, {"id": "i037", "name": "COCONUT POWDER", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 11.5987}, {"id": "i038", "name": "Egg", "desc": "Tray (30 Pcs)", "unit": "باكيت", "cat": "خامات", "qty": 10.0, "note": "", "price": 15.0}, {"id": "i039", "name": "Ice Box", "desc": "Box", "unit": "حبة", "cat": "خامات", "qty": 17.0, "note": "", "price": 4.7162}, {"id": "i040", "name": "Afia Oil", "desc": "9kg", "unit": "جالون", "cat": "خامات", "qty": 6.0, "note": "ملاحظة من الجرد القديم: 0.500 جرام", "price": 152.0}, {"id": "i041", "name": "elshrouq oil", "desc": "5 LTR", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 30.0}, {"id": "i042", "name": "cake", "desc": "Tray (18 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 15.0, "note": "", "price": 7.93}, {"id": "i043", "name": "choclate cake", "desc": "Tray (18 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 14.0, "note": "", "price": 11.13}, {"id": "i044", "name": "choclate chips", "desc": "1bag 5kg", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 28.0}, {"id": "i045", "name": "zafroon cake", "desc": "TRAY", "unit": "صاج", "cat": "خامات", "qty": 7.0, "note": "", "price": 0}, {"id": "i046", "name": "white chips", "desc": "1bag 5kg", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 28.0}, {"id": "i047", "name": "kaju", "desc": "7.8", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 70.0}, {"id": "i048", "name": "Almond Sliced", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 30.0}, {"id": "i049", "name": "trendy", "desc": "", "unit": "باكيت", "cat": "خامات", "qty": 16.0, "note": "", "price": 7.83}, {"id": "i050", "name": "Coca powder", "desc": "1 packet 25 kg", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 550.0}, {"id": "i051", "name": "Ghulash Broken جلاش مكسر", "desc": "1PKT 500GM", "unit": "باكيت", "cat": "خامات", "qty": 1.0, "note": "", "price": 20.0}, {"id": "i052", "name": "Frozen Croissant", "desc": "1 Box 60 pcs*80 GRM", "unit": "كرتون", "cat": "خامات", "qty": 26.0, "note": "", "price": 108.0}, {"id": "i053", "name": "Naama Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 160.0, "note": "", "price": 4.69}, {"id": "i054", "name": "Mabrooma Cheese", "desc": "Tray (24 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 24.0, "note": "", "price": 117.6}, {"id": "i055", "name": "Mabrooma Cream", "desc": "Tray (24 Pcs)", "unit": "صاج", "cat": "خامات", "qty": 13.0, "note": "", "price": 45.84}, {"id": "i056", "name": "Lukmat Cream", "desc": "Packet (100 Pcs )", "unit": "باكيت", "cat": "خامات", "qty": 25.0, "note": "", "price": 53.0}, {"id": "i057", "name": "Lukmat Cheese", "desc": "Packet (100 Pcs )", "unit": "باكيت", "cat": "خامات", "qty": 25.0, "note": "", "price": 97.0}, {"id": "i058", "name": "White Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 140.0, "note": "", "price": 2.89}, {"id": "i059", "name": "Green Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 3.96}, {"id": "i060", "name": "Red Ajeen", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 105.0, "note": "", "price": 4.29}, {"id": "i061", "name": "Ready Lian", "desc": "PC", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 15.6}, {"id": "i062", "name": "Sugar", "desc": "Bags ( 1 Bag 50 KG )", "unit": "شوال", "cat": "خامات", "qty": 3.0, "note": "", "price": 112.322}, {"id": "i063", "name": "Brown Sugar", "desc": "Bags ( 1 Bag 50 KG )", "unit": "كيلو", "cat": "خامات", "qty": 32.0, "note": "", "price": 12.1}, {"id": "i064", "name": "Sugar Syrup", "desc": "Gallon (1 gallon )30 liter", "unit": "جالون", "cat": "خامات", "qty": 6.0, "note": "", "price": 63.81}, {"id": "i065", "name": "Sugar Syrup Cup", "desc": "Box", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 0.0}, {"id": "i066", "name": "Ready Cheese", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 405.0, "note": "", "price": 25.71}, {"id": "i067", "name": "cheese (Elshikh)", "desc": "Tanka", "unit": "تنكة", "cat": "خامات", "qty": 0.0, "note": "", "price": 285.0}, {"id": "i068", "name": "cheese (Genedy)", "desc": "Tanka 11 kg", "unit": "تنكة", "cat": "خامات", "qty": 25.0, "note": "", "price": 260.0}, {"id": "i069", "name": "papa chu", "desc": "Pcs", "unit": "حبة", "cat": "خامات", "qty": 2000.0, "note": "", "price": 0.1847}, {"id": "i070", "name": "vanillia ice cream 350 Ghram", "desc": "1 Packet 10 Pcs", "unit": "حبة", "cat": "خامات", "qty": 102.0, "note": "", "price": 30.0}, {"id": "i071", "name": "Salt", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 1.8, "note": "", "price": 0.42}, {"id": "i072", "name": "Digestive Biscuits", "desc": "24*400 g", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 5.5}, {"id": "i073", "name": "Louts biscuits", "desc": "250 GM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 6.08}, {"id": "i074", "name": "semolina", "desc": "KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 7.0}, {"id": "i075", "name": "Saffron", "desc": "GRM", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "", "price": 5.25}, {"id": "i076", "name": "lemon salt", "desc": "KG", "unit": "جرام", "cat": "خامات", "qty": 200.0, "note": "", "price": 0.72}, {"id": "i077", "name": "Bicarbonate of soda", "desc": "1 Pc 100 GRM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 1.25}, {"id": "i078", "name": "Honey", "desc": "Gallon 3 KG", "unit": "جالون", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0. 3\" — اتسجلت صفر", "price": 33.6}, {"id": "i079", "name": "crystal plate Mini", "desc": "1 cartoon 8 KG", "unit": "كيلو", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0.oon 8\" — اتسجلت صفر", "price": 8.125}, {"id": "i080", "name": "crystal plate Large", "desc": "( 1 box 56 plate)", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0.x 56\" — اتسجلت صفر", "price": 1.567}, {"id": "i081", "name": "Plate Mini Stanlis", "desc": "Pcs", "unit": "صحن", "cat": "خامات", "qty": 0.0, "note": "", "price": 1.56}, {"id": "i082", "name": "Baking paper", "desc": "1 Box (10m*30CM)", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 105.0}, {"id": "i083", "name": "Flour Naama (Tempmpt45 )", "desc": "Bags ( 1 Bag 25 KG )", "unit": "شوال", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0. 1 Bag 25\" — اتسجلت صفر", "price": 148.5}, {"id": "i084", "name": "Flour (Genan)", "desc": "Bags ( 1 Bag 50 KG )", "unit": "شوال", "cat": "خامات", "qty": 3.0, "note": "", "price": 115.0}, {"id": "i085", "name": "maida Flour", "desc": "Bags ( 1 Bag 10 KG )", "unit": "شوال", "cat": "خامات", "qty": 0.0, "note": "القيمة الأصلية كانت غير مقروءة: \"0. 1 Bag 10\" — اتسجلت صفر", "price": 27.0}, {"id": "i086", "name": "corn Flour", "desc": "1 Bag 25 KG", "unit": "كيلو", "cat": "خامات", "qty": 29.5, "note": "", "price": 78.0}, {"id": "i087", "name": "white flour churres 10 kg", "desc": "1 Bag 10 KG", "unit": "كيلو", "cat": "خامات", "qty": 90.0, "note": "", "price": 60.0}, {"id": "i088", "name": "cookies flour", "desc": "15KG", "unit": "باكيت", "cat": "خامات", "qty": 25.0, "note": "", "price": 300.0}, {"id": "i089", "name": "chocolate cookies flour", "desc": "15KG", "unit": "باكيت", "cat": "خامات", "qty": 28.0, "note": "ملاحظة من الجرد القديم: 1.500 كيلو", "price": 348.0}, {"id": "i090", "name": "Ghulash Pastry", "desc": "1 cartoon 12*500G", "unit": "كرتون", "cat": "خامات", "qty": 47.0, "note": "", "price": 108.5}, {"id": "i091", "name": "Trendy ajeen", "desc": "", "unit": "صاج", "cat": "خامات", "qty": 0.0, "note": "", "price": 7.83}, {"id": "i092", "name": "Baking Powder", "desc": "24*450G", "unit": "كرتون", "cat": "خامات", "qty": 2.0, "note": "", "price": 275.0}, {"id": "i093", "name": "Croissant ready", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 1.8}, {"id": "i094", "name": "Vegetable Ghee - Zubaida 16 KG", "desc": "Tanka 16 Kg", "unit": "تنكة", "cat": "خامات", "qty": 0.0, "note": "", "price": 180.0}, {"id": "i095", "name": "Haloop Gold Ghee", "desc": "Tanka 15 Kg", "unit": "تنكة", "cat": "خامات", "qty": 0.0, "note": "", "price": 930.0}, {"id": "i096", "name": "Cadbury Cocoa Powder", "desc": "1 Pc 250 GRM", "unit": "حبة", "cat": "خامات", "qty": 0.5, "note": "", "price": 17.25}, {"id": "i097", "name": "Cocoa powder", "desc": "1 Bag 25 KG", "unit": "باكيت", "cat": "خامات", "qty": 5.0, "note": "ملاحظة من الجرد القديم: 5كيلو", "price": 20.0}, {"id": "i098", "name": "Custard", "desc": "24*1 Pc 450 GRM", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 5.083}, {"id": "i099", "name": "Brownies", "desc": "Tray= 50 PC / 4 KG", "unit": "صاج", "cat": "خامات", "qty": 12.0, "note": "", "price": 22.8125}, {"id": "i100", "name": "KDD Cream", "desc": "12*1LTR", "unit": "كرتون", "cat": "خامات", "qty": 0.0, "note": "", "price": 120.0}, {"id": "i101", "name": "Tarmiso Cream", "desc": "KG", "unit": "باكيت", "cat": "خامات", "qty": 2.0, "note": "", "price": 26.3}, {"id": "i102", "name": "Vanilla pwoder", "desc": "800 grm", "unit": "حبة", "cat": "خامات", "qty": 7.0, "note": "", "price": 36.0}, {"id": "i103", "name": "Cook powder", "desc": "ماده العجين", "unit": "كيلو", "cat": "خامات", "qty": 17.0, "note": "", "price": 8.25}, {"id": "i104", "name": "Green Colour", "desc": "Galoon 1 KG", "unit": "كيلو", "cat": "خامات", "qty": 30.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 45.0}, {"id": "i105", "name": "Red Colour", "desc": "1 Pc 240 GRM", "unit": "حبة", "cat": "خامات", "qty": 57.0, "note": "", "price": 45.0}, {"id": "i106", "name": "glees white", "desc": "1 Gallon 7 KG", "unit": "جالون", "cat": "خامات", "qty": 3.0, "note": "", "price": 91.0}, {"id": "i107", "name": "glees caramel", "desc": "1 Gallon 7 KG", "unit": "جالون", "cat": "خامات", "qty": 6.0, "note": "", "price": 91.0}, {"id": "i108", "name": "Orange Colour", "desc": "1 Pc 240 GRM", "unit": "حبة", "cat": "خامات", "qty": 54.0, "note": "", "price": 45.0}, {"id": "i109", "name": "Lemon yellow colour", "desc": "Box 10 * 1KG", "unit": "حبة", "cat": "خامات", "qty": 24.0, "note": "", "price": 50.0}, {"id": "i110", "name": "cinnamon powder", "desc": "100GH", "unit": "جرام", "cat": "خامات", "qty": 350.0, "note": "", "price": 18.0}, {"id": "i111", "name": "cardmom powder", "desc": "150GH", "unit": "جرام", "cat": "خامات", "qty": 300.0, "note": "", "price": 13.2}, {"id": "i112", "name": "yeast", "desc": "20*500GH", "unit": "كيلو", "cat": "خامات", "qty": 4.5, "note": "", "price": 9.5}, {"id": "i113", "name": "kinder t4", "desc": "", "unit": "باكيت", "cat": "خامات", "qty": 17.0, "note": "", "price": 22.5}, {"id": "i114", "name": "potato fresh", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 3.25}, {"id": "i115", "name": "Digestive cheese cake", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 2.9}, {"id": "i116", "name": "Louts Cheese Cake", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.5}, {"id": "i117", "name": "Oreo Cheese Cake", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0}, {"id": "i118", "name": "STRAWBERRY SAUCE", "desc": "PKT 500GM", "unit": "باكيت", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 7.6}, {"id": "i119", "name": "London Cookies Ajeen", "desc": "KG", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 34.0, "note": "", "price": 20.5044}, {"id": "i120", "name": "classic cookies ajeen", "desc": "KG", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 1.0, "note": "", "price": 21.5}, {"id": "i121", "name": "chocolate cookies ajeen", "desc": "KG", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 29.0, "note": "", "price": 21.5}, {"id": "i122", "name": "classic cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 100.0, "note": "", "price": 2.34}, {"id": "i123", "name": "chocolate cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 100.0, "note": "", "price": 2.34}, {"id": "i124", "name": "London cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 300.0, "note": "", "price": 2.81}, {"id": "i125", "name": "Molten cookies", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 1.88}, {"id": "i126", "name": "Qatayaf", "desc": "KG = 25 PC", "unit": "كيلو", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.23}, {"id": "i127", "name": "Ghulash cream", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0.34}, {"id": "i128", "name": "Ghulash 1 line Larg", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 49.0, "note": "", "price": 2.7}, {"id": "i129", "name": "Fresh Cream- قشطه بلدي", "desc": "1 PKT ( 500 G )", "unit": "باكيت", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0.0}, {"id": "i130", "name": "Tamarind - تمر هندي", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 5.5}, {"id": "i131", "name": "Qamar Eldin - قمر الدين", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 6.0}, {"id": "i132", "name": "Licorice - عرقسوس", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0.0}, {"id": "i133", "name": "Karkadia - كركديه", "desc": "1 pc = 1 LTR", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 1.87}, {"id": "i134", "name": "Rice Milk 300G", "desc": "( For Faroooooooooj Only )", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 0}, {"id": "i135", "name": "Molten cookies kinder", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.5}, {"id": "i136", "name": "Molten cookies nutela", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 3.5}, {"id": "i137", "name": "elqalba", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 12.19}, {"id": "i138", "name": "basbosa", "desc": "PC", "unit": "حبة", "cat": "منتجات جديدة", "qty": 0.0, "note": "", "price": 10.5}, {"id": "i139", "name": "اكياس شفافه كبير (30/40)", "desc": "1 Packet 25 KG", "unit": "كيلو", "cat": "تعبئة وتغليف", "qty": 31.0, "note": "", "price": 7.74}, {"id": "i140", "name": "اكياس شفافه صغير(30/27)", "desc": "1 Packet 25 KG", "unit": "كيلو", "cat": "تعبئة وتغليف", "qty": 29.0, "note": "", "price": 5.1}, {"id": "i141", "name": "Zipper Bags (27*40)", "desc": "BOX", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 160.0}, {"id": "i142", "name": "piping bag", "desc": "55cm - TPLPP015)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 11.0, "note": "", "price": 25.0}, {"id": "i143", "name": "ciling film", "desc": "Pcs", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 8.0, "note": "", "price": 25.0}, {"id": "i144", "name": "Bent Ali Foil plate (L)", "desc": "Box (1000 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 1011.0, "note": "", "price": 140.0}, {"id": "i145", "name": "Bent Ali Foil plate (S)", "desc": "Box (1000 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 209.0, "note": "", "price": 120.0}, {"id": "i146", "name": "dubai cake plate (L) 655", "desc": "Box (100 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 250.0, "note": "", "price": 163.0}, {"id": "i147", "name": "dubai cake plate (S) 604", "desc": "Box (100 Pcs)", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 186.0}, {"id": "i148", "name": "Plate dubai cake medium (L.M 611)", "desc": "Box (100 Pcs)", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 102.0}, {"id": "i149", "name": "Cookies cup", "desc": "Box(1500PCS)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 6250.0, "note": "", "price": 110.0}, {"id": "i150", "name": "Qashtota Plate 24 onz", "desc": "Box (300 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 384.0, "note": "", "price": 0.4}, {"id": "i151", "name": "Qashtota Cover 24 onz", "desc": "Box (300 Pcs)", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 384.0, "note": "", "price": 0.4}, {"id": "i152", "name": "sushi container Black Base", "desc": "1 Box 500 Pcs", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 0}, {"id": "i153", "name": "Lids for sushi container", "desc": "1 Box 500 Pcs", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 0}, {"id": "i154", "name": "Black Spoon", "desc": "1 Box 500 Pcs", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 1.0, "note": "", "price": 0.0691}, {"id": "i155", "name": "Kunafa Cutter", "desc": "Pcs", "unit": "حبة", "cat": "خامات", "qty": 0.0, "note": "", "price": 0}, {"id": "i156", "name": "Aluminum foil", "desc": "Box", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 30.8607}, {"id": "i157", "name": "Nylon Foil", "desc": "1 Box  1.7 KG", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 0.0, "note": "", "price": 18.5619}, {"id": "i158", "name": "Green Sponge", "desc": "1 Packet 18 Pc", "unit": "حبة", "cat": "تعبئة وتغليف", "qty": 52.0, "note": "صنف كان مكرر في الجرد القديم واتدمج", "price": 0}, {"id": "i159", "name": "payrex", "desc": "6 pcs", "unit": "كرتون", "cat": "تعبئة وتغليف", "qty": 61.0, "note": "", "price": 12.5}, {"id": "i160", "name": "سمنه مخلوط", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 23.0, "note": "", "price": 0}, {"id": "i161", "name": "molten kinder sos", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 14.0, "note": "", "price": 0}, {"id": "i162", "name": "molten nutella sos", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 16.0, "note": "", "price": 0}, {"id": "i163", "name": "molten cokies sos", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 15.0, "note": "", "price": 0}, {"id": "i164", "name": "gloves", "desc": "", "unit": "باكيت", "cat": "تعبئة وتغليف", "qty": 12.0, "note": "", "price": 0}, {"id": "i165", "name": "molten cookies ajeen", "desc": "", "unit": "كيلو", "cat": "خامات", "qty": 71.0, "note": "", "price": 0}, {"id": "i166", "name": "dinisor chocolate", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 416.0, "note": "", "price": 0}, {"id": "i167", "name": "dis wash", "desc": "", "unit": "جالون", "cat": "تعبئة وتغليف", "qty": 5.0, "note": "", "price": 0}, {"id": "i168", "name": "puratos whippak", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 41.0, "note": "", "price": 160.0}, {"id": "i169", "name": "flour cleaner", "desc": "", "unit": "جالون", "cat": "تعبئة وتغليف", "qty": 2.0, "note": "", "price": 0}, {"id": "i170", "name": "vanilla lequad", "desc": "28 ml", "unit": "حبة", "cat": "خامات", "qty": 40.0, "note": "", "price": 0}, {"id": "i171", "name": "بسكويت بتى بور", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 152.0, "note": "", "price": 2.82}, {"id": "i172", "name": "بسكويت كوفي جوى", "desc": "8 حبه", "unit": "باكيت", "cat": "خامات", "qty": 9.0, "note": "", "price": 12.95}, {"id": "i173", "name": "كيكة قهوه", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 35.0, "note": "", "price": 0}, {"id": "i174", "name": "hair net", "desc": "", "unit": "باكيت", "cat": "تعبئة وتغليف", "qty": 4.0, "note": "", "price": 0}, {"id": "i175", "name": "appron", "desc": "", "unit": "باكيت", "cat": "تعبئة وتغليف", "qty": 3.0, "note": "", "price": 0}, {"id": "i176", "name": "kunafa roll", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 1080.0, "note": "", "price": 0}, {"id": "i177", "name": "ghulash cheese", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 880.0, "note": "", "price": 0}, {"id": "i178", "name": "ghulash nuts", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 635.0, "note": "", "price": 0}, {"id": "i179", "name": "ghulash one line small", "desc": "", "unit": "حبة", "cat": "خامات", "qty": 499.0, "note": "", "price": 0}];
-
+ 
 // ---- الاتصال بقاعدة البيانات: يتحط مرة واحدة هنا من صاحب النظام على GitHub ----
 const SUPABASE_URL = 'https://wmzzftcnfnpnnqirkeer.supabase.co';   // مثال: https://xxxxx.supabase.co
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtenpmdGNuZm5wbm5xaXJrZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDMwMDcsImV4cCI6MjEwMTMxOTAwN30.2urxyAAQV4OXzQQ-1JkPjb_scyJKeOjl7cEtfEDEzV4';
-
+ 
 // ---- الدور والمصنع يتحددوا من رابط الصفحة ----
 const QS = new URLSearchParams(location.search);
 let ROLE = QS.get('manager')!==null ? 'manager' : 'owner';
@@ -171,11 +171,11 @@ if(FACTORY_THEME[FACTORY]){
   const tint = c => Math.round(c + (255-c)*0.88);
   document.documentElement.style.setProperty('--brand-bg', `rgb(${tint(r)},${tint(g)},${tint(b)})`);
 }
-
+ 
 const KEY_MAIN = 'kunafa:main:v1:'+FACTORY;     // items + recipes + settings
 const KEY_TX   = 'kunafa:tx:v1:'+FACTORY;       // moves + counts
 const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
-
+ 
 let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'] };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
 const TABS_OWNER = [['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
@@ -187,7 +187,7 @@ const canOpen  = k => !isLocked(k) || !!SESS[k];
 let tab = 'count';
 let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], editing:null, modal:null,
   bulk:{on:false, reason:'صرف للفروع', party:'', cat:'الكل', q:'', date:'', qty:{}} };
-
+ 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -198,20 +198,20 @@ const today = () => new Date().toISOString().slice(0,10);
 const uid = p => p+Math.random().toString(36).slice(2,9);
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
-
+ 
 function toast(msg,err){
   let box=$('#toast');
   if(!box){ box=document.createElement('div'); box.id='toast'; box.dir='rtl'; document.body.appendChild(box); }
   const t=document.createElement('div'); t.className='toast'+(err?' err':''); t.textContent=msg;
   box.appendChild(t); setTimeout(()=>t.remove(),2600);
 }
-
+ 
 /* ---------- storage ---------- */
 let MODE = 'memory';   // cloud | browser | memory
 const MEM = {};
 const hasStore = () => typeof window!=='undefined' && window.storage && typeof window.storage.set==='function';
 function lsOK(){ try{ const k='__t'; window.localStorage.setItem(k,'1'); window.localStorage.removeItem(k); return true; }catch(e){ return false; } }
-
+ 
 async function sget(k){
   if(hasStore()){
     try{ const r=await window.storage.get(k); if(r&&r.value){ MODE='cloud'; return JSON.parse(r.value); } }catch(e){}
@@ -230,7 +230,7 @@ async function sset(k,v){
 }
 async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
-
+ 
 async function load(){
   if(DB_CONFIGURED){
     const ok = await connectDB();
@@ -261,14 +261,14 @@ async function load(){
   S.moves = tx?.moves||[]; S.counts = tx?.counts||{}; S.runs = tx?.runs||[];
   S.closed = hist?.periods||[];
 }
-
+ 
 /* ---------- قاعدة البيانات (Supabase) — مفتاح ثابت مضمّن، متصل دايمًا ---------- */
 const KEY_DB='kunafa:db:v1';
 const DB_CONFIGURED = /^https?:\/\//.test(SUPABASE_URL) && SUPABASE_KEY.length>20;
 let DB={url:SUPABASE_URL,key:SUPABASE_KEY,on:false,last:'',err:'',busy:false,dirty:false};
 let BK={dirty:0,lastAt:''};
 let pushTimer=null;
-
+ 
 async function sb(path,opts={}){
   const base=DB.url.replace(/\/+$/,'');
   const r=await fetch(base+'/rest/v1/'+path,{
@@ -295,7 +295,7 @@ async function syncOneCount(itemId, qty){
   finally{ PENDING_SYNCS--; }
 }
 const fEq = ()=>'factory=eq.'+encodeURIComponent(FACTORY);
-
+ 
 async function connectDB(){
   if(!DB_CONFIGURED){ DB.on=false; DB.err='لسه محتاج تحط رابط ومفتاح Supabase في الملف (تعليمات في تبويب المصانع)'; return false; }
   DB.busy=true;
@@ -305,13 +305,13 @@ async function connectDB(){
   }catch(e){ DB.on=false; DB.err='الاتصال فشل: '+e.message; }
   DB.busy=false; return DB.on;
 }
-
+ 
 function schedulePush(){
   if(!DB.on) return;
   DB.dirty=true; clearTimeout(pushTimer);
   pushTimer=setTimeout(()=>pushAll(true),1500);
 }
-
+ 
 async function pushAll(quiet){
   if(!DB.on||DB.busy) return false;
   DB.busy=true; DB.err=''; if(!quiet) render();
@@ -321,38 +321,38 @@ async function pushAll(quiet){
       id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
       opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
       pack_unit:i.packUnit||'',pack_size:+i.packSize||0}))});
-
+ 
     await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     if(S.moves.length) await sb('stock_moves',{method:'POST',body:S.moves.map(m=>({
       id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
       party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null}))});
-
+ 
     await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     const cs=Object.entries(S.counts).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
     if(cs.length) await sb('stock_counts',{method:'POST',body:cs});
-
+ 
     await sb('stock_recipes?'+fEq(),{method:'DELETE'});
     if(S.recipes.length) await sb('stock_recipes',{method:'POST',body:S.recipes.map(r=>({
       id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}))});
-
+ 
     await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     if((S.runs||[]).length) await sb('stock_runs',{method:'POST',body:S.runs.map((r,i)=>({
       id:r.id||(F+'-'+P+'-'+i),factory:F,period:P,run_date:r.date,name:r.name,batches:+r.batches||0,out_qty:+r.outQty||0,cost:+r.cost||0}))});
-
+ 
     if(S.closed.length) await sb('stock_periods',{...UPSERT,body:S.closed.map(c=>({
       factory:F,period:c.period,closed_at:c.date,value:+c.value||0,snapshot:c.items}))});
-
+ 
     await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches}}]});
-
+ 
     DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
   }catch(e){ DB.err=e.message; DB.busy=false; if(!isTypingCount()) render(); toast('فشل الرفع: '+e.message,1); return false; }
   DB.busy=false;
   if(!isTypingCount()) render();
   if(!quiet) toast('البيانات اترفعت للقاعدة'); return true;
 }
-
+ 
 const isTypingCount = () => !!(document.activeElement && document.activeElement.hasAttribute('data-count'));
-
+ 
 async function pullAll(silent){
   if(!DB.on) return false;
   DB.busy=true; DB.err=''; if(!silent) render();
@@ -381,7 +381,7 @@ async function pullAll(silent){
   DB.busy=false; if(!silent) render(); if(!silent) toast('البيانات اتحمّلت من القاعدة'); return true;
 }
 async function pullAll_silent(){ return pullAll(true); }
-
+ 
 async function loadFactories(){
   try{
     const rows=await sb('stock_factories?select=*&order=name',{prefer:'return=representation'});
@@ -393,7 +393,7 @@ async function addFactory(id,name){
   await sb('stock_factories',{...UPSERT,body:[{id,name}]});
   await loadFactories();
 }
-
+ 
 /* ---------- calculations ---------- */
 function calc(it){
   let inQ=0,outQ=0,inVal=0;
@@ -422,7 +422,7 @@ function totals(){
 function recipeCost(r){
   return r.lines.reduce((s,l)=>{const it=item(l.itemId); return s + (it? (it.price||0)*l.qty : 0);},0);
 }
-
+ 
 /* ================================================================
    RENDER
    ================================================================ */
@@ -465,7 +465,7 @@ function render(){
   const _tbw2 = document.querySelector('.tblwrap');
   if(_tbw2) _tbw2.scrollTop = _tbScroll;
 }
-
+ 
 /* ---------- filters ---------- */
 const CATEGORY_ORDER = ['خامات','منتجات جديدة','تعبئة وتغليف'];
 const catRank = c => { const i=CATEGORY_ORDER.indexOf(c); return i===-1?999:i; };
@@ -511,7 +511,7 @@ function categoryTabs(scope){
     ${all.map(c=>`<button class="cattab ${cur===c?'on':''}" data-cattab="${esc(c)}" data-scope="${scope||''}">${esc(c)}${c!=='الكل'?` <span class="ct-n">${counts[c]||0}</span>`:''}</button>`).join('')}
   </div>`;
 }
-
+ 
 /* ================= 1. الجرد الشهري ================= */
 function viewCount(){
   if(ROLE==='manager') return viewCountManager();
@@ -536,7 +536,7 @@ function viewCount(){
     </div>
     <div class="hint" style="margin-top:9px">القيم بالدرهم. اكتب الكمية اللي عدّيتها في المخزن في عمود «الفعلي» — الفرق بيتحسب لوحده. اضغط ↓ أو Enter بعد ما تكتب الرقم عشان تنتقل للصنف اللي بعده على طول من غير ما تلمس الماوس.</div>
   </div></div>
-
+ 
   <div class="panel">
     <h2>ورقة الجرد <em>${t.counted} من ${t.total} صنف اتعدّوا</em>
       ${DB.on?`<span class="chip ${DB.err?'r':'b'}" style="margin-inline-start:auto">${DB.busy?'بيحدّث…':DB.err?'خطأ اتصال':'آخر تحديث من المدير: '+(DB.last||'—')}</span>
@@ -561,7 +561,7 @@ function viewCount(){
       </tbody></table></div>
   </div>`;
 }
-
+ 
 /* ================= 2/3. وارد و منصرف ================= */
 const OUT_REASONS=['صرف للإنتاج','صرف للفروع','هالك / تالف','مرتجع للمورد','عينات','أخرى'];
 /* ---------- شاشة الجرد لوضع المدير: بسيطة، من غير أسعار ولا تبويبات تانية ---------- */
@@ -597,7 +597,7 @@ function viewCountManager(){
     </div>
   </div>`;
 }
-
+ 
 /* ---------- صرف جماعي: كذا صنف لنفس الفرع في نفس الوقت ---------- */
 function bulkOutPanel(){
   const b = ui.bulk;
@@ -640,9 +640,9 @@ function bulkOutPanel(){
     </div>
   </div>`;
 }
-
+ 
 function viewMove(dir){
-
+ 
   const isIn=dir==='in';
   const rows=S.moves.filter(m=>m.dir===dir).slice().reverse();
   const bulkOn = !isIn && ui.bulk.on;
@@ -701,7 +701,7 @@ function viewMove(dir){
       </tbody></table></div>
   </div>`;
 }
-
+ 
 /* ================= 4. الإنتاج والوصفات ================= */
 function viewProd(){
   return `
@@ -730,7 +730,7 @@ function viewProd(){
       ||`<tr><td colspan="6" class="empty">لسه مفيش تشغيلات</td></tr>`}</tbody></table></div>
   </div>`;
 }
-
+ 
 /* ================= 5. كارت الأصناف ================= */
 function viewItems(){
   const list=filtered();
@@ -758,7 +758,7 @@ function viewItems(){
       </tbody></table></div>
   </div>`;
 }
-
+ 
 /* ================= 6. التقارير والإقفال ================= */
 function viewRep(){
   const t=totals();
@@ -776,14 +776,14 @@ function viewRep(){
     <div class="card"><div class="k">تحت الحد الأدنى</div><div class="v" style="color:var(--amber)">${t.low}</div><div class="s">محتاجة طلبية</div></div>
     <div class="card"><div class="k">من غير سعر</div><div class="v">${noPrice}</div><div class="s">مش داخلة في القيمة</div></div>
   </div></div></div>
-
+ 
   <div class="panel"><h2>قيمة المخزون حسب القسم</h2><div class="pad">
     ${Object.entries(byCat).map(([c,v])=>`<div style="margin-bottom:9px">
       <div style="display:flex;justify-content:space-between;font-size:12.5px"><span>${esc(c)}</span><span class="num">${money(v)}</span></div>
       <div style="height:7px;background:#EEF2F4;border-radius:5px;overflow:hidden;margin-top:3px">
         <div style="height:100%;width:${t.value?Math.max(2,v/t.value*100):0}%;background:var(--blue)"></div></div></div>`).join('')}
   </div></div>
-
+ 
   <div class="panel"><h2>أكبر فروقات الجرد <em>بالقيمة</em></h2>
     ${varis.length?`<div class="tblwrap"><table><thead><tr><th>الصنف</th><th>دفتري</th><th>فعلي</th><th>الفرق</th><th>قيمة الفرق</th></tr></thead>
     <tbody>${varis.map(({it,c})=>`<tr><td>${esc(it.name)}</td><td class="n">${fmt(c.book)}</td><td class="n">${fmt(c.real)}</td>
@@ -791,13 +791,13 @@ function viewRep(){
       <td class="n ${c.diff<0?'neg':'pos'}"><b>${money(c.diff*it.price)}</b></td></tr>`).join('')}</tbody></table></div>`
     :`<div class="empty">لما تدخل الجرد الفعلي والأسعار، الفروقات هتظهر هنا مرتبة بالقيمة.</div>`}
   </div>
-
+ 
   <div class="panel"><h2>أصناف محتاجة طلبية</h2>
     ${low.length?`<div class="tblwrap"><table><thead><tr><th>الصنف</th><th>الرصيد</th><th>الحد الأدنى</th><th>الناقص</th></tr></thead>
     <tbody>${low.map(({it,c})=>{const oh=c.has?c.real:c.book;return `<tr><td>${esc(it.name)}</td><td class="n">${fmt(oh)} ${esc(it.unit)}</td><td class="n">${fmt(it.min)}</td><td class="n neg">${fmt(it.min-oh)}</td></tr>`;}).join('')}</tbody></table></div>`
     :`<div class="empty">مفيش صنف تحت الحد الأدنى — أو لسه محددتش الحدود الدنيا في كارت الأصناف.</div>`}
   </div>
-
+ 
   <div class="panel"><h2>إقفال الشهر</h2><div class="pad">
     <div class="hint" style="margin-bottom:10px">الإقفال بيخلي <b>الجرد الفعلي</b> هو رصيد أول المدة للشهر الجاي، ويحفظ نسخة من ${periodLabel(S.period)} في الأرشيف، ويفضّي الوارد والمنصرف. الأصناف اللي متجردتش هتاخد رصيدها الدفتري.</div>
     <div class="hint" style="margin-bottom:10px;background:#FCF6EA;border:1px solid #EDD9AE;border-radius:8px;padding:9px">
@@ -818,7 +818,7 @@ function viewRep(){
       ${S.closed.slice().reverse().map(p=>`<span class="chip b" style="margin-inline-end:6px">${periodLabel(p.period)} · ${money(p.value)} د.إ</span>`).join('')}</div>`:''}
   </div></div>`;
 }
-
+ 
 /* ================= 7. قاعدة البيانات ================= */
 function viewFac(){
   const managerLink = location.origin+location.pathname+'?manager&factory='+encodeURIComponent(FACTORY);
@@ -840,7 +840,7 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
         </div>`}
     </div>
   </div>
-
+ 
   <div class="panel">
     <h2>المصانع <em>${FACTORIES.length} مصنع</em></h2>
     <div class="pad">
@@ -855,7 +855,7 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
       ${!DB.on?`<div class="hint" style="margin-top:6px">لازم تكون متصل بالقاعدة عشان تضيف مصنع جديد.</div>`:''}
     </div>
   </div>
-
+ 
   <div class="panel"><h2>رابط المدير لمصنع «${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name)}»</h2><div class="pad">
     ${DB.on?`
       <div class="hint">ابعت الرابط ده للمدير (واتساب/إيميل). هيفتحه ويشوف بس شاشة إدخال الجرد من غير أسعار ولا تبويبات تانية. أي رقم يكتبه بيوصلك أوتوماتيك.</div>
@@ -866,7 +866,7 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
       <div class="hint" style="margin-top:8px"><b>تنبيه:</b> أي حد معاه الرابط ده يقدر يبعت أرقام جرد. ابعته للمدير بنفسك بس.</div>
     `:`<div class="hint">لازم تتصل بالقاعدة الأول عشان الرابط يشتغل.</div>`}
   </div></div>
-
+ 
   <div class="panel"><h2>إزاي تستضيف النظام على رابط ثابت (GitHub Pages) — مرة واحدة بس <em>مجاني بالكامل</em></h2><div class="pad">
     <ol style="margin:0;padding-inline-start:20px;line-height:2">
       <li>لو لسه معملتش القاعدة: ادخل <b dir="ltr">supabase.com</b> واعمل حساب مجاني ← <b>New project</b> ← منطقة قريبة (Frankfurt).</li>
@@ -880,7 +880,7 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
     <div class="hint" style="margin-top:12px"><b>مهم:</b> الرابط ده وحده كل حاجة — إنت بتفتحه عادي، والمدير بيفتح نفسه + <b dir="ltr">?manager</b> في الآخر. مفيش تنزيل ملفات تاني.</div>
   </div></div>`;
 }
-
+ 
 /* ================= 8. الصلاحيات والأقفال ================= */
 function viewSec(){
   const nL=TABS.filter(t=>isLocked(t[0])).length;
@@ -907,7 +907,7 @@ function viewSec(){
     <div class="hint" style="margin-top:8px">لو نسيت باسورد تبويب، اضغط <b>«إعادة ضبط كل البيانات»</b> في تبويب التقارير — بس ده بيمسح كل حاجة، فنزّل CSV الأول.</div>
   </div></div>`;
 }
-
+ 
 /* ================= modals ================= */
 function unlockModal(k){
   const name=(TABS.find(t=>t[0]===k)||['',''])[1];
@@ -933,9 +933,9 @@ function itemModal(it){
       <div><label class="f">القسم</label>
         <select id="f-cat" style="width:100%" onchange="document.getElementById('f-cat-new').style.display=this.value==='__new__'?'block':'none'">
           ${cats().filter(c=>c!=='الكل').map(c=>`<option ${e.cat===c?'selected':''}>${c}</option>`).join('')}
-          <option value="__new__">+ تصنيف جديد…</option>
+          <option value="__new__" ${cats().filter(c=>c!=='الكل').length===0?'selected':''}>+ تصنيف جديد…</option>
         </select>
-        <input type="text" id="f-cat-new" placeholder="اسم التصنيف الجديد" style="width:100%;margin-top:6px;display:none"></div>
+        <input type="text" id="f-cat-new" placeholder="اسم التصنيف الجديد" style="width:100%;margin-top:6px;display:${cats().filter(c=>c!=='الكل').length===0?'block':'none'}"></div>
       <div><label class="f">رصيد أول المدة</label><input type="number" step="any" id="f-open" value="${e.opening||0}" style="width:100%"></div>
       <div><label class="f">سعر الوحدة</label><input type="number" step="any" id="f-price" value="${e.price||''}" style="width:100%"></div>
       <div><label class="f">الحد الأدنى</label><input type="number" step="any" id="f-min" value="${e.min||''}" style="width:100%"></div>
@@ -1046,7 +1046,7 @@ function receiptModal(m){
     <div class="foot"><button class="btn p" data-act="do-print">🖨️ طباعة</button><button class="btn" data-close="1">قفل</button></div>
   </div></div>`;
 }
-
+ 
 /* ================================================================
    EVENTS
    ================================================================ */
@@ -1108,7 +1108,7 @@ function bind(){
     render();
   });
   const o=$('#only'); if(o) o.onchange=e=>{ui.only=e.target.value;render();};
-
+ 
   root.querySelectorAll('[data-count]').forEach(inp=>{
     inp.onchange=e=>{
       const id=e.target.dataset.count, v=e.target.value;
@@ -1175,7 +1175,7 @@ function readBulkHeader(){
   const pt=$('#b-party'); if(pt) ui.bulk.party=pt.value;
   const dt=$('#b-date'); if(dt) ui.bulk.date=dt.value;
 }
-
+ 
 function dispenseOut(itemId, qty, date, party, reason){
   // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة. بيرجّع true لو الوصفة اشتغلت.
   let auto=false;
@@ -1212,7 +1212,7 @@ async function act(a,d){
   if(a==='new-item'){ ui.modal=itemModal(null); return render(); }
   if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.modal=recipeModal(); return render(); }
   if(a==='add-line'){ readLines(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(); return render(); }
-
+ 
   if(a==='save-item'){
     const name=$('#f-name').value.trim(); if(!name) return toast('اكتب اسم الصنف',1);
     let cat=$('#f-cat').value;
@@ -1440,7 +1440,7 @@ async function act(a,d){
     S={items:[],recipes:[],period:'',closed:[],moves:[],counts:{}}; await load(); toast('اترجع للأصل'); return render();
   }
 }
-
+ 
 async function boot(){
   try{ await load(); }
   catch(e){
@@ -1467,3 +1467,4 @@ window.addEventListener('beforeunload', e => {
   }
 });
 </script>
+ 
