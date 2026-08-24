@@ -791,6 +791,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='core'?'p':''}" data-boview="core">اجمالي الفروع</button>
       <button class="btn sm ${BO.view==='appet'?'p':''}" data-boview="appet">المقبلات والصوصات</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
+      <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
   </div></div>`:''}
   ${rows.length && BO.view==='orders' ? `<div class="panel">
@@ -818,6 +819,7 @@ function viewBranchOrders(){
           </table></td></tr>`:''}`;
       }).join('')}</tbody></table></div>
   </div>` : ''}
+  ${BO.view==='plan' ? viewProductionPlan() : ''}
   ${BO.view==='changes' ? `<div class="panel">
     <h2>طلبات تعديل الطلبيات من الفروع <em>${BO.changes.length} طلب</em></h2>
     <p class="hint" style="margin-top:-6px">لما فرع يبعت طلبية ويحتاج يعدّلها، الطلب بيوصلك هنا. عدّل الطلبية من "طلبيات الفروع" أو "اجمالي الفروع"، وبعدين علّم الطلب إنه اتعمل.</p>
@@ -1054,7 +1056,7 @@ function viewMove(dir){
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
         <input type="hidden" id="m-qty" value="">
         <button class="btn p" data-act="add-move" data-dir="${dir}">${isIn?'إضافة الوارد':'تسجيل المنصرف'}</button>
-        ${isIn?'<span class="hint">لما تكتب سعر الوحدة، سعر الصنف في كارت الأصناف بيتحدّث تلقائي.</span>':'<span class="hint">لو الرصيد مش كفاية هيحذرك بس هيسجّل.</span>'}
+        ${isIn?'<span class="hint">لما تكتب سعر الوحدة، سعر الصنف في كارت الأصناف بيتحدّث تلقائي.</span>':'<span class="hint">لو الرصيد مش كفاية، الصرف مش هيسجّل خالص.</span>'}
       </div>
     </div>
   </div>`}
@@ -1102,11 +1104,11 @@ function viewMove(dir){
         return `<tr>
         ${ui.mvEdit?`<td><input type="checkbox" data-mvsel="${m.id}" ${mvSel.has(m.id)?'checked':''}></td>`:''}
         <td>${ui.mvEdit?`<input type="date" value="${m.date}" data-mvdate="${m.id}" style="padding:4px 6px;font-size:12px">`:`<span class="n">${m.date}</span>`}</td>
-        <td><div class="iname">${esc(it.name)}</div></td>
-        <td class="n">${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span></td>
+        <td><div class="iname">${esc(it.name)}</div>${m.runId?'<span class="hint"> (خط إنتاج تلقائي)</span>':''}</td>
+        <td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.qty}" data-mvqty="${m.id}" style="padding:4px 6px;font-size:12px;width:78px;text-align:center"> <span class="chip">${esc(it.unit)}</span>`:`${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span>`}</td>
         <td>${ui.mvEdit?`<input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.prodDate?`<span class="n">${m.prodDate}</span>`:'<span class="hint">—</span>')}</td>
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
-        ${isIn?`<td class="n">${money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
+        ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
               :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(m.reason||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
         <td style="white-space:nowrap"><button class="btn sm" data-act="print-move" data-print="${m.id}">🖨️</button> <button class="btn sm danger" data-del="${m.id}">حذف</button></td></tr>`;}).join('')
         ||`<tr><td colspan="${ui.mvEdit?10:9}" class="empty">${rows.length?'مفيش حركات مطابقة للفلتر':'لسه مفيش حركات '+(isIn?'وارد':'منصرف')+' الشهر ده'}</td></tr>`}
@@ -1605,6 +1607,29 @@ function bind(){
     m.temp = e.target.value===''? null : +e.target.value;
     await saveTx(); toast('اتحفظت درجة الحرارة');
   });
+  root.querySelectorAll('[data-mvqty]').forEach(inp=>inp.onchange=async e=>{
+    if(ROLE!=='owner') return;
+    const m=S.moves.find(x=>x.id===e.target.dataset.mvqty); if(!m) return;
+    const v=parseFloat(e.target.value);
+    if(isNaN(v)||v<0){ toast('اكتب كمية صحيحة',1); return render(); }
+    if(m.runId && !confirm('الحركة دي جزء من تشغيلة إنتاج تلقائية (خامة اتخصمت بناءً على وصفة). تعديل الكمية هنا مش هيغيّر باقي خامات نفس التشغيلة ولا كمية المنتج الناتج. متأكد عايز تكمل؟')){
+      return render();
+    }
+    m.qty = n2(v);
+    await saveTx();
+    toast('اتحفظت الكمية');
+    render();
+  });
+  root.querySelectorAll('[data-mvprice]').forEach(inp=>inp.onchange=async e=>{
+    if(ROLE!=='owner') return;
+    const m=S.moves.find(x=>x.id===e.target.dataset.mvprice); if(!m) return;
+    const v=parseFloat(e.target.value);
+    if(isNaN(v)||v<0){ toast('اكتب سعر صحيح',1); return render(); }
+    m.price = n2(v);
+    await saveTx();
+    toast('اتحفظ السعر');
+    render();
+  });
   root.querySelectorAll('[data-mvdate]').forEach(inp=>inp.onchange=async e=>{
     const id=e.target.dataset.mvdate, nd=e.target.value;
     if(!nd) return;
@@ -1692,20 +1717,35 @@ function readBulkHeader(){
 }
  
 function dispenseOut(itemId, qty, date, party, reason){
-  // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة. بيرجّع true لو الوصفة اشتغلت.
-  let auto=false;
+  // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة. لو الرصيد مش كفاية (للصنف نفسه أو لأي خامة في وصفته)، بيرفض ومايسجّلش أي حاجة خالص.
   const r=S.recipes.find(x=>x.outItemId===itemId);
   if(r && r.outQty>0){
-    const b = qty / r.outQty, runId=uid('run');
+    const b = qty / r.outQty;
+    for(const l of r.lines){
+      const need = n2(l.qty*b);
+      const li = item(l.itemId);
+      const bal = li ? calc(li).book : 0;
+      if(need > bal){
+        return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${li?li.name:'غير معروفة'}" (متاح ${fmt(bal)}، مطلوب ${fmt(need)})`};
+      }
+    }
+    const runId=uid('run');
     for(const l of r.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*b),date,price:0,party:r.name,reason:'صرف للإنتاج (تلقائي)',runId});
     const cost=recipeCost(r)*b, outQty=n2(r.outQty*b);
     S.moves.push({id:uid('m'),dir:'in',itemId:r.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+r.name,runId});
     S.runs=S.runs||[]; S.runs.push({id:runId,date,name:r.name,batches:n2(b),outQty,cost,auto:true});
-    auto=true;
+    const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
+    S.moves.push(m);
+    return {move:m, auto:true};
+  }
+  const it=item(itemId);
+  const bal = it ? calc(it).book : 0;
+  if(qty > bal){
+    return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`};
   }
   const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
   S.moves.push(m);
-  return {move:m, auto};
+  return {move:m, auto:false};
 }
 async function boSaveOrder(order){
   if(!order || !order._key) { toast('تعذر تحديد الطلبية',1); return false; }
@@ -1724,6 +1764,66 @@ async function boSaveOrder(order){
 }
 
 // جدول فروع × أصناف قابل للتعديل، بنفس شكل شيت الإكسل الأصلي
+// بيحسب المواد الخام اللازمة لتلبية إجمالي طلبيات الفروع كلها، بناءً على الوصفات المسجلة
+function buildProductionPlan(){
+  const needed = {}; // rawItemId -> { it, qty }
+  const unmatched = []; // أصناف من الفروج مالهاش صنف مطابق أو مالهاش وصفة
+  Object.values(BO.totals).forEach(r=>{
+    const match = findMatchingLocalItem(r.name);
+    if(!match){ unmatched.push({name:r.name, reason:'مالوش صنف مطابق في المخزن'}); return; }
+    const rec = S.recipes.find(x=>x.outItemId===match.id);
+    if(!rec || !(rec.outQty>0)){ unmatched.push({name:r.name, reason:'الصنف مالوش وصفة إنتاج مسجلة'}); return; }
+    const b = r.qty / rec.outQty;
+    rec.lines.forEach(l=>{
+      const li = item(l.itemId); if(!li) return;
+      if(!needed[l.itemId]) needed[l.itemId]={it:li, qty:0};
+      needed[l.itemId].qty = n2(needed[l.itemId].qty + l.qty*b);
+    });
+  });
+  const rows = Object.values(needed).map(n=>{
+    const bal = calc(n.it).book;
+    return {...n, bal, short: n2(n.qty-bal)};
+  }).sort((a,b)=>a.it.name.localeCompare(b.it.name,'ar'));
+  return {rows, unmatched};
+}
+
+function viewProductionPlan(){
+  const {rows, unmatched} = buildProductionPlan();
+  const shortRows = rows.filter(r=>r.short>0);
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">خامات مطلوبة</div><div class="v">${rows.length}</div><div class="s">من ${Object.keys(BO.totals).length} صنف مطلوب</div></div>
+    <div class="card"><div class="k">خامات ناقصة</div><div class="v" style="color:${shortRows.length?'var(--red)':'var(--green)'}">${shortRows.length}</div><div class="s">محتاجة توريد قبل الصرف</div></div>
+    ${unmatched.length?`<div class="card"><div class="k">أصناف من غير تخطيط</div><div class="v" style="color:var(--amber)">${unmatched.length}</div><div class="s">مالهاش وصفة أو مطابقة</div></div>`:''}
+  </div></div></div>
+
+  <div class="panel"><div class="pad">
+    <div class="hint">التقرير ده بيحسب المواد الخام اللازمة لإنتاج <b>كل</b> الكميات المطلوبة من الفروع في الفترة دي، بناءً على الوصفات المسجلة في "الإنتاج والوصفات" — قبل ما تصرف حاجة فعليًا. الأصناف اللي مالهاش وصفة (زي المقبلات الجاهزة) مش هتظهر هنا لأنها بتتصرف مباشرة من غير استهلاك خامات.</div>
+  </div></div>
+
+  ${rows.length?`<div class="panel">
+    <h2>المواد الخام المطلوبة <em>${rows.length} خامة</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الخامة</th><th class="n">المطلوب للإنتاج</th><th class="n">الرصيد الحالي</th><th class="n">الناقص</th><th>الحالة</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr class="${r.short>0?'lowrow':''}">
+        <td><div class="iname">${esc(r.it.name)}</div></td>
+        <td class="n hl">${fmt(r.qty)} <span class="chip">${esc(r.it.unit)}</span></td>
+        <td class="n">${fmt(r.bal)}</td>
+        <td class="n" style="color:${r.short>0?'var(--red)':'var(--muted)'}">${r.short>0?fmt(r.short):'—'}</td>
+        <td>${r.short>0?'<span class="chip r">محتاج توريد</span>':'<span class="chip g">كفاية</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:`<div class="panel"><div class="empty">مفيش أصناف مطلوبة ليها وصفة إنتاج في الفترة دي</div></div>`}
+
+  ${unmatched.length?`<div class="panel">
+    <h2>أصناف من غير تخطيط <em>${unmatched.length}</em></h2>
+    <div class="tblwrap"><table><thead><tr><th>الصنف (من الفروج)</th><th>السبب</th></tr></thead>
+      <tbody>${unmatched.map(u=>`<tr><td>${esc(u.name)}</td><td class="hint">${esc(u.reason)}</td></tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+  `;
+}
+
 function boMatrixHtml(itemsList, title){
   const branches = [...new Set(BO.orders.map(o=>o.branch))].sort((a,b)=>a.localeCompare(b,'ar'));
   if(!branches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في الفترة دي</div></div>`;
@@ -1848,15 +1948,18 @@ async function act(a,d){
     });
     if(!perBranch.length) return toast('مفيش كميات مطلوبة للصنف ده',1);
 
-    let autoAny=false, total=0;
+    let autoAny=false, total=0; const failed=[];
     for(const b of perBranch){
-      const {auto} = dispenseOut(match.id, b.qty, today(), b.branch, 'صرف للفروع');
-      if(auto) autoAny=true;
+      const res = dispenseOut(match.id, b.qty, today(), b.branch, 'صرف للفروع');
+      if(res.error){ failed.push(`${b.branch}: ${res.error}`); continue; }
+      if(res.auto) autoAny=true;
       total = n2(total + b.qty);
     }
-    S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:perBranch.length };
+    if(!total){ toast('مفيش أي فرع اتصرفله — الرصيد مش كفاية', 1); if(failed.length) alert(failed.join('\n')); return render(); }
+    S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:perBranch.length-failed.length };
     await saveTx(); await saveMain();
-    toast(`تم صرف "${match.name}" لـ${perBranch.length} فرع (إجمالي ${fmt(total)} ${match.unit})${autoAny?' — والخامات اتخصمت من الوصفة':''}`);
+    toast(`تم صرف "${match.name}" لـ${perBranch.length-failed.length} فرع (إجمالي ${fmt(total)} ${match.unit})${autoAny?' — والخامات اتخصمت من الوصفة':''}${failed.length?` — ${failed.length} فرع اتخطى لعدم كفاية الرصيد`:''}`);
+    if(failed.length) alert('الفروع دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+failed.join('\n'));
     return render();
   }
   if(a==='bo-undo'){
@@ -1874,15 +1977,16 @@ async function act(a,d){
     const branchCount = new Set(BO.orders.map(o=>o.branch)).size;
     if(!confirm(`هيتم صرف ${names.length} صنف على ${branchCount} فرع، كل فرع في حركة منفصلة باسمه. تكمل؟`)) return;
 
-    let moveCount=0, autoCount=0;
+    let moveCount=0, autoCount=0; const failedLines=[];
     for(const faroojName of names){
       const match = findMatchingLocalItem(faroojName);
       let total=0, autoAny=false, brN=0;
       for(const o of BO.orders){
         const line=(o.items||[]).find(x=>x.name===faroojName);
         if(!line || !(+line.qty>0)) continue;
-        const {auto} = dispenseOut(match.id, n2(+line.qty), today(), o.branch, 'صرف للفروع');
-        if(auto) autoAny=true;
+        const res = dispenseOut(match.id, n2(+line.qty), today(), o.branch, 'صرف للفروع');
+        if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); continue; }
+        if(res.auto) autoAny=true;
         total=n2(total+ +line.qty); brN++; moveCount++;
       }
       if(!brN) continue;
@@ -1890,7 +1994,8 @@ async function act(a,d){
       S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:brN };
     }
     await saveTx(); await saveMain();
-    toast(`تم تسجيل ${moveCount} حركة صرف (${names.length} صنف على الفروع، ${autoCount} منهم خصمت خاماتها تلقائي)`);
+    toast(`تم تسجيل ${moveCount} حركة صرف${autoCount?` (${autoCount} صنف خصم خاماته تلقائي)`:''}${failedLines.length?` — ${failedLines.length} حركة اتخطت لعدم كفاية الرصيد`:''}`);
+    if(failedLines.length) alert('الحركات دي ما اتسجّلتش لعدم كفاية الرصيد:\n\n'+failedLines.join('\n'));
     return render();
   }
   if(a==='set-lock'){
@@ -1942,7 +2047,6 @@ async function act(a,d){
     if(!id) return toast('اختار الصنف',1);
     if(!qty||qty<=0) return toast('اكتب كمية صحيحة',1);
     const isIn=d.dir==='in', it=item(id);
-    if(!isIn){ const c=calc(it); if(qty>c.book) toast(`تحذير: الرصيد الدفتري ${fmt(c.book)} بس`,1); }
     const date=$('#m-date').value||today();
     const prodDate = $('#m-proddate') ? $('#m-proddate').value : '';
     const tempEl = $('#m-temp'); const temp = (tempEl && tempEl.value!=='') ? +tempEl.value : null;
@@ -1954,6 +2058,7 @@ async function act(a,d){
     }else{
       const party=$('#m-party')?$('#m-party').value.trim():'', reason=$('#m-reason').value;
       const res = dispenseOut(id, qty, date, party, reason);
+      if(res.error) return toast(res.error,1);
       m = res.move;
       if(m){ m.prodDate=prodDate; m.temp=temp; }
       if(res.auto) autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
@@ -1969,17 +2074,18 @@ async function act(a,d){
     const entries = Object.entries(b.qty).filter(([id,v])=>item(id)&&+v>0);
     if(!entries.length) return toast('اكتب كمية لصنف واحد على الأقل',1);
     const date = b.date||today(), party=(b.party||'').trim(), reason=b.reason;
-    const moves=[]; let autoCount=0;
+    const moves=[]; let autoCount=0; const skipped=[];
     for(const [id,v] of entries){
       const it=item(id), qty=+v;
-      const c=calc(it);
-      if(qty>c.book) toast(`تحذير: ${it.name} — الرصيد الدفتري ${fmt(c.book)} بس`,1);
       const res=dispenseOut(id, qty, date, party, reason);
+      if(res.error){ skipped.push(`${it.name}: ${res.error}`); continue; }
       moves.push(res.move);
       if(res.auto) autoCount++;
     }
     await saveTx();
-    toast(`اتسجّل صرف ${entries.length} صنف${autoCount?` + ${autoCount} وصفة اشتغلت تلقائي`:''}`);
+    if(!moves.length){ toast('مفيش أي صنف اتصرف — الرصيد مش كفاية للكل', 1); return render(); }
+    toast(`اتسجّل صرف ${moves.length} صنف${autoCount?` + ${autoCount} وصفة اشتغلت تلقائي`:''}${skipped.length?` — ${skipped.length} صنف اتخطى لعدم كفاية الرصيد`:''}`);
+    if(skipped.length) alert('الأصناف دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+skipped.join('\n'));
     ui.bulk.qty={};
     ui.modal = bulkReceiptModal(moves, date, party, reason);
     return render();
