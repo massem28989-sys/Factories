@@ -195,6 +195,7 @@ const isLocked = k => !!S.locks[k];
 const canOpen  = k => !isLocked(k) || !!SESS[k];
 let tab = 'count';
 let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], editing:null, modal:null,
+  mvQ:'', mvReason:'', mvParty:'', mvEdit:false,
   bulk:{on:false, reason:'صرف للفروع', party:'', cat:'الكل', q:'', date:'', qty:{}} };
  
 /* ---------- helpers ---------- */
@@ -787,18 +788,20 @@ function viewBranchOrders(){
     <h2>إجمالي المطلوب من كل صنف <em>${rows.length} صنف</em>
       <button class="btn sm g" data-act="bo-dispense-all" style="margin-inline-start:auto">صرف كل اللي لسه ما اتصرفش</button></h2>
     <div class="tblwrap"><table>
-      <thead><tr><th>الصنف (من الفروج)</th><th class="n">الكمية المطلوبة</th><th>الصنف المطابق في المخزن</th><th>الحالة</th><th></th></tr></thead>
+      <thead><tr><th>الصنف (من الفروج)</th><th class="n">الكمية المطلوبة</th><th class="n">فروع</th><th>الصنف المطابق في المخزن</th><th>الحالة</th><th></th></tr></thead>
       <tbody>${rows.map(r=>{
         const match = findMatchingLocalItem(r.name);
         const done = boIsDone(r.name);
+        const brN = BO.orders.filter(o=>(o.items||[]).some(x=>x.name===r.name && +x.qty>0)).length;
         return `<tr${done?' style="opacity:.55"':''}>
           <td><div class="iname">${esc(r.name)}</div></td>
           <td class="n">${fmt(r.qty)} <span class="chip">${esc(r.unit)}</span></td>
+          <td class="n">${brN}</td>
           <td><select data-bomap="${esc(r.name)}" style="min-width:190px">
               <option value="">— اختار الصنف المطابق —</option>
               ${S.items.map(i=>`<option value="${i.id}" ${match&&match.id===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
             </select>${match?` <span class="chip g" style="margin-inline-start:4px">مطابق</span>`:''}</td>
-          <td>${done?'<span class="chip g">اتصرف ✓</span>':(match?'<span class="chip a">جاهز للصرف</span>':'<span class="chip r">محتاج مطابقة</span>')}</td>
+          <td>${done?`<span class="chip g">اتصرف لـ${(S.boDone[boKey(r.name)]||{}).branches||brN} فرع ✓</span>`:(match?'<span class="chip a">جاهز للصرف</span>':'<span class="chip r">محتاج مطابقة</span>')}</td>
           <td>${match?(done
               ? `<button class="btn sm" data-act="bo-undo" data-bodispense="${esc(r.name)}">تراجع</button>`
               : `<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`)
@@ -943,6 +946,16 @@ function viewMove(dir){
  
   const isIn=dir==='in';
   const rows=S.moves.filter(m=>m.dir===dir).slice().reverse();
+  const mq=(ui.mvQ||'').trim().toLowerCase();
+  const shownMoves = rows.filter(m=>{
+    if(ui.mvReason && m.reason!==ui.mvReason) return false;
+    if(ui.mvParty && m.party!==ui.mvParty) return false;
+    if(mq){
+      const it=item(m.itemId)||{name:''};
+      if(!(it.name.toLowerCase().includes(mq) || String(m.party||'').toLowerCase().includes(mq))) return false;
+    }
+    return true;
+  });
   const bulkOn = !isIn && ui.bulk.on;
   return `
   ${bulkOn?bulkOutPanel():`
@@ -987,29 +1000,66 @@ function viewMove(dir){
       </div>
     </div>
   </div>`}
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">عدد الحركات</div><div class="v">${rows.length}</div><div class="s">${periodLabel(S.period)}</div></div>
+    <div class="card"><div class="k">إجمالي الكمية</div><div class="v">${fmt(rows.reduce((s,m)=>s+ +m.qty,0))}</div><div class="s">مجموع كل الحركات</div></div>
+    ${isIn?`<div class="card"><div class="k">إجمالي القيمة</div><div class="v">${money(rows.reduce((s,m)=>s+m.qty*(m.price||0),0))}</div><div class="s">درهم</div></div>`
+      :`<div class="card"><div class="k">للفروع</div><div class="v" style="color:var(--blue)">${rows.filter(m=>m.reason==='صرف للفروع').length}</div><div class="s">حركة صرف لفرع</div></div>
+        <div class="card"><div class="k">للإنتاج</div><div class="v">${rows.filter(m=>String(m.reason||'').indexOf('الإنتاج')>=0).length}</div><div class="s">استهلاك خامات</div></div>
+        <div class="card"><div class="k">هالك / تالف</div><div class="v" style="color:var(--red)">${rows.filter(m=>m.reason==='هالك / تالف').length}</div><div class="s">فاقد</div></div>`}
+    <div class="card"><div class="k">أصناف مختلفة</div><div class="v">${new Set(rows.map(m=>m.itemId)).size}</div><div class="s">صنف اتحرك</div></div>
+  </div></div></div>
+
   <div class="panel">
-    <h2>حركات ${isIn?'الوارد':'المنصرف'} في ${periodLabel(S.period)} <em>${rows.length} حركة</em></h2>
-    ${rows.length?`<div class="pad" id="mvBulkBar">${
-      mvSel.size? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--amberbg);border-radius:10px;padding:10px 12px">
+    <h2>حركات ${isIn?'الوارد':'المنصرف'} <em>${shownMoves.length} من ${rows.length}</em>
+      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" style="margin-inline-start:auto">تصدير CSV</button></h2>
+    <div class="pad">
+      <div class="bar">
+        <input type="text" class="grow" id="mv-q" placeholder="دور بالصنف أو الجهة…" value="${esc(ui.mvQ||'')}">
+        ${!isIn?`<select id="mv-reason-filter" style="min-width:150px">
+          <option value="">كل الجهات</option>
+          ${[...new Set(rows.map(m=>m.reason).filter(Boolean))].map(r=>`<option ${ui.mvReason===r?'selected':''}>${esc(r)}</option>`).join('')}
+        </select>`:''}
+        <select id="mv-party-filter" style="min-width:150px">
+          <option value="">${isIn?'كل الموردين':'كل الفروع/الجهات'}</option>
+          ${[...new Set(rows.map(m=>m.party).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar')).map(p=>`<option ${ui.mvParty===p?'selected':''}>${esc(p)}</option>`).join('')}
+        </select>
+        <button class="btn sm ${ui.mvEdit?'p':''}" data-act="mv-toggle-edit">${ui.mvEdit?'إيقاف التعديل':'تعديل التواريخ والحرارة'}</button>
+      </div>
+      ${mvSel.size? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--amberbg);border-radius:10px;padding:10px 12px;margin-top:10px">
         <b style="font-size:13px">${mvSel.size} حركة محددة</b>
         <input type="date" id="mv-bulk-date" value="${today()}">
         <button class="btn sm p" data-act="mv-bulk-date">تغيير تاريخهم</button>
         <button class="btn sm" data-act="mv-clear-sel">إلغاء التحديد</button>
-      </div>` : '<div class="hint">حدد حركة أو أكتر عشان تغيّر تاريخهم دفعة واحدة، أو غيّر تاريخ أي حركة لوحدها من خانة التاريخ.</div>'
-    }</div>`:''}
-    <div class="tblwrap"><table>
-      <thead><tr><th style="width:34px"><input type="checkbox" data-act="mv-sel-all" ${rows.length&&mvSel.size===rows.length?'checked':''}></th><th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th><th>تاريخ الإنتاج</th><th class="n">الحرارة</th>${isIn?'<th class="n">سعر الوحدة</th><th class="n">الإجمالي</th><th>المورد</th>':'<th>جهة الصرف</th><th>ملاحظة</th>'}<th></th></tr></thead>
-      <tbody>${rows.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
-        return `<tr><td><input type="checkbox" data-mvsel="${m.id}" ${mvSel.has(m.id)?'checked':''}></td>
-        <td><input type="date" value="${m.date}" data-mvdate="${m.id}" style="padding:5px 7px;font-size:12.5px"></td><td>${esc(it.name)}</td>
+      </div>`:''}
+    </div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr>
+        ${ui.mvEdit?`<th style="width:30px"><input type="checkbox" data-act="mv-sel-all" ${shownMoves.length&&mvSel.size===shownMoves.length?'checked':''}></th>`:''}
+        <th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th>
+        <th>تاريخ الإنتاج</th><th class="n">الحرارة</th>
+        ${isIn?'<th class="n">سعر الوحدة</th><th class="n">الإجمالي</th><th>المورد</th>':'<th>جهة الصرف</th><th>الفرع / ملاحظة</th>'}
+        <th></th></tr></thead>
+      <tbody>${shownMoves.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
+        return `<tr>
+        ${ui.mvEdit?`<td><input type="checkbox" data-mvsel="${m.id}" ${mvSel.has(m.id)?'checked':''}></td>`:''}
+        <td>${ui.mvEdit?`<input type="date" value="${m.date}" data-mvdate="${m.id}" style="padding:4px 6px;font-size:12px">`:`<span class="n">${m.date}</span>`}</td>
+        <td><div class="iname">${esc(it.name)}</div></td>
         <td class="n">${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span></td>
-        <td><input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:5px 7px;font-size:12.5px"></td>
-        <td class="n"><input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:5px 7px;font-size:12.5px;width:66px;text-align:center">${m.temp!=null&&m.temp!==''?' °':''}</td>
-        ${isIn?`<td class="n">${money(m.price||0)}</td><td class="n"><b>${money(m.qty*(m.price||0))}</b></td><td>${esc(m.party||'—')}</td>`
+        <td>${ui.mvEdit?`<input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.prodDate?`<span class="n">${m.prodDate}</span>`:'<span class="hint">—</span>')}</td>
+        <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
+        ${isIn?`<td class="n">${money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
               :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(m.reason||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
-        <td><button class="btn sm" data-act="print-move" data-print="${m.id}">🖨️ طباعة</button> <button class="btn sm danger" data-del="${m.id}">حذف</button></td></tr>`;}).join('')
-        ||`<tr><td colspan="10" class="empty">لسه مفيش حركات ${isIn?'وارد':'منصرف'} الشهر ده</td></tr>`}
-      </tbody></table></div>
+        <td style="white-space:nowrap"><button class="btn sm" data-act="print-move" data-print="${m.id}">🖨️</button> <button class="btn sm danger" data-del="${m.id}">حذف</button></td></tr>`;}).join('')
+        ||`<tr><td colspan="${ui.mvEdit?10:9}" class="empty">${rows.length?'مفيش حركات مطابقة للفلتر':'لسه مفيش حركات '+(isIn?'وارد':'منصرف')+' الشهر ده'}</td></tr>`}
+      </tbody>
+      ${shownMoves.length?`<tfoot><tr style="font-weight:700">
+        <td colspan="${ui.mvEdit?3:2}">الإجمالي</td>
+        <td class="n">${fmt(shownMoves.reduce((s,m)=>s+ +m.qty,0))}</td>
+        <td colspan="2"></td>
+        ${isIn?`<td></td><td class="n hl">${money(shownMoves.reduce((s,m)=>s+m.qty*(m.price||0),0))}</td><td></td>`:'<td colspan="2"></td>'}
+        <td></td></tr></tfoot>`:''}
+    </table></div>
   </div>`;
 }
  
@@ -1485,6 +1535,9 @@ function bind(){
   const boTo=$('#bo-to'); if(boTo) boTo.onchange=e=>{BO.to=e.target.value;};
   const q=$('#q'); if(q){ q.oninput=e=>{ui.q=e.target.value; const p=e.target.selectionStart; render(); const n=$('#q'); n.focus(); n.setSelectionRange(p,p);}; }
   const c=$('#cat'); if(c) c.onchange=e=>{ui.cat=e.target.value;render();};
+  const mvq=$('#mv-q'); if(mvq) mvq.oninput=e=>{ui.mvQ=e.target.value; const p=e.target.selectionStart; render(); const n=$('#mv-q'); if(n){n.focus(); n.setSelectionRange(p,p);}};
+  const mvrf=$('#mv-reason-filter'); if(mvrf) mvrf.onchange=e=>{ui.mvReason=e.target.value; render();};
+  const mvpf=$('#mv-party-filter'); if(mvpf) mvpf.onchange=e=>{ui.mvParty=e.target.value; render();};
   root.querySelectorAll('[data-mvprod]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvprod); if(!m) return;
     m.prodDate=e.target.value; await saveTx(); toast('اتحفظ تاريخ الإنتاج');
@@ -1645,11 +1698,44 @@ function boMatrixHtml(itemsList, title){
 }
 
 async function act(a,d){
+  if(a==='mv-toggle-edit'){ ui.mvEdit=!ui.mvEdit; if(!ui.mvEdit) mvSel.clear(); return render(); }
+  if(a==='mv-export'){
+    const isIn=d.dir==='in';
+    const rowsAll=S.moves.filter(m=>m.dir===d.dir).slice().reverse();
+    const mq=(ui.mvQ||'').trim().toLowerCase();
+    const list=rowsAll.filter(m=>{
+      if(ui.mvReason && m.reason!==ui.mvReason) return false;
+      if(ui.mvParty && m.party!==ui.mvParty) return false;
+      if(mq){ const it=item(m.itemId)||{name:''}; if(!(it.name.toLowerCase().includes(mq)||String(m.party||'').toLowerCase().includes(mq))) return false; }
+      return true;
+    });
+    if(!list.length) return toast('مفيش حركات للتصدير',1);
+    const head=['التاريخ','الصنف','الوحدة','الكمية','تاريخ الإنتاج','الحرارة'];
+    head.push(...(isIn?['سعر الوحدة','الإجمالي','المورد']:['جهة الصرف','الفرع / ملاحظة']));
+    const out=[head];
+    list.forEach(m=>{const it=item(m.itemId)||{name:'—',unit:''};
+      const r=[m.date,it.name,it.unit,m.qty,m.prodDate||'',(m.temp!=null&&m.temp!=='')?m.temp:''];
+      if(isIn) r.push(m.price||0, n2(m.qty*(m.price||0)), m.party||'');
+      else r.push(m.reason||'', m.party||'');
+      out.push(r);
+    });
+    const csv='\uFEFF'+out.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    const el=document.createElement('a'); el.href=url; el.download=`${isIn?'وارد':'منصرف'}-${S.period}.csv`; el.click(); URL.revokeObjectURL(url);
+    return toast('تم التصدير');
+  }
   if(a==='mv-clear-sel'){ mvSel.clear(); return render(); }
   if(a==='mv-sel-all'){
     const dir = tab==='in'?'in':'out';
-    const ids = S.moves.filter(m=>m.dir===dir).map(m=>m.id);
-    if(mvSel.size===ids.length) mvSel.clear(); else ids.forEach(id=>mvSel.add(id));
+    const mq=(ui.mvQ||'').trim().toLowerCase();
+    const ids = S.moves.filter(m=>{
+      if(m.dir!==dir) return false;
+      if(ui.mvReason && m.reason!==ui.mvReason) return false;
+      if(ui.mvParty && m.party!==ui.mvParty) return false;
+      if(mq){ const it=item(m.itemId)||{name:''}; if(!(it.name.toLowerCase().includes(mq)||String(m.party||'').toLowerCase().includes(mq))) return false; }
+      return true;
+    }).map(m=>m.id);
+    if(ids.every(id=>mvSel.has(id))) ids.forEach(id=>mvSel.delete(id)); else ids.forEach(id=>mvSel.add(id));
     return render();
   }
   if(a==='mv-bulk-date'){
@@ -1689,14 +1775,27 @@ async function act(a,d){
   }
   if(a==='bo-dispense'){
     const faroojName = d.bodispense;
-    const rec = BO.totals[faroojName];
     const match = findMatchingLocalItem(faroojName);
-    if(!rec||!match) return;
+    if(!match) return;
     if(boIsDone(faroojName)) return toast('الصنف ده اتصرف قبل كده للفترة دي',1);
-    const {auto} = dispenseOut(match.id, rec.qty, today(), 'الفروع', 'صرف للفروع (طلبية فروج '+BO.from+' إلى '+BO.to+')');
-    S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:rec.qty, itemId:match.id };
+
+    // بنصرف لكل فرع لوحده باسمه، بدل حركة واحدة مجمّعة
+    const perBranch = [];
+    BO.orders.forEach(o=>{
+      const line=(o.items||[]).find(x=>x.name===faroojName);
+      if(line && +line.qty>0) perBranch.push({branch:o.branch, qty:n2(+line.qty)});
+    });
+    if(!perBranch.length) return toast('مفيش كميات مطلوبة للصنف ده',1);
+
+    let autoAny=false, total=0;
+    for(const b of perBranch){
+      const {auto} = dispenseOut(match.id, b.qty, today(), b.branch, 'صرف للفروع');
+      if(auto) autoAny=true;
+      total = n2(total + b.qty);
+    }
+    S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:perBranch.length };
     await saveTx(); await saveMain();
-    toast(`تم صرف "${match.name}" (${fmt(rec.qty)} ${match.unit})${auto?' — واتخصمت خاماته من الوصفة تلقائي':''}`);
+    toast(`تم صرف "${match.name}" لـ${perBranch.length} فرع (إجمالي ${fmt(total)} ${match.unit})${autoAny?' — والخامات اتخصمت من الوصفة':''}`);
     return render();
   }
   if(a==='bo-undo'){
@@ -1711,16 +1810,26 @@ async function act(a,d){
   if(a==='bo-dispense-all'){
     const names = Object.keys(BO.totals).filter(n=>findMatchingLocalItem(n) && !boIsDone(n));
     if(!names.length) return toast('مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
-    if(!confirm(`هيتم صرف ${names.length} صنف دفعة واحدة من المخزن. تكمل؟`)) return;
-    let autoCount=0;
+    const branchCount = new Set(BO.orders.map(o=>o.branch)).size;
+    if(!confirm(`هيتم صرف ${names.length} صنف على ${branchCount} فرع، كل فرع في حركة منفصلة باسمه. تكمل؟`)) return;
+
+    let moveCount=0, autoCount=0;
     for(const faroojName of names){
-      const rec=BO.totals[faroojName]; const match=findMatchingLocalItem(faroojName);
-      const {auto} = dispenseOut(match.id, rec.qty, today(), 'الفروع', 'صرف للفروع (طلبية فروج '+BO.from+' إلى '+BO.to+')');
-      if(auto) autoCount++;
-      S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:rec.qty, itemId:match.id };
+      const match = findMatchingLocalItem(faroojName);
+      let total=0, autoAny=false, brN=0;
+      for(const o of BO.orders){
+        const line=(o.items||[]).find(x=>x.name===faroojName);
+        if(!line || !(+line.qty>0)) continue;
+        const {auto} = dispenseOut(match.id, n2(+line.qty), today(), o.branch, 'صرف للفروع');
+        if(auto) autoAny=true;
+        total=n2(total+ +line.qty); brN++; moveCount++;
+      }
+      if(!brN) continue;
+      if(autoAny) autoCount++;
+      S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:brN };
     }
     await saveTx(); await saveMain();
-    toast(`تم صرف ${names.length} صنف (${autoCount} منهم خصمت خاماتها تلقائي)`);
+    toast(`تم تسجيل ${moveCount} حركة صرف (${names.length} صنف على الفروع، ${autoCount} منهم خصمت خاماتها تلقائي)`);
     return render();
   }
   if(a==='set-lock'){
@@ -2000,4 +2109,3 @@ window.addEventListener('beforeunload', e => {
   }
 });
 </script>
- 
