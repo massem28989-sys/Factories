@@ -165,6 +165,109 @@ const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const QS = new URLSearchParams(location.search);
 let ROLE = QS.get('manager')!==null ? 'manager' : 'owner';
 let FACTORY = QS.get('factory') || 'kunafa';
+
+/* ================= اللغة (زرار تبديل واضح — بيغطي شاشات وارد/منصرف/الجرد اليومي والهيكل العام) ================= */
+let LANG = (()=>{ try{ return localStorage.getItem('lang')||'ar'; }catch(e){ return 'ar'; } })();
+function setLang(l){ LANG=l; try{ localStorage.setItem('lang',l); }catch(e){} render(); }
+const T = {
+  ar: {
+    daily_stock:'الجرد اليومي', monthly_count:'الجرد الشهري', count_entry:'تسجيل الجرد', in_tab:'وارد', out_tab:'منصرف',
+    period_current:'الفترة الحالية', monthly_count_suffix:'· جرد شهري', items_counted:'أصناف اتعدّت', stock_value:'قيمة المخزون (د.إ)',
+    items_counted2:'أصناف متجردة', under_min:'تحت الحد الأدنى', save_status:'حالة الحفظ', syncing:'بيزامن…', sync_err:'خطأ مزامنة',
+    pending:'في الانتظار', saved_db:'في القاعدة ✓', saved_cloud:'محفوظ ☁', saved_device:'على الجهاز', not_saved:'مش محفوظ',
+    save_backup:'⭳ حفظ نسخة', lock_session:'قفل الجلسة',
+    record_in:'تسجيل وارد للمخزن', record_out:'تسجيل منصرف من المخزن', bulk_out_btn:'⚡ صرف عدة أصناف مرة واحدة',
+    category:'التصنيف', optional_narrow:'(اختياري، لتضييق القايمة)', item:'الصنف', choose_item:'— اختار الصنف —',
+    qty:'الكمية', count_ph:'عدد', unit_price:'سعر الوحدة (د.إ)', supplier:'المورد', new_supplier:'+ مورد جديد',
+    dispense_to:'جهة الصرف', branch:'الفرع', new_branch:'+ فرع جديد', receiving_factory:'المصنع المستلم',
+    no_other_factories:'مفيش مصانع تانية مسجلة', note:'ملاحظة',
+    notify_hint:'المصنع المستلم هيوصله إشعار يقدر يستلمه منه، والصنف هيتضاف لمخزنه تلقائي وقت الاستلام.',
+    date:'التاريخ', prod_date:'تاريخ الإنتاج', optional:'(اختياري)', temp:'درجة الحرارة', temp_ph:'مثلاً 4-',
+    add_in:'إضافة الوارد', record_out_btn:'تسجيل المنصرف', price_hint:'لما تكتب سعر الوحدة، سعر الصنف في كارت الأصناف بيتحدّث تلقائي.',
+    balance_hint:'لو الرصيد مش كفاية، الصرف مش هيسجّل خالص.',
+    moves_count:'عدد الحركات', total_qty:'إجمالي الكمية', total_moves:'مجموع كل الحركات', total_value:'إجمالي القيمة', currency:'درهم',
+    for_branches:'للفروع', branch_moves:'حركة صرف لفرع', for_production:'للإنتاج', raw_consumption:'استهلاك خامات',
+    waste:'هالك / تالف', lost:'فاقد', diff_items:'أصناف مختلفة', item_moved:'صنف اتحرك',
+    moves_of:'حركات', of_in:'الوارد', of_out:'المنصرف', export_csv:'تصدير CSV',
+    search_item_party:'دور بالصنف أو الجهة…', all_parties:'كل الجهات', all_suppliers:'كل الموردين', all_branches_parties:'كل الفروع/الجهات',
+    stop_editing:'إيقاف التعديل', edit_dates_temp:'تعديل التواريخ والحرارة',
+    selected_moves:'حركة محددة', change_their_date:'تغيير تاريخهم', clear_selection:'إلغاء التحديد',
+    th_date:'التاريخ', th_item:'الصنف', th_qty:'الكمية', th_proddate:'تاريخ الإنتاج', th_temp:'الحرارة',
+    th_unitprice:'سعر الوحدة', th_total:'الإجمالي', th_supplier:'المورد', th_dispense_to:'جهة الصرف', th_branch_note:'الفرع / ملاحظة',
+    auto_line:'(خط إنتاج تلقائي)', no_moves_filter:'مفيش حركات مطابقة للفلتر', no_moves_yet:'لسه مفيش حركات', this_month:'الشهر ده',
+    print:'🖨️', delete:'حذف', total:'الإجمالي',
+    bulk_title:'صرف عدة أصناف مرة واحدة', ready_items:'صنف جاهز', back_normal:'رجوع للصرف العادي',
+    bulk_hint:'دوّر على الصنف واكتب الكمية اللي هتصرفها قدامه — سيب أي صنف مش هيتصرف فاضي. اضغط ↓ أو Enter بعد كل رقم عشان تنتقل للصنف اللي بعده على طول.',
+    search_item:'دور على صنف…', th_balance:'الرصيد', th_dispensed_qty:'الكمية المصروفة', no_items_filter:'مفيش أصناف بالفلتر ده',
+    total_dispense_value:'إجمالي قيمة الصرف', record_dispense:'تسجيل الصرف',
+    bulk_in_btn:'⚡ إضافة عدة أصناف وارد مرة واحدة', bulk_in_title:'إضافة عدة أصناف وارد مرة واحدة', th_unit:'الوحدة',
+    total_in_value:'إجمالي قيمة الوارد', record_in_btn:'تسجيل الوارد',
+    ds_value_today:'قيمة مخزون اليوم', ds_items_in:'صنف في الجرد اليومي', ds_available:'متاح', ds_good_balance:'رصيدها كويس',
+    ds_out:'خلص', ds_zero_balance:'رصيدها صفر', ds_low:'تحت الحد', ds_low2:'قرّبت تخلص', ds_today_move:'حركة النهاردة', ds_moves:'حركة',
+    ds_search:'دور على صنف…', ds_all:'الكل', ds_need_action:'محتاج تحرك', ds_ok:'متاح',
+    ds_title_alert:'الأصناف اللي محتاجة تحرك', ds_title_ok:'الأصناف المتاحة', ds_title_all:'أصناف الجرد اليومي',
+    ds_th_item:'الصنف', ds_th_unit:'الوحدة', ds_th_opening:'أول المدة', ds_th_in:'وارد', ds_th_out:'منصرف',
+    ds_th_balance:'الرصيد الحالي', ds_th_price:'السعر', ds_th_value:'القيمة', ds_th_status:'الحالة',
+    ds_no_search:'مفيش صنف مطابق للبحث', ds_no_alert:'كل الأصناف رصيدها كويس', ds_no_items:'مفيش أصناف هنا', ds_export:'تصدير CSV',
+    receipt_in:'إيصال وارد', receipt_out:'إيصال منصرف', receipt_bulk:'إيصال صرف جماعي',
+    permit_receive:'إذن استلام', permit_dispense:'إذن صرف', r_item:'الصنف', r_qty:'الكمية', r_supplier:'المورد',
+    r_unitprice:'سعر الوحدة', r_total:'الإجمالي', r_dispense_to:'جهة الصرف', r_note:'ملاحظة', r_total_items:'إجمالي الأصناف',
+    r_signer:'توقيع المسلّم', r_receiver:'توقيع المستلم', r_print:'🖨️ طباعة', r_close:'قفل',
+  },
+  en: {
+    daily_stock:'Daily Stock', monthly_count:'Monthly Count', count_entry:'Record Count', in_tab:'In', out_tab:'Out',
+    period_current:'Current period', monthly_count_suffix:'\u00b7 monthly count', items_counted:'items counted', stock_value:'Stock value (AED)',
+    items_counted2:'items counted', under_min:'below minimum', save_status:'Save status', syncing:'Syncing\u2026', sync_err:'Sync error',
+    pending:'Pending', saved_db:'Saved \u2713', saved_cloud:'Saved \u2601', saved_device:'Saved on device', not_saved:'Not saved',
+    save_backup:'\u23b3 Save backup', lock_session:'Lock session',
+    record_in:'Record incoming stock', record_out:'Record outgoing stock', bulk_out_btn:'\u26a1 Dispense multiple items at once',
+    category:'Category', optional_narrow:'(optional, to narrow the list)', item:'Item', choose_item:'\u2014 Choose item \u2014',
+    qty:'Quantity', count_ph:'Count', unit_price:'Unit price (AED)', supplier:'Supplier', new_supplier:'+ New supplier',
+    dispense_to:'Dispense to', branch:'Branch', new_branch:'+ New branch', receiving_factory:'Receiving factory',
+    no_other_factories:'No other factories registered', note:'Note',
+    notify_hint:'The receiving factory will get a notification to receive it, and the item will be added to their stock automatically.',
+    date:'Date', prod_date:'Production date', optional:'(optional)', temp:'Temperature', temp_ph:'e.g. -4',
+    add_in:'Add incoming', record_out_btn:'Record dispense', price_hint:'When you enter the unit price, the item price updates automatically.',
+    balance_hint:"If the balance isn't enough, the dispense won't be recorded at all.",
+    moves_count:'Number of moves', total_qty:'Total quantity', total_moves:'Sum of all moves', total_value:'Total value', currency:'AED',
+    for_branches:'To branches', branch_moves:'branch dispense', for_production:'For production', raw_consumption:'raw material use',
+    waste:'Waste / spoiled', lost:'lost', diff_items:'Different items', item_moved:'item moved',
+    moves_of:'', of_in:'Incoming moves', of_out:'Outgoing moves', export_csv:'Export CSV',
+    search_item_party:'Search item or party\u2026', all_parties:'All parties', all_suppliers:'All suppliers', all_branches_parties:'All branches/parties',
+    stop_editing:'Stop editing', edit_dates_temp:'Edit dates & temperature',
+    selected_moves:'moves selected', change_their_date:'Change their date', clear_selection:'Clear selection',
+    th_date:'Date', th_item:'Item', th_qty:'Qty', th_proddate:'Prod. date', th_temp:'Temp',
+    th_unitprice:'Unit price', th_total:'Total', th_supplier:'Supplier', th_dispense_to:'Dispensed to', th_branch_note:'Branch / note',
+    auto_line:'(auto production line)', no_moves_filter:'No moves match the filter', no_moves_yet:'No moves yet', this_month:'this month',
+    print:'\ud83d\udda8\ufe0f', delete:'Delete', total:'Total',
+    bulk_title:'Dispense multiple items at once', ready_items:'items ready', back_normal:'Back to normal dispense',
+    bulk_hint:'Search for an item and type the quantity to dispense next to it \u2014 leave any item you won\u2019t dispense empty. Press \u2193 or Enter after each number to jump to the next item.',
+    search_item:'Search item\u2026', th_balance:'Balance', th_dispensed_qty:'Dispensed qty', no_items_filter:'No items match this filter',
+    total_dispense_value:'Total dispense value', record_dispense:'Record dispense',
+    bulk_in_btn:'⚡ Add multiple incoming items at once', bulk_in_title:'Add multiple incoming items at once', th_unit:'Unit',
+    total_in_value:'Total incoming value', record_in_btn:'Record incoming',
+    ds_value_today:"Today's stock value", ds_items_in:'items in daily stock', ds_available:'Available', ds_good_balance:'good balance',
+    ds_out:'Out of stock', ds_zero_balance:'zero balance', ds_low:'Low stock', ds_low2:'running low', ds_today_move:"Today's moves", ds_moves:'moves',
+    ds_search:'Search item\u2026', ds_all:'All', ds_need_action:'Needs action', ds_ok:'Available',
+    ds_title_alert:'Items that need action', ds_title_ok:'Available items', ds_title_all:'Daily stock items',
+    ds_th_item:'Item', ds_th_unit:'Unit', ds_th_opening:'Opening', ds_th_in:'In', ds_th_out:'Out',
+    ds_th_balance:'Current balance', ds_th_price:'Price', ds_th_value:'Value', ds_th_status:'Status',
+    ds_no_search:'No item matches the search', ds_no_alert:'All items have good balance', ds_no_items:'No items here', ds_export:'Export CSV',
+    receipt_in:'Incoming receipt', receipt_out:'Dispense receipt', receipt_bulk:'Bulk dispense receipt',
+    permit_receive:'Receiving note', permit_dispense:'Dispense note', r_item:'Item', r_qty:'Quantity', r_supplier:'Supplier',
+    r_unitprice:'Unit price', r_total:'Total', r_dispense_to:'Dispensed to', r_note:'Note', r_total_items:'Total items',
+    r_signer:'Handed over by', r_receiver:'Received by', r_print:'\ud83d\udda8\ufe0f Print', r_close:'Close',
+  }
+};
+function t(k){ return (T[LANG] && T[LANG][k]!==undefined) ? T[LANG][k] : (T.ar[k]!==undefined ? T.ar[k] : k); }
+// ترجمة عرض "جهة الصرف" بس (القيمة المخزّنة في البيانات تفضل عربي دايمًا عشان الفلاتر والمقارنات تشتغل صح)
+const REASON_LABEL_EN = {'\u0635\u0631\u0641 \u0644\u0644\u0625\u0646\u062a\u0627\u062c':'For production','\u0635\u0631\u0641 \u0644\u0644\u0641\u0631\u0648\u0639':'To branches','\u0635\u0631\u0641 \u0644\u0645\u0635\u0646\u0639 \u062a\u0627\u0646\u064a':'To another factory','\u0647\u0627\u0644\u0643 / \u062a\u0627\u0644\u0641':'Waste / spoiled','\u0645\u0631\u062a\u062c\u0639 \u0644\u0644\u0645\u0648\u0631\u062f':'Return to supplier','\u0639\u064a\u0646\u0627\u062a':'Samples','\u0623\u062e\u0631\u0649':'Other'};
+function reasonLabel(r){ return LANG==='en' ? (REASON_LABEL_EN[r]||r) : r; }
+function tabLabel(k, v){
+  const map = {dailystock:'daily_stock', count: ROLE==='manager'?'count_entry':'monthly_count', in:'in_tab', out:'out_tab'};
+  return map[k] ? t(map[k]) : v;
+}
+
 let FACTORIES = [{id:'kunafa',name:'مصنع الكنافة'}];
 const FACTORY_LOGOS = {
   'kunafa': 'data:image/png;base64,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',
@@ -242,7 +345,8 @@ const canOpen  = k => !isLocked(k) || !!SESS[k];
 let tab = 'count';
 let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], editing:null, modal:null,
   mvQ:'', mvReason:'', mvParty:'', mvEdit:false,
-  bulk:{on:false, reason:'صرف للفروع', party:'', cat:'الكل', q:'', date:'', qty:{}} };
+  bulk:{on:false, reason:'صرف للفروع', party:'', cat:'الكل', q:'', date:'', qty:{}},
+  bulkIn:{on:false, party:'', cat:'الكل', q:'', date:'', qty:{}, price:{}} };
  
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -564,11 +668,12 @@ function recipeCost(r){
    RENDER
    ================================================================ */
 function render(){
-  const t=totals();
+  const tt=totals();
   const isMgr=ROLE==='manager';
   const _scrollY = window.scrollY;
   const _tbw = document.querySelector('.tblwrap');
   const _tbScroll = _tbw ? _tbw.scrollTop : 0;
+  const langBtn = `<button data-act="toggle-lang" style="padding:5px 10px;font-size:12px;border-radius:6px;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3)">${LANG==='ar'?'English':'العربية'}</button>`;
   $('#root').innerHTML = `
   <div id="toast"></div>
   <header>
@@ -577,20 +682,21 @@ function render(){
       ${isMgr&&DB.err?`<div class="warnbar">مش قادر أوصل بصاحب المصنع دلوقتي: ${esc(DB.err)}</div>`:''}
       <div class="hrow">
         ${FACTORY_LOGOS[FACTORY]?`<img src="${FACTORY_LOGOS[FACTORY]}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:8px;background:#fff;padding:2px">`:''}
-        <div class="brand">${isMgr?'جرد ':'مخزن '}${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:'المصنع'}).name)}
-          <small>الفترة الحالية: ${periodLabel(S.period)}${isMgr?'':' · جرد شهري'}</small></div>
+        <div class="brand">${isMgr?(LANG==='en'?'Count ':'جرد '):(LANG==='en'?'Stock ':'مخزن ')}${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:'المصنع'}).name)}
+          <small>${t('period_current')}: ${periodLabel(S.period)}${isMgr?'':' '+t('monthly_count_suffix')}</small></div>
         <div class="hstat">
-          ${isMgr?`<div><b>${t.counted}/${t.total}</b><span>أصناف اتعدّت</span></div>`:`
-          <div><b>${money(t.value)}</b><span>قيمة المخزون (د.إ)</span></div>
-          <div><b>${t.counted}/${t.total}</b><span>أصناف متجردة</span></div>
-          <div><b>${t.low}</b><span>تحت الحد الأدنى</span></div>
-          <div><b style="font-size:13px;color:${DB.on?(DB.err?'#F0C9C3':'#9FD6B6'):MODE==='memory'?'#F0C9C3':'#D9E0E5'}">${DB.on?(DB.busy?'بيزامن…':DB.err?'خطأ مزامنة':DB.dirty?'في الانتظار':'في القاعدة ✓'):MODE==='cloud'?'محفوظ ☁':MODE==='browser'?'على الجهاز':'مش محفوظ'}</b><span>حالة الحفظ</span></div>
-          <div><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">⭳ حفظ نسخة${BK.dirty>0?` (${BK.dirty} تعديل)`:''}</button></div>`}
+          ${isMgr?`<div><b>${tt.counted}/${tt.total}</b><span>${t('items_counted')}</span></div>`:`
+          <div><b>${money(tt.value)}</b><span>${t('stock_value')}</span></div>
+          <div><b>${tt.counted}/${tt.total}</b><span>${t('items_counted2')}</span></div>
+          <div><b>${tt.low}</b><span>${t('under_min')}</span></div>
+          <div><b style="font-size:13px;color:${DB.on?(DB.err?'#F0C9C3':'#9FD6B6'):MODE==='memory'?'#F0C9C3':'#D9E0E5'}">${DB.on?(DB.busy?t('syncing'):DB.err?t('sync_err'):DB.dirty?t('pending'):t('saved_db')):MODE==='cloud'?t('saved_cloud'):MODE==='browser'?t('saved_device'):t('not_saved')}</b><span>${t('save_status')}</span></div>
+          <div><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">${t('save_backup')}${BK.dirty>0?` (${BK.dirty})`:''}</button></div>`}
+          <div>${langBtn}</div>
         </div>
       </div>
       <nav>
-        ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${v}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}
-        ${(!isMgr&&Object.values(SESS).some(Boolean))?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">قفل الجلسة</button>`:''}
+        ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}
+        ${(!isMgr&&Object.values(SESS).some(Boolean))?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">${t('lock_session')}</button>`:''}
       </nav>
     </div>
   </header>
@@ -643,7 +749,7 @@ function filterBar(withOnly){
 function categoryTabs(scope){
   const counts={}; S.items.forEach(i=>counts[i.cat]=(counts[i.cat]||0)+1);
   const all=cats();
-  const cur = scope==='b' ? ui.bulk.cat : ui.cat;
+  const cur = scope==='b' ? ui.bulk.cat : scope==='bi' ? ui.bulkIn.cat : ui.cat;
   return `<div class="cattabs">
     ${all.map(c=>`<button class="cattab ${cur===c?'on':''}" data-cattab="${esc(c)}" data-scope="${scope||''}">${esc(c)}${c!=='الكل'?` <span class="ct-n">${counts[c]||0}</span>`:''}</button>`).join('')}
   </div>`;
@@ -700,37 +806,36 @@ function viewDailyStock(){
 
   return `
   <div class="panel"><div class="pad"><div class="cards">
-    <div class="card"><div class="k">قيمة مخزون اليوم</div><div class="v">${money(totalValue)}</div><div class="s">${rows.length} صنف</div></div>
-    <div class="card"><div class="k">متاح</div><div class="v" style="color:var(--green)">${okCount}</div><div class="s">رصيدها كويس</div></div>
-    <div class="card"><div class="k">خلص</div><div class="v" style="color:var(--red)">${outCount}</div><div class="s">رصيدها صفر</div></div>
-    <div class="card"><div class="k">تحت الحد</div><div class="v" style="color:var(--amber)">${lowCount}</div><div class="s">قرّبت تخلص</div></div>
-    <div class="card"><div class="k">حركة النهاردة</div><div class="v" style="font-size:18px"><span style="color:var(--green)">+${fmt(inToday)}</span> <span style="color:var(--muted);font-weight:400">/</span> <span style="color:var(--red)">\u2212${fmt(outToday)}</span></div><div class="s">${todayMoves.length} حركة</div></div>
+    <div class="card"><div class="k">${t('ds_value_today')}</div><div class="v">${money(totalValue)}</div><div class="s">${rows.length} ${t('ds_items_in')}</div></div>
+    <div class="card"><div class="k">${t('ds_available')}</div><div class="v" style="color:var(--green)">${okCount}</div><div class="s">${t('ds_good_balance')}</div></div>
+    <div class="card"><div class="k">${t('ds_out')}</div><div class="v" style="color:var(--red)">${outCount}</div><div class="s">${t('ds_zero_balance')}</div></div>
+    <div class="card"><div class="k">${t('ds_low')}</div><div class="v" style="color:var(--amber)">${lowCount}</div><div class="s">${t('ds_low2')}</div></div>
+    <div class="card"><div class="k">${t('ds_today_move')}</div><div class="v" style="font-size:18px"><span style="color:var(--green)">+${fmt(inToday)}</span> <span style="color:var(--muted);font-weight:400">/</span> <span style="color:var(--red)">\u2212${fmt(outToday)}</span></div><div class="s">${todayMoves.length} ${t('ds_moves')}</div></div>
   </div></div></div>
 
   <div class="panel"><div class="pad">
     <div class="bar">
-      <input type="text" class="grow" id="q" placeholder="دور على صنف…" value="${esc(ui.q)}">
-      <button class="btn sm ${dsOnly==='all'?'p':''}" data-dsonly="all">الكل ${rows.length}</button>
-      <button class="btn sm ${dsOnly==='alert'?'p':''}" data-dsonly="alert">محتاج تحرك ${outCount+lowCount}</button>
-      <button class="btn sm ${dsOnly==='ok'?'p':''}" data-dsonly="ok">متاح ${okCount}</button>
+      <input type="text" class="grow" id="q" placeholder="${t('ds_search')}" value="${esc(ui.q)}">
+      <button class="btn sm ${dsOnly==='all'?'p':''}" data-dsonly="all">${t('ds_all')} ${rows.length}</button>
+      <button class="btn sm ${dsOnly==='alert'?'p':''}" data-dsonly="alert">${t('ds_need_action')} ${outCount+lowCount}</button>
+      <button class="btn sm ${dsOnly==='ok'?'p':''}" data-dsonly="ok">${t('ds_ok')} ${okCount}</button>
     </div>
   </div></div>
 
   <div class="panel">
-  <div class="panel">
-    <h2>${dsOnly==='alert'?'الأصناف اللي محتاجة تحرك':(dsOnly==='ok'?'الأصناف المتاحة':'أصناف الجرد اليومي')} <em>${shown.length} صنف</em>
-      <button class="btn sm g" data-act="ds-export" style="margin-inline-start:auto">تصدير CSV</button></h2>
+    <h2>${dsOnly==='alert'?t('ds_title_alert'):(dsOnly==='ok'?t('ds_title_ok'):t('ds_title_all'))} <em>${shown.length}</em>
+      <button class="btn sm g" data-act="ds-export" style="margin-inline-start:auto">${t('ds_export')}</button></h2>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr>
-        <th style="cursor:pointer" data-dssort="name">الصنف${arrow('name')}</th>
-        <th>الوحدة</th>
-        <th class="n">أول المدة</th>
-        <th class="n">وارد</th>
-        <th class="n">منصرف</th>
-        <th class="n hl" style="cursor:pointer" data-dssort="book">الرصيد الحالي${arrow('book')}</th>
-        <th class="n">السعر</th>
-        <th class="n" style="cursor:pointer" data-dssort="value">القيمة${arrow('value')}</th>
-        <th>الحالة</th>
+        <th style="cursor:pointer" data-dssort="name">${t('ds_th_item')}${arrow('name')}</th>
+        <th>${t('ds_th_unit')}</th>
+        <th class="n">${t('ds_th_opening')}</th>
+        <th class="n">${t('ds_th_in')}</th>
+        <th class="n">${t('ds_th_out')}</th>
+        <th class="n hl" style="cursor:pointer" data-dssort="book">${t('ds_th_balance')}${arrow('book')}</th>
+        <th class="n">${t('ds_th_price')}</th>
+        <th class="n" style="cursor:pointer" data-dssort="value">${t('ds_th_value')}${arrow('value')}</th>
+        <th>${t('ds_th_status')}</th>
       </tr></thead>
       <tbody>${shown.length? shown.map(r=>`
         <tr class="${r.out?'lowrow':''}">
@@ -742,10 +847,10 @@ function viewDailyStock(){
           <td class="n hl">${fmt(r.book)}</td>
           <td class="n">${r.it.price>0?money(r.it.price):'\u2014'}</td>
           <td class="n">${r.it.price>0?money(r.value):'\u2014'}</td>
-          <td>${r.out?'<span class="chip r">خلص</span>':(r.low?'<span class="chip a">تحت الحد</span>':'<span class="chip g">متاح</span>')}</td>
-        </tr>`).join('') : `<tr><td colspan="9" class="empty">${q?'مفيش صنف مطابق للبحث':(dsOnly==='alert'?'كل الأصناف رصيدها كويس':'مفيش أصناف هنا')}</td></tr>`}</tbody>
+          <td>${r.out?`<span class="chip r">${t('ds_out')}</span>`:(r.low?`<span class="chip a">${t('ds_low')}</span>`:`<span class="chip g">${t('ds_available')}</span>`)}</td>
+        </tr>`).join('') : `<tr><td colspan="9" class="empty">${q?t('ds_no_search'):(dsOnly==='alert'?t('ds_no_alert'):t('ds_no_items'))}</td></tr>`}</tbody>
       ${shown.length?`<tfoot><tr style="font-weight:700">
-        <td colspan="7">الإجمالي</td><td class="n">${money(shown.reduce((s,r)=>s+r.value,0))}</td><td></td>
+        <td colspan="7">${t('total')}</td><td class="n">${money(shown.reduce((s,r)=>s+r.value,0))}</td><td></td>
       </tr></tfoot>`:''}
     </table></div>
   </div>`;
@@ -1054,6 +1159,46 @@ function viewCountManager(){
 }
  
 /* ---------- صرف جماعي: كذا صنف لنفس الفرع في نفس الوقت ---------- */
+function bulkInPanel(){
+  const b = ui.bulkIn;
+  const list = S.items.filter(i=>(b.cat==='الكل'||i.cat===b.cat) && (!b.q || i.name.toLowerCase().includes(b.q.toLowerCase())));
+  let total=0, count=0;
+  Object.entries(b.qty).forEach(([id,v])=>{ const it=item(id); if(it&&+v>0){ const pr=(b.price[id]!==undefined?+b.price[id]:(it.price||0)); total+=pr*(+v); count++; } });
+  return `
+  <div class="panel">
+    <h2>${t('bulk_in_title')} <em>${count} ${t('ready_items')}</em>
+      <button class="btn sm" data-act="toggle-bulk-in" style="margin-inline-start:auto">${t('back_normal')}</button></h2>
+    <div class="pad">
+      <div class="grid" style="margin-bottom:0">
+        <div><label class="f">${t('supplier')}</label>
+          <div style="display:flex;gap:6px">
+            <select id="bi-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option ${b.party===sp?'selected':''}>${esc(sp)}</option>`).join('')}</select>
+            <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
+          </div></div>
+        <div><label class="f">${t('date')}</label><input type="date" id="bi-date" value="${b.date||today()}" style="width:100%"></div>
+      </div>
+    </div>
+    <div class="hint" style="padding:0 14px 10px">${t('bulk_hint')}</div>
+    ${categoryTabs('bi')}
+    <div class="bar"><input type="text" class="grow" id="bi-q" placeholder="${t('search_item')}" value="${esc(b.q)}"></div>
+    <div class="tblwrap" style="max-height:min(50vh,560px)"><table>
+      <thead><tr><th>${t('item')}</th><th>${t('th_unit')}</th><th>${t('th_balance')}</th><th>${t('qty')}</th><th>${t('unit_price')}</th></tr></thead>
+      <tbody>${(()=>{let lastCat=null; return list.map((it,idx)=>{const c=calc(it); const v=b.qty[it.id]||''; const pr=b.price[it.id]!==undefined?b.price[it.id]:'';
+        const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="5">${esc(it.cat)}</td></tr>`) : '';
+        return hdr+`<tr>
+          <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}</div></td>
+          <td><span class="chip">${esc(it.unit)}</span></td>
+          <td class="n">${fmt(c.book)}</td>
+          <td><input type="number" step="any" class="cell${v?' filled':''}" data-bulkinqty="${it.id}" data-row="${idx}" value="${v}" placeholder="—"></td>
+          <td><input type="number" step="any" class="cell" data-bulkinprice="${it.id}" value="${pr}" placeholder="${it.price>0?fmt(it.price):'—'}"></td>
+        </tr>`;}).join('');})()||`<tr><td colspan="5" class="empty">${t('no_items_filter')}</td></tr>`}
+      </tbody></table></div>
+    <div class="pad" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line)">
+      <span class="hint">${t('total_in_value')}: <b class="num">${money(total)}</b> ${t('currency')}</span>
+      <button class="btn p" style="margin-inline-start:auto" data-act="bulk-in-submit">${t('record_in_btn')} (${count})</button>
+    </div>
+  </div>`;
+}
 function bulkOutPanel(){
   const b = ui.bulk;
   const list = S.items.filter(i=>(b.cat==='الكل'||i.cat===b.cat) && (!b.q || i.name.toLowerCase().includes(b.q.toLowerCase())));
@@ -1061,27 +1206,27 @@ function bulkOutPanel(){
   Object.entries(b.qty).forEach(([id,v])=>{ const it=item(id); if(it&&+v>0){ total+=(it.price||0)*(+v); count++; } });
   return `
   <div class="panel">
-    <h2>صرف عدة أصناف مرة واحدة <em>${count} صنف جاهز</em>
-      <button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">رجوع للصرف العادي</button></h2>
+    <h2>${t('bulk_title')} <em>${count} ${t('ready_items')}</em>
+      <button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">${t('back_normal')}</button></h2>
     <div class="pad">
       <div class="grid" style="margin-bottom:0">
-        <div><label class="f">جهة الصرف</label><select id="b-reason" style="width:100%">${OUT_REASONS.map(r=>`<option ${b.reason===r?'selected':''}>${r}</option>`).join('')}</select></div>
-        <div>${b.reason==='صرف للفروع'?`<label class="f">الفرع</label>
+        <div><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        <div>${b.reason==='صرف للفروع'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="b-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option ${b.party===br?'selected':''}>${br}</option>`).join('')}</select>
-            <button type="button" class="btn sm" data-act="add-branch">+ فرع جديد</button>
+            <button type="button" class="btn sm" data-act="add-branch">${t('new_branch')}</button>
           </div>`
-          :b.reason==='صرف لمصنع تاني'?`<label class="f">المصنع المستلم</label>
-            <select id="b-party" style="width:100%">${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}" ${b.party===f.id?'selected':''}>${esc(f.name)}</option>`).join('') || '<option value="">مفيش مصانع تانية مسجلة</option>'}</select>`
-          :`<label class="f">ملاحظة</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>
-        <div><label class="f">التاريخ</label><input type="date" id="b-date" value="${b.date||today()}" style="width:100%"></div>
+          :b.reason==='صرف لمصنع تاني'?`<label class="f">${t('receiving_factory')}</label>
+            <select id="b-party" style="width:100%">${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}" ${b.party===f.id?'selected':''}>${esc(f.name)}</option>`).join('') || `<option value="">${t('no_other_factories')}</option>`}</select>`
+          :`<label class="f">${t('note')}</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>
+        <div><label class="f">${t('date')}</label><input type="date" id="b-date" value="${b.date||today()}" style="width:100%"></div>
       </div>
     </div>
-    <div class="hint" style="padding:0 14px 10px">دوّر على الصنف واكتب الكمية اللي هتصرفها قدامه — سيب أي صنف مش هيتصرف فاضي. اضغط ↓ أو Enter بعد كل رقم عشان تنتقل للصنف اللي بعده على طول.</div>
+    <div class="hint" style="padding:0 14px 10px">${t('bulk_hint')}</div>
     ${categoryTabs('b')}
-    <div class="bar"><input type="text" class="grow" id="b-q" placeholder="دور على صنف…" value="${esc(b.q)}"></div>
+    <div class="bar"><input type="text" class="grow" id="b-q" placeholder="${t('search_item')}" value="${esc(b.q)}"></div>
     <div class="tblwrap" style="max-height:min(50vh,560px)"><table>
-      <thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد</th><th>الكمية المصروفة</th></tr></thead>
+      <thead><tr><th>${t('item')}</th><th>${t('ds_th_unit')}</th><th>${t('th_balance')}</th><th>${t('th_dispensed_qty')}</th></tr></thead>
       <tbody>${(()=>{let lastCat=null; return list.map((it,idx)=>{const c=calc(it); const v=b.qty[it.id]||'';
         const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="4">${esc(it.cat)}</td></tr>`) : '';
         return hdr+`<tr>
@@ -1089,17 +1234,17 @@ function bulkOutPanel(){
           <td><span class="chip">${esc(it.unit)}</span></td>
           <td class="n">${fmt(c.book)}</td>
           <td><input type="number" step="any" class="cell${v?' filled':''}" data-bulkqty="${it.id}" data-row="${idx}" value="${v}" placeholder="—"></td>
-        </tr>`;}).join('');})()||`<tr><td colspan="4" class="empty">مفيش أصناف بالفلتر ده</td></tr>`}
+        </tr>`;}).join('');})()||`<tr><td colspan="4" class="empty">${t('no_items_filter')}</td></tr>`}
       </tbody></table></div>
     <div class="pad" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line)">
-      <span class="hint">إجمالي قيمة الصرف: <b class="num">${money(total)}</b> د.إ</span>
-      <button class="btn p" style="margin-inline-start:auto" data-act="bulk-submit">تسجيل الصرف (${count} صنف)</button>
+      <span class="hint">${t('total_dispense_value')}: <b class="num">${money(total)}</b> ${t('currency')}</span>
+      <button class="btn p" style="margin-inline-start:auto" data-act="bulk-submit">${t('record_dispense')} (${count})</button>
     </div>
   </div>`;
 }
  
 function viewMove(dir){
- 
+
   const isIn=dir==='in';
   const rows=S.moves.filter(m=>m.dir===dir).slice().reverse();
   const mq=(ui.mvQ||'').trim().toLowerCase();
@@ -1113,107 +1258,109 @@ function viewMove(dir){
     return true;
   });
   const bulkOn = !isIn && ui.bulk.on;
+  const bulkInOn = isIn && ui.bulkIn.on;
   return `
-  ${bulkOn?bulkOutPanel():`
+  ${bulkOn?bulkOutPanel():bulkInOn?bulkInPanel():`
   <div class="panel">
-    <h2>${isIn?'تسجيل وارد للمخزن':'تسجيل منصرف من المخزن'}
-      ${!isIn?`<button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">⚡ صرف عدة أصناف مرة واحدة</button>`:''}</h2>
+    <h2>${isIn?t('record_in'):t('record_out')}
+      ${isIn?`<button class="btn sm" data-act="toggle-bulk-in" style="margin-inline-start:auto">${t('bulk_in_btn')}</button>`:''}
+      ${!isIn?`<button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">${t('bulk_out_btn')}</button>`:''}</h2>
     <div class="pad">
       <div class="grid">
-        <div style="grid-column:span 2"><label class="f">التصنيف <span style="color:var(--muted)">(اختياري، لتضييق القايمة)</span></label>
+        <div style="grid-column:span 2"><label class="f">${t('category')} <span style="color:var(--muted)">${t('optional_narrow')}</span></label>
           <select id="m-cat" style="width:100%">${cats().map(c=>`<option ${ui.moveCat===c?'selected':''}>${c}</option>`).join('')}</select></div>
-        <div style="grid-column:span 2"><label class="f">الصنف</label>
-          <select id="m-item" style="width:100%"><option value="">— اختار الصنف —</option>
+        <div style="grid-column:span 2"><label class="f">${t('item')}</label>
+          <select id="m-item" style="width:100%"><option value="">${t('choose_item')}</option>
           ${S.items.filter(i=>ui.moveCat==='الكل'||i.cat===ui.moveCat).map(i=>`<option value="${i.id}">${esc(i.name)} (${esc(i.unit)}) · ${esc(i.cat)}</option>`).join('')}</select></div>
-        <div id="m-qtybox"><label class="f">الكمية</label>
+        <div id="m-qtybox"><label class="f">${t('qty')}</label>
           <div style="display:flex;gap:6px">
-            <input type="number" step="any" id="m-packs" style="width:78px" placeholder="عدد">
+            <input type="number" step="any" id="m-packs" style="width:78px" placeholder="${t('count_ph')}">
             <select id="m-unitmode" style="flex:1;min-width:0"></select>
           </div>
           <div class="hint" id="m-conv" style="margin-top:4px"></div>
         </div>
-        ${isIn?`<div><label class="f">سعر الوحدة (د.إ)</label><input type="number" step="any" id="m-price" style="width:100%"></div>
-        <div><label class="f">المورد</label>
+        ${isIn?`<div><label class="f">${t('unit_price')}</label><input type="number" step="any" id="m-price" style="width:100%"></div>
+        <div><label class="f">${t('supplier')}</label>
           <div style="display:flex;gap:6px">
             <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
-            <button type="button" class="btn sm" data-act="add-supplier">+ مورد جديد</button>
+            <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
           </div></div>`
-        :`<div><label class="f">جهة الصرف</label><select id="m-reason" style="width:100%">${OUT_REASONS.map(r=>`<option ${ui.moveReason===r?'selected':''}>${r}</option>`).join('')}</select></div>
-        <div>${ui.moveReason==='صرف للفروع'?`<label class="f">الفرع</label>
+        :`<div><label class="f">${t('dispense_to')}</label><select id="m-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${ui.moveReason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        <div>${ui.moveReason==='صرف للفروع'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="m-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option>${esc(br)}</option>`).join('')}</select>
-            <button type="button" class="btn sm" data-act="add-branch">+ فرع جديد</button>
+            <button type="button" class="btn sm" data-act="add-branch">${t('new_branch')}</button>
           </div>`
-          :ui.moveReason==='صرف لمصنع تاني'?`<label class="f">المصنع المستلم</label>
-            <select id="m-party" style="width:100%">${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('') || '<option value="">مفيش مصانع تانية مسجلة</option>'}</select>
-            <div class="hint" style="margin-top:4px">المصنع المستلم هيوصله إشعار يقدر يستلمه منه، والصنف هيتضاف لمخزنه تلقائي وقت الاستلام.</div>`
-          :`<label class="f">ملاحظة</label><input type="text" id="m-party" style="width:100%">`}</div>`}
-        <div><label class="f">التاريخ</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
-        <div><label class="f">تاريخ الإنتاج <span class="hint">(اختياري)</span></label><input type="date" id="m-proddate" style="width:100%"></div>
-        <div><label class="f">درجة الحرارة <span class="hint">(اختياري)</span></label><input type="number" step="any" id="m-temp" placeholder="مثلاً 4-" style="width:100%"></div>
+          :ui.moveReason==='صرف لمصنع تاني'?`<label class="f">${t('receiving_factory')}</label>
+            <select id="m-party" style="width:100%">${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('') || `<option value="">${t('no_other_factories')}</option>`}</select>
+            <div class="hint" style="margin-top:4px">${t('notify_hint')}</div>`
+          :`<label class="f">${t('note')}</label><input type="text" id="m-party" style="width:100%">`}</div>`}
+        <div><label class="f">${t('date')}</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
+        <div><label class="f">${t('prod_date')} <span class="hint">${t('optional')}</span></label><input type="date" id="m-proddate" style="width:100%"></div>
+        <div><label class="f">${t('temp')} <span class="hint">${t('optional')}</span></label><input type="number" step="any" id="m-temp" placeholder="${t('temp_ph')}" style="width:100%"></div>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
         <input type="hidden" id="m-qty" value="">
-        <button class="btn p" data-act="add-move" data-dir="${dir}">${isIn?'إضافة الوارد':'تسجيل المنصرف'}</button>
-        ${isIn?'<span class="hint">لما تكتب سعر الوحدة، سعر الصنف في كارت الأصناف بيتحدّث تلقائي.</span>':'<span class="hint">لو الرصيد مش كفاية، الصرف مش هيسجّل خالص.</span>'}
+        <button class="btn p" data-act="add-move" data-dir="${dir}">${isIn?t('add_in'):t('record_out_btn')}</button>
+        ${isIn?`<span class="hint">${t('price_hint')}</span>`:`<span class="hint">${t('balance_hint')}</span>`}
       </div>
     </div>
   </div>`}
   <div class="panel"><div class="pad"><div class="cards">
-    <div class="card"><div class="k">عدد الحركات</div><div class="v">${rows.length}</div><div class="s">${periodLabel(S.period)}</div></div>
-    <div class="card"><div class="k">إجمالي الكمية</div><div class="v">${fmt(rows.reduce((s,m)=>s+ +m.qty,0))}</div><div class="s">مجموع كل الحركات</div></div>
-    ${isIn?`<div class="card"><div class="k">إجمالي القيمة</div><div class="v">${money(rows.reduce((s,m)=>s+m.qty*(m.price||0),0))}</div><div class="s">درهم</div></div>`
-      :`<div class="card"><div class="k">للفروع</div><div class="v" style="color:var(--blue)">${rows.filter(m=>m.reason==='صرف للفروع').length}</div><div class="s">حركة صرف لفرع</div></div>
-        <div class="card"><div class="k">للإنتاج</div><div class="v">${rows.filter(m=>String(m.reason||'').indexOf('الإنتاج')>=0).length}</div><div class="s">استهلاك خامات</div></div>
-        <div class="card"><div class="k">هالك / تالف</div><div class="v" style="color:var(--red)">${rows.filter(m=>m.reason==='هالك / تالف').length}</div><div class="s">فاقد</div></div>`}
-    <div class="card"><div class="k">أصناف مختلفة</div><div class="v">${new Set(rows.map(m=>m.itemId)).size}</div><div class="s">صنف اتحرك</div></div>
+    <div class="card"><div class="k">${t('moves_count')}</div><div class="v">${rows.length}</div><div class="s">${periodLabel(S.period)}</div></div>
+    <div class="card"><div class="k">${t('total_qty')}</div><div class="v">${fmt(rows.reduce((s,m)=>s+ +m.qty,0))}</div><div class="s">${t('total_moves')}</div></div>
+    ${isIn?`<div class="card"><div class="k">${t('total_value')}</div><div class="v">${money(rows.reduce((s,m)=>s+m.qty*(m.price||0),0))}</div><div class="s">${t('currency')}</div></div>`
+      :`<div class="card"><div class="k">${t('for_branches')}</div><div class="v" style="color:var(--blue)">${rows.filter(m=>m.reason==='صرف للفروع').length}</div><div class="s">${t('branch_moves')}</div></div>
+        <div class="card"><div class="k">${t('for_production')}</div><div class="v">${rows.filter(m=>String(m.reason||'').indexOf('الإنتاج')>=0).length}</div><div class="s">${t('raw_consumption')}</div></div>
+        <div class="card"><div class="k">${t('waste')}</div><div class="v" style="color:var(--red)">${rows.filter(m=>m.reason==='هالك / تالف').length}</div><div class="s">${t('lost')}</div></div>`}
+    <div class="card"><div class="k">${t('diff_items')}</div><div class="v">${new Set(rows.map(m=>m.itemId)).size}</div><div class="s">${t('item_moved')}</div></div>
   </div></div></div>
 
   <div class="panel">
-    <h2>حركات ${isIn?'الوارد':'المنصرف'} <em>${shownMoves.length} من ${rows.length}</em>
-      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" style="margin-inline-start:auto">تصدير CSV</button></h2>
+    <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
+      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" style="margin-inline-start:auto">${t('export_csv')}</button></h2>
     <div class="pad">
       <div class="bar">
-        <input type="text" class="grow" id="mv-q" placeholder="دور بالصنف أو الجهة…" value="${esc(ui.mvQ||'')}">
+        <input type="text" class="grow" id="mv-q" placeholder="${t('search_item_party')}" value="${esc(ui.mvQ||'')}">
         ${!isIn?`<select id="mv-reason-filter" style="min-width:150px">
-          <option value="">كل الجهات</option>
+          <option value="">${t('all_parties')}</option>
           ${[...new Set(rows.map(m=>m.reason).filter(Boolean))].map(r=>`<option ${ui.mvReason===r?'selected':''}>${esc(r)}</option>`).join('')}
         </select>`:''}
         <select id="mv-party-filter" style="min-width:150px">
-          <option value="">${isIn?'كل الموردين':'كل الفروع/الجهات'}</option>
+          <option value="">${isIn?t('all_suppliers'):t('all_branches_parties')}</option>
           ${[...new Set(rows.map(m=>m.party).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar')).map(p=>`<option ${ui.mvParty===p?'selected':''}>${esc(p)}</option>`).join('')}
         </select>
-        <button class="btn sm ${ui.mvEdit?'p':''}" data-act="mv-toggle-edit">${ui.mvEdit?'إيقاف التعديل':'تعديل التواريخ والحرارة'}</button>
+        <button class="btn sm ${ui.mvEdit?'p':''}" data-act="mv-toggle-edit">${ui.mvEdit?t('stop_editing'):t('edit_dates_temp')}</button>
       </div>
       ${mvSel.size? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--amberbg);border-radius:10px;padding:10px 12px;margin-top:10px">
-        <b style="font-size:13px">${mvSel.size} حركة محددة</b>
+        <b style="font-size:13px">${mvSel.size} ${t('selected_moves')}</b>
         <input type="date" id="mv-bulk-date" value="${today()}">
-        <button class="btn sm p" data-act="mv-bulk-date">تغيير تاريخهم</button>
-        <button class="btn sm" data-act="mv-clear-sel">إلغاء التحديد</button>
+        <button class="btn sm p" data-act="mv-bulk-date">${t('change_their_date')}</button>
+        <button class="btn sm" data-act="mv-clear-sel">${t('clear_selection')}</button>
       </div>`:''}
     </div>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr>
         ${ui.mvEdit?`<th style="width:30px"><input type="checkbox" data-act="mv-sel-all" ${shownMoves.length&&mvSel.size===shownMoves.length?'checked':''}></th>`:''}
-        <th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th>
-        <th>تاريخ الإنتاج</th><th class="n">الحرارة</th>
-        ${isIn?'<th class="n">سعر الوحدة</th><th class="n">الإجمالي</th><th>المورد</th>':'<th>جهة الصرف</th><th>الفرع / ملاحظة</th>'}
+        <th>${t('th_date')}</th><th>${t('th_item')}</th><th class="n">${t('th_qty')}</th>
+        <th>${t('th_proddate')}</th><th class="n">${t('th_temp')}</th>
+        ${isIn?`<th class="n">${t('th_unitprice')}</th><th class="n">${t('th_total')}</th><th>${t('th_supplier')}</th>`:`<th>${t('th_dispense_to')}</th><th>${t('th_branch_note')}</th>`}
         <th></th></tr></thead>
       <tbody>${shownMoves.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
         return `<tr>
         ${ui.mvEdit?`<td><input type="checkbox" data-mvsel="${m.id}" ${mvSel.has(m.id)?'checked':''}></td>`:''}
         <td>${ui.mvEdit?`<input type="date" value="${m.date}" data-mvdate="${m.id}" style="padding:4px 6px;font-size:12px">`:`<span class="n">${m.date}</span>`}</td>
-        <td><div class="iname">${esc(it.name)}</div>${m.runId?'<span class="hint"> (خط إنتاج تلقائي)</span>':''}</td>
+        <td><div class="iname">${esc(it.name)}</div>${m.runId?`<span class="hint"> ${t('auto_line')}</span>`:''}</td>
         <td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.qty}" data-mvqty="${m.id}" style="padding:4px 6px;font-size:12px;width:78px;text-align:center"> <span class="chip">${esc(it.unit)}</span>`:`${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span>`}</td>
         <td>${ui.mvEdit?`<input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.prodDate?`<span class="n">${m.prodDate}</span>`:'<span class="hint">—</span>')}</td>
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
         ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
-              :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(m.reason||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
-        <td style="white-space:nowrap"><button class="btn sm" data-act="print-move" data-print="${m.id}">🖨️</button> <button class="btn sm danger" data-del="${m.id}">حذف</button></td></tr>`;}).join('')
-        ||`<tr><td colspan="${ui.mvEdit?10:9}" class="empty">${rows.length?'مفيش حركات مطابقة للفلتر':'لسه مفيش حركات '+(isIn?'وارد':'منصرف')+' الشهر ده'}</td></tr>`}
+              :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
+        <td style="white-space:nowrap"><button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> <button class="btn sm danger" data-del="${m.id}">${t('delete')}</button></td></tr>`;}).join('')
+        ||`<tr><td colspan="${ui.mvEdit?10:9}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
       </tbody>
       ${shownMoves.length?`<tfoot><tr style="font-weight:700">
-        <td colspan="${ui.mvEdit?3:2}">الإجمالي</td>
+        <td colspan="${ui.mvEdit?3:2}">${t('total')}</td>
         <td class="n">${fmt(shownMoves.reduce((s,m)=>s+ +m.qty,0))}</td>
         <td colspan="2"></td>
         ${isIn?`<td></td><td class="n hl">${money(shownMoves.reduce((s,m)=>s+m.qty*(m.price||0),0))}</td><td></td>`:'<td colspan="2"></td>'}
@@ -1536,32 +1683,34 @@ function runModal(r){
 function bulkReceiptModal(moves, date, party, reason){
   const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
   const num = 'DOC-'+Date.now().toString().slice(-6);
+  const isIn = moves.length && moves[0].dir==='in';
   const rowsHtml = moves.map(m=>{ const it=item(m.itemId)||{name:'—',unit:''};
     return `<tr><td style="padding:4px 0">${esc(it.name)}</td><td style="padding:4px 0" class="n">${fmt(m.qty)} ${esc(it.unit)}</td></tr>`;
   }).join('');
   return `<div class="modal" data-close="1"><div class="box" style="max-width:460px">
-    <h3>إيصال صرف جماعي <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
+    <h3>${t('receipt_bulk')} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
     <div class="pad receipt">
       <div style="text-align:center;margin-bottom:10px">
         ${FACTORY_LOGOS[FACTORY]?`<img src="${FACTORY_LOGOS[FACTORY]}" style="width:44px;height:44px;object-fit:contain">`:''}
         <div style="font-weight:700;font-size:15px;margin-top:4px">${facName}</div>
-        <div class="hint">إذن صرف — ${esc(date)}</div>
+        <div class="hint">${isIn?t('permit_receive'):t('permit_dispense')} — ${esc(date)}</div>
       </div>
       <table style="width:100%;border-collapse:collapse;margin:6px 0 10px">
-        <tr><td style="padding:4px 0;color:var(--muted)">جهة الصرف</td><td style="padding:4px 0">${esc(reason||'—')}</td></tr>
-        ${party?`<tr><td style="padding:4px 0;color:var(--muted)">${reason==='صرف للفروع'?'الفرع':'ملاحظة'}</td><td style="padding:4px 0">${esc(party)}</td></tr>`:''}
+        ${isIn?`<tr><td style="padding:4px 0;color:var(--muted)">${t('r_supplier')}</td><td style="padding:4px 0">${esc(party||'—')}</td></tr>`
+        :`<tr><td style="padding:4px 0;color:var(--muted)">${t('r_dispense_to')}</td><td style="padding:4px 0">${esc(reasonLabel(reason)||'—')}</td></tr>
+        ${party?`<tr><td style="padding:4px 0;color:var(--muted)">${reason==='صرف للفروع'?t('branch'):t('r_note')}</td><td style="padding:4px 0">${esc(party)}</td></tr>`:''}`}
       </table>
       <table style="width:100%;border-collapse:collapse;border-top:1px dashed var(--line);padding-top:6px">
-        <thead><tr><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">الصنف</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">الكمية</th></tr></thead>
+        <thead><tr><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_item')}</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_qty')}</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <div style="text-align:end;margin-top:6px;font-weight:600">إجمالي الأصناف: ${moves.length}</div>
+      <div style="text-align:end;margin-top:6px;font-weight:600">${t('r_total_items')}: ${moves.length}</div>
       <div style="display:flex;justify-content:space-between;margin-top:26px;padding-top:14px;border-top:1px dashed var(--line)">
-        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">توقيع المسلّم</div></div>
-        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">توقيع المستلم</div></div>
+        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">${t('r_signer')}</div></div>
+        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">${t('r_receiver')}</div></div>
       </div>
     </div>
-    <div class="foot"><button class="btn p" data-act="do-print">🖨️ طباعة</button><button class="btn" data-close="1">قفل</button></div>
+    <div class="foot"><button class="btn p" data-act="do-print">${t('r_print')}</button><button class="btn" data-close="1">${t('r_close')}</button></div>
   </div></div>`;
 }
 function receiptModal(m){
@@ -1570,28 +1719,28 @@ function receiptModal(m){
   const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
   const num = 'DOC-'+String(m.id).slice(-6).toUpperCase();
   return `<div class="modal" data-close="1"><div class="box" style="max-width:420px">
-    <h3>إيصال ${isIn?'وارد':'منصرف'} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
+    <h3>${isIn?t('receipt_in'):t('receipt_out')} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
     <div class="pad receipt">
       <div style="text-align:center;margin-bottom:10px">
         ${FACTORY_LOGOS[FACTORY]?`<img src="${FACTORY_LOGOS[FACTORY]}" style="width:44px;height:44px;object-fit:contain">`:''}
         <div style="font-weight:700;font-size:15px;margin-top:4px">${facName}</div>
-        <div class="hint">${isIn?'إذن استلام':'إذن صرف'} — ${esc(m.date)}</div>
+        <div class="hint">${isIn?t('permit_receive'):t('permit_dispense')} — ${esc(m.date)}</div>
       </div>
       <table style="width:100%;border-collapse:collapse;margin-top:8px">
-        <tr><td style="padding:5px 0;color:var(--muted)">الصنف</td><td style="padding:5px 0;text-align:start;font-weight:600">${esc(it.name)}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--muted)">الكمية</td><td style="padding:5px 0" class="n">${fmt(m.qty)} ${esc(it.unit)}</td></tr>
-        ${isIn?`<tr><td style="padding:5px 0;color:var(--muted)">المورد</td><td style="padding:5px 0">${esc(m.party||'—')}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--muted)">سعر الوحدة</td><td style="padding:5px 0" class="n">${money(m.price||0)}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--muted)">الإجمالي</td><td style="padding:5px 0" class="n"><b>${money((m.qty||0)*(m.price||0))}</b></td></tr>`
-        :`<tr><td style="padding:5px 0;color:var(--muted)">جهة الصرف</td><td style="padding:5px 0">${esc(m.reason||'—')}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--muted)">ملاحظة</td><td style="padding:5px 0">${esc(m.party||'—')}</td></tr>`}
+        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_item')}</td><td style="padding:5px 0;text-align:start;font-weight:600">${esc(it.name)}</td></tr>
+        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_qty')}</td><td style="padding:5px 0" class="n">${fmt(m.qty)} ${esc(it.unit)}</td></tr>
+        ${isIn?`<tr><td style="padding:5px 0;color:var(--muted)">${t('r_supplier')}</td><td style="padding:5px 0">${esc(m.party||'—')}</td></tr>
+        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_unitprice')}</td><td style="padding:5px 0" class="n">${money(m.price||0)}</td></tr>
+        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_total')}</td><td style="padding:5px 0" class="n"><b>${money((m.qty||0)*(m.price||0))}</b></td></tr>`
+        :`<tr><td style="padding:5px 0;color:var(--muted)">${t('r_dispense_to')}</td><td style="padding:5px 0">${esc(reasonLabel(m.reason)||'—')}</td></tr>
+        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_note')}</td><td style="padding:5px 0">${esc(m.party||'—')}</td></tr>`}
       </table>
       <div style="display:flex;justify-content:space-between;margin-top:26px;padding-top:14px;border-top:1px dashed var(--line)">
-        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">توقيع المسلّم</div></div>
-        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">توقيع المستلم</div></div>
+        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">${t('r_signer')}</div></div>
+        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">${t('r_receiver')}</div></div>
       </div>
     </div>
-    <div class="foot"><button class="btn p" data-act="do-print">🖨️ طباعة</button><button class="btn" data-close="1">قفل</button></div>
+    <div class="foot"><button class="btn p" data-act="do-print">${t('r_print')}</button><button class="btn" data-close="1">${t('r_close')}</button></div>
   </div></div>`;
 }
  
@@ -1629,6 +1778,31 @@ function bind(){
       },40);
     };
   });
+  root.querySelectorAll('[data-bulkinqty]').forEach(inp=>{
+    inp.onchange=e=>{
+      const id=e.target.dataset.bulkinqty, v=e.target.value;
+      if(v===''||v===null||+v<=0) delete ui.bulkIn.qty[id]; else ui.bulkIn.qty[id]=v;
+      readBulkInHeader(); render();
+    };
+    inp.onkeydown=e=>{
+      if(e.key!=='ArrowDown'&&e.key!=='ArrowUp'&&e.key!=='Enter') return;
+      e.preventDefault();
+      const row=+e.target.dataset.row, next=row+(e.key==='ArrowUp'?-1:1);
+      e.target.blur();
+      setTimeout(()=>{
+        const nx=document.querySelector(`[data-bulkinqty][data-row="${next}"]`);
+        if(nx){ nx.focus(); nx.select(); }
+      },40);
+    };
+  });
+  root.querySelectorAll('[data-bulkinprice]').forEach(inp=>{
+    inp.onchange=e=>{
+      const id=e.target.dataset.bulkinprice, v=e.target.value;
+      if(v==='') delete ui.bulkIn.price[id]; else ui.bulkIn.price[id]=v;
+      readBulkInHeader(); render();
+    };
+  });
+  const biQ=$('#bi-q'); if(biQ){ biQ.oninput=e=>{ui.bulkIn.q=e.target.value; const p=e.target.selectionStart; readBulkInHeader(); render(); const n=$('#bi-q'); if(n){n.focus(); n.setSelectionRange(p,p);}}; }
   const mItem=$('#m-item');
   if(mItem){
     const refreshUnitMode=()=>{
@@ -1773,7 +1947,9 @@ function bind(){
   root.querySelectorAll('[data-dsonly]').forEach(b=>b.onclick=()=>{ dsOnly=b.dataset.dsonly; render(); });
   root.querySelectorAll('[data-dssort]').forEach(th=>th.onclick=()=>dsToggleSort(th.dataset.dssort));
   root.querySelectorAll('[data-cattab]').forEach(b=>b.onclick=()=>{
-    if(b.dataset.scope==='b') ui.bulk.cat=b.dataset.cattab; else ui.cat=b.dataset.cattab;
+    if(b.dataset.scope==='b') ui.bulk.cat=b.dataset.cattab;
+    else if(b.dataset.scope==='bi') ui.bulkIn.cat=b.dataset.cattab;
+    else ui.cat=b.dataset.cattab;
     render();
   });
   const o=$('#only'); if(o) o.onchange=e=>{ui.only=e.target.value;render();};
@@ -1843,6 +2019,10 @@ function readBulkHeader(){
   const rs=$('#b-reason'); if(rs) ui.bulk.reason=rs.value;
   const pt=$('#b-party'); if(pt) ui.bulk.party=pt.value;
   const dt=$('#b-date'); if(dt) ui.bulk.date=dt.value;
+}
+function readBulkInHeader(){
+  const pt=$('#bi-party'); if(pt) ui.bulkIn.party=pt.value;
+  const dt=$('#bi-date'); if(dt) ui.bulkIn.date=dt.value;
 }
  
 function dispenseOut(itemId, qty, date, party, reason){
@@ -2141,6 +2321,7 @@ async function act(a,d){
     if(hsh(v)!==S.locks[d.k]) return toast('الباسورد غلط',1);
     SESS[d.k]=true; ui.modal=null; tab=d.k; ui.q=''; ui.only='الكل'; toast('اتفتح'); return render();
   }
+  if(a==='toggle-lang'){ setLang(LANG==='ar'?'en':'ar'); return; }
   if(a==='lock-all'){
     SESS={}; if(isLocked(tab)) tab='count';
     toast('كل التبويبات المقفولة رجعت مقفولة'); return render();
@@ -2204,6 +2385,27 @@ async function act(a,d){
     return render();
   }
   if(a==='toggle-bulk'){ ui.bulk.on=!ui.bulk.on; return render(); }
+  if(a==='toggle-bulk-in'){ ui.bulkIn.on=!ui.bulkIn.on; return render(); }
+  if(a==='bulk-in-submit'){
+    readBulkInHeader();
+    const b=ui.bulkIn;
+    const entries = Object.entries(b.qty).filter(([id,v])=>item(id)&&+v>0);
+    if(!entries.length) return toast('اكتب كمية لصنف واحد على الأقل',1);
+    const date = b.date||today(), party=(b.party||'').trim();
+    const moves=[];
+    for(const [id,v] of entries){
+      const it=item(id), qty=+v;
+      const price = b.price[id]!==undefined && b.price[id]!=='' ? +b.price[id] : 0;
+      const m={id:uid('m'),dir:'in',itemId:id,qty:n2(qty),date,price:n2(price),party,reason:''};
+      S.moves.push(m); moves.push(m);
+      if(price>0) it.price=n2(price);
+    }
+    await saveTx(); await saveMain();
+    toast(`اتسجّل وارد ${moves.length} صنف`);
+    ui.bulkIn.qty={}; ui.bulkIn.price={};
+    ui.modal = bulkReceiptModal(moves, date, party, '');
+    return render();
+  }
   if(a==='bulk-submit'){
     readBulkHeader();
     const b=ui.bulk;
