@@ -489,7 +489,9 @@ async function pushAll(quiet){
     await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     if(S.moves.length) await sb('stock_moves',{method:'POST',body:S.moves.map(m=>({
       id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
-      party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null}))});
+      party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
+      prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
+      notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null}))});
  
     await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     const cs=Object.entries(S.counts).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
@@ -530,7 +532,7 @@ async function pullAll(silent){
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode);
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
-    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined}));
+    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty);
     const rc=await sb('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
@@ -575,8 +577,21 @@ async function saveFactoryInbox(factoryId, list){
 }
 async function notifyFactory(toFactoryId, payload){
   const list = await fetchFactoryInbox(toFactoryId);
-  list.unshift({id:uid('nt'), ...payload, status:'pending', createdAt:new Date().toISOString()});
-  return await saveFactoryInbox(toFactoryId, list);
+  const notifId = uid('nt');
+  list.unshift({id:notifId, ...payload, status:'pending', createdAt:new Date().toISOString()});
+  const ok = await saveFactoryInbox(toFactoryId, list);
+  return ok ? notifId : null;
+}
+// بيلغي إشعار عند مصنع تاني (بس لو لسه معلّق ومحدش استلمه)، وبيرجّع حالته عشان المستخدم يعرف حصل إيه بالظبط
+async function retractFactoryNotification(toFactoryId, notifId){
+  if(!toFactoryId || !notifId) return 'none';
+  const list = await fetchFactoryInbox(toFactoryId);
+  const idx = list.findIndex(n=>n.id===notifId);
+  if(idx===-1) return 'none';
+  if(list[idx].status!=='pending') return 'received';
+  list.splice(idx,1);
+  await saveFactoryInbox(toFactoryId, list);
+  return 'retracted';
 }
 
 let MY_INBOX = [];
@@ -2018,6 +2033,16 @@ function bind(){
     const it=item(e.target.dataset.min); it.min=+e.target.value||0; await saveMain(); render();});
   root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ui.modal=itemModal(item(b.dataset.edit));render();});
   root.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+    const m = S.moves.find(x=>x.id===b.dataset.del);
+    if(m && m.notifyId && m.notifyFactory){
+      if(!confirm('الحركة دي اتبعتلها إشعار عند مصنع تاني. حذفها هنا هيلغي الإشعار هناك لو لسه معلّق. متأكد؟')) return;
+      const result = await retractFactoryNotification(m.notifyFactory, m.notifyId);
+      S.moves=S.moves.filter(x=>x.id!==b.dataset.del); await saveTx();
+      if(result==='received') toast('اتحذفت الحركة، لكن المصنع التاني كان استلم الإشعار خلاص — لازم تكلّمه يدوي عشان يعدّل مخزنه', 1);
+      else toast('اتحذفت الحركة والإشعار اتلغى عند المصنع التاني');
+      render();
+      return;
+    }
     S.moves=S.moves.filter(m=>m.id!==b.dataset.del); await saveTx(); toast('اتحذفت الحركة'); render();});
   root.querySelectorAll('[data-delr]').forEach(b=>b.onclick=async()=>{
     S.recipes=S.recipes.filter(r=>r.id!==b.dataset.delr); await saveMain(); render();});
@@ -2414,8 +2439,9 @@ async function act(a,d){
       if(res.auto) autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
       if(reason==='صرف لمصنع تاني' && party){
         const toFac = FACTORIES.find(f=>f.id===party);
-        const sent = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty, date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY});
-        autoMsg += sent? ` — وتم إبلاغ "${toFac?toFac.name:party}"` : ' — بس حصل خطأ في إبلاغ المصنع المستلم، كلّمه يدوي';
+        const notifId = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty, date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY});
+        if(notifId && m){ m.notifyId=notifId; m.notifyFactory=party; await saveTx(); }
+        autoMsg += notifId? ` — وتم إبلاغ "${toFac?toFac.name:party}"` : ' — بس حصل خطأ في إبلاغ المصنع المستلم، كلّمه يدوي';
       }
     }
     await saveTx(); toast((isIn?'الوارد اتسجل':'المنصرف اتسجل')+autoMsg);
@@ -2471,9 +2497,10 @@ async function act(a,d){
       let sentCount=0;
       for(const m of moves){
         const it=item(m.itemId);
-        const ok = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName});
-        if(ok) sentCount++;
+        const notifId = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName});
+        if(notifId){ m.notifyId=notifId; m.notifyFactory=party; sentCount++; }
       }
+      await saveTx();
       notifyMsg = sentCount===moves.length ? ` — وتم إبلاغ "${toFac?toFac.name:party}" بكل الأصناف` : ` — بس ${moves.length-sentCount} صنف حصل خطأ في إبلاغه، كلّم المصنع يدوي`;
     }
     toast(`اتسجّل صرف ${moves.length} صنف${autoCount?` + ${autoCount} وصفة اشتغلت تلقائي`:''}${skipped.length?` — ${skipped.length} صنف اتخطى لعدم كفاية الرصيد`:''}${notifyMsg}`);
