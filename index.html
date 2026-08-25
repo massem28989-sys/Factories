@@ -1,8 +1,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google" content="notranslate">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<div id="root" dir="rtl">
+<div id="root" dir="rtl" translate="no" class="notranslate">
   <div class="boot">جاري تحميل بيانات المخزن…</div>
 </div>
  
@@ -1070,6 +1071,8 @@ function bulkOutPanel(){
             <select id="b-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option ${b.party===br?'selected':''}>${br}</option>`).join('')}</select>
             <button type="button" class="btn sm" data-act="add-branch">+ فرع جديد</button>
           </div>`
+          :b.reason==='صرف لمصنع تاني'?`<label class="f">المصنع المستلم</label>
+            <select id="b-party" style="width:100%">${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}" ${b.party===f.id?'selected':''}>${esc(f.name)}</option>`).join('') || '<option value="">مفيش مصانع تانية مسجلة</option>'}</select>`
           :`<label class="f">ملاحظة</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>
         <div><label class="f">التاريخ</label><input type="date" id="b-date" value="${b.date||today()}" style="width:100%"></div>
       </div>
@@ -2207,6 +2210,7 @@ async function act(a,d){
     const entries = Object.entries(b.qty).filter(([id,v])=>item(id)&&+v>0);
     if(!entries.length) return toast('اكتب كمية لصنف واحد على الأقل',1);
     const date = b.date||today(), party=(b.party||'').trim(), reason=b.reason;
+    if(reason==='صرف لمصنع تاني' && !party) return toast('اختار المصنع المستلم',1);
     const moves=[]; let autoCount=0; const skipped=[];
     for(const [id,v] of entries){
       const it=item(id), qty=+v;
@@ -2217,7 +2221,19 @@ async function act(a,d){
     }
     await saveTx();
     if(!moves.length){ toast('مفيش أي صنف اتصرف — الرصيد مش كفاية للكل', 1); return render(); }
-    toast(`اتسجّل صرف ${moves.length} صنف${autoCount?` + ${autoCount} وصفة اشتغلت تلقائي`:''}${skipped.length?` — ${skipped.length} صنف اتخطى لعدم كفاية الرصيد`:''}`);
+    let notifyMsg='';
+    if(reason==='صرف لمصنع تاني' && party){
+      const toFac = FACTORIES.find(f=>f.id===party);
+      const fromName = FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY;
+      let sentCount=0;
+      for(const m of moves){
+        const it=item(m.itemId);
+        const ok = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName});
+        if(ok) sentCount++;
+      }
+      notifyMsg = sentCount===moves.length ? ` — وتم إبلاغ "${toFac?toFac.name:party}" بكل الأصناف` : ` — بس ${moves.length-sentCount} صنف حصل خطأ في إبلاغه، كلّم المصنع يدوي`;
+    }
+    toast(`اتسجّل صرف ${moves.length} صنف${autoCount?` + ${autoCount} وصفة اشتغلت تلقائي`:''}${skipped.length?` — ${skipped.length} صنف اتخطى لعدم كفاية الرصيد`:''}${notifyMsg}`);
     if(skipped.length) alert('الأصناف دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+skipped.join('\n'));
     ui.bulk.qty={};
     ui.modal = bulkReceiptModal(moves, date, party, reason);
