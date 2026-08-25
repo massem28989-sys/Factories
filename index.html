@@ -479,40 +479,76 @@ function schedulePush(){
 async function pushAll(quiet){
   if(!DB.on||DB.busy) return false;
   DB.busy=true; DB.err=''; if(!quiet) render();
+  const P=S.period, F=FACTORY;
+  const errors=[];
+
+  // كل قسم مستقل تمامًا عن الباقي: فشل قسم واحد (زي الحركات لو أعمدة جديدة لسه ما اتضافتش) مايوقفش حفظ باقي الأقسام خالص
   try{
-    const P=S.period, F=FACTORY;
-    if(S.items.length) await sb('stock_items',{...UPSERT,body:S.items.map(i=>({
+    // نمسح كل أصناف المصنع ده الأول ثم نعيد إدراج الموجود بس حاليًا، عشان أي صنف اتحذف محليًا يتشال فعليًا من القاعدة (بدل ما يفضل موجود وبيرجع تاني)
+    await sb('stock_items?'+fEq(),{method:'DELETE'});
+    if(S.items.length) await sb('stock_items',{method:'POST',body:S.items.map(i=>({
       id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
       opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
       pack_unit:i.packUnit||'',pack_size:+i.packSize||0}))});
- 
+  }catch(e){ errors.push('الأصناف: '+e.message); }
+
+  try{
     await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
-    if(S.moves.length) await sb('stock_moves',{method:'POST',body:S.moves.map(m=>({
-      id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
-      party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
-      prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
-      notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null}))});
- 
+    if(S.moves.length){
+      const fullBody = S.moves.map(m=>({
+        id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
+        party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
+        prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
+        notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null}));
+      try{
+        await sb('stock_moves',{method:'POST',body:fullBody});
+      }catch(e){
+        // لو فشل بسبب أعمدة جديدة (تاريخ الإنتاج/الحرارة/الإشعارات) لسه ما اتضافتش في القاعدة، نرجع نحفظ بالأعمدة الأساسية بس عشان الحفظ مايتوقفش خالص
+        const basicBody = S.moves.map(m=>({
+          id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
+          party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null}));
+        await sb('stock_moves',{method:'POST',body:basicBody});
+        errors.push('تنبيه: أعمدة تاريخ الإنتاج/الحرارة/الإشعارات لسه مش مضافة في القاعدة — الحركات اتحفظت من غيرها. شغّل أوامر SQL اللي بعتهالك عشان تتفعّل.');
+      }
+    }
+  }catch(e){ errors.push('الحركات: '+e.message); }
+
+  try{
     await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     const cs=Object.entries(S.counts).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
     if(cs.length) await sb('stock_counts',{method:'POST',body:cs});
- 
+  }catch(e){ errors.push('الجرد: '+e.message); }
+
+  try{
     await sb('stock_recipes?'+fEq(),{method:'DELETE'});
     if(S.recipes.length) await sb('stock_recipes',{method:'POST',body:S.recipes.map(r=>({
       id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}))});
- 
+  }catch(e){ errors.push('الوصفات: '+e.message); }
+
+  try{
     await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
     if((S.runs||[]).length) await sb('stock_runs',{method:'POST',body:S.runs.map((r,i)=>({
       id:r.id||(F+'-'+P+'-'+i),factory:F,period:P,run_date:r.date,name:r.name,batches:+r.batches||0,out_qty:+r.outQty||0,cost:+r.cost||0}))});
- 
+  }catch(e){ errors.push('التشغيلات: '+e.message); }
+
+  try{
     if(S.closed.length) await sb('stock_periods',{...UPSERT,body:S.closed.map(c=>({
       factory:F,period:c.period,closed_at:c.date,value:+c.value||0,snapshot:c.items}))});
- 
+  }catch(e){ errors.push('إقفال الفترات: '+e.message); }
+
+  try{
     await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode}}]});
- 
-    DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
-  }catch(e){ DB.err=e.message; DB.busy=false; if(!isTypingCount()) render(); toast('فشل الرفع: '+e.message,1); return false; }
+  }catch(e){ errors.push('الإعدادات: '+e.message); }
+
   DB.busy=false;
+  if(errors.length){
+    DB.err=errors.join(' | ');
+    if(!isTypingCount()) render();
+    toast('حصلت مشاكل في جزء من الحفظ: '+errors.join(' — '),1);
+    return false;
+  }
+  DB.err='';
+  DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
   if(!isTypingCount()) render();
   if(!quiet) toast('البيانات اترفعت للقاعدة'); return true;
 }
@@ -603,25 +639,32 @@ function pendingInboxCount(){ return MY_INBOX.filter(n=>n.status==='pending').le
 
 async function receiveInboxNotification(notifId){
   const n = MY_INBOX.find(x=>x.id===notifId);
-  if(!n) return;
-  let it = S.items.find(i=>i.name.toLowerCase()===n.itemName.toLowerCase());
-  if(!it){
-    it = {id:uid('i'), name:n.itemName, desc:'', unit:n.unit||'', cat:'وارد من مصانع', opening:0, price:0, min:0, packUnit:'', packSize:0, note:''};
-    S.items.push(it);
-    await saveMain();
-  }
-  S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:n.qty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
-  await saveTx();
+  if(!n || n.status!=='pending') return; // حماية من الضغط المزدوج: لو مش معلّق (يعني قيد التنفيذ أو اتم بالفعل)، منكملش
+  n.status='processing'; render();
+  try{
+    let it = S.items.find(i=>i.name.toLowerCase()===n.itemName.toLowerCase());
+    if(!it){
+      it = {id:uid('i'), name:n.itemName, desc:'', unit:n.unit||'', cat:'وارد من مصانع', opening:0, price:0, min:0, packUnit:'', packSize:0, note:''};
+      S.items.push(it);
+      await saveMain();
+    }
+    S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:n.qty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
+    await saveTx();
 
-  n.status='received'; n.receivedAt=new Date().toISOString();
-  await saveFactoryInbox(FACTORY, MY_INBOX);
-  toast(`تم استلام "${n.itemName}" (${fmt(n.qty)} ${n.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون`);
+    n.status='received'; n.receivedAt=new Date().toISOString();
+    await saveFactoryInbox(FACTORY, MY_INBOX);
+    toast(`تم استلام "${n.itemName}" (${fmt(n.qty)} ${n.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون`);
+  }catch(e){
+    n.status='pending'; // لو حصل خطأ، نرجّعه معلّق تاني عشان يقدر يعيد المحاولة
+    toast('حصل خطأ أثناء الاستلام، حاول تاني: '+e.message, 1);
+  }
   render();
 }
 
 function viewInbox(){
   const pending = MY_INBOX.filter(n=>n.status==='pending');
-  const done = MY_INBOX.filter(n=>n.status!=='pending');
+  const processing = MY_INBOX.filter(n=>n.status==='processing');
+  const done = MY_INBOX.filter(n=>n.status==='received');
   return `
   <div class="panel"><div class="pad">
     <div class="hint">لما مصنع تاني يصرفلك صنف، بيوصلك إشعار هنا عشان تستلمه — وقتها الصنف بيتضاف لمخزنك تلقائي.</div>
@@ -629,7 +672,7 @@ function viewInbox(){
   <div class="panel">
     <h2>محتاج استلام <em>${pending.length}</em>
       <button class="btn sm g" data-act="inbox-refresh" style="margin-inline-start:auto">تحديث</button></h2>
-    ${pending.length?`<div class="tblwrap"><table class="gridcols">
+    ${(pending.length||processing.length)?`<div class="tblwrap"><table class="gridcols">
       <thead><tr><th>من مصنع</th><th>الصنف</th><th class="n">الكمية</th><th>التاريخ</th><th></th></tr></thead>
       <tbody>${pending.map(n=>`<tr>
         <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
@@ -637,6 +680,13 @@ function viewInbox(){
         <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
         <td class="n">${esc(n.date||'')}</td>
         <td><button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button></td>
+      </tr>`).join('')}
+      ${processing.map(n=>`<tr style="opacity:.6">
+        <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
+        <td>${esc(n.itemName)}</td>
+        <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
+        <td class="n">${esc(n.date||'')}</td>
+        <td><span class="hint">جاري الاستلام…</span></td>
       </tr>`).join('')}</tbody>
     </table></div>`:`<div class="empty">مفيش حاجة محتاجة استلام دلوقتي</div>`}
   </div>
