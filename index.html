@@ -187,7 +187,52 @@ const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
  
 let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boDone:{} };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
-const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],...(FACTORY==='مصنع-الفروج'?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
+/* ================= طلبيات الفروع (جسر مع تطبيق فروع كل مصنع) ================= */
+// إعدادات منفصلة لكل مصنع عنده تطبيق فروع (زي تطبيق الفروج اليومي). أي مصنع جديد يتضاف هنا،
+// والتبويب هيظهر ويشتغل ليه تلقائي من غير أي تعديل تاني في الكود.
+// keyPrefix: البادئة اللي بيتسجل بيها كل طلبية في قاعدة بيانات التطبيق ده (مثال: inv_factory_order)
+const BRANCH_APP_CONFIG = {
+  'مصنع-الفروج': {
+    gscriptUrl: "https://script.google.com/macros/s/AKfycbyMNYT0w8XeiPSXW9_of3gA7fyS6EqCw842-YA5MfVMRdppDbkz_w5Wr9xZCviXSaJw/exec",
+    secretToken: "B_pS9joBTY2q0lCXopjE5xMegt4fCEl9sTsyNqSGFI0",
+    keyPrefix: "inv_factory_order",
+    coreItems: [
+      { label: "كباب", name: "Kabab - كباب" },
+      { label: "كباب دجاج", name: "chicken kabab - كباب دجاج" },
+      { label: "فروج كامل", name: "Whole Chicken - فروج كامل" },
+      { label: "اجنحه", name: "Aboalabd Wings - جوانح ابو العبد" },
+      { label: "افخاد", name: "Farooj Thigh وجبة افخاذ" },
+      { label: "فروج مخلي", name: "Bone free chicken - فروج خالي من العظم" },
+      { label: "مسحب", name: "Bone Less Chicken - مسحب" },
+      { label: "طاووق", name: "Tawooq - طاووق" },
+      { label: "طحينه", name: "Tahina  - طحينة" },
+      { label: "بيواز", name: "Biwaz - بيواز" },
+      { label: "صدور برجر", name: "Boneless Burger - صدور برجر" },
+      { label: "لحم عرايس", name: "Araies Meat" }
+    ],
+    appetizerItems: [
+      { label: "Sandwich - ساندويتش", name: "Cocktail Sandwich Sauce - صوص كوكتيل ساندويش" },
+      { label: "Mix - ميكس", name: "Cocktail Chicken Sauce - صوص كوكتيل دجاج" },
+      { label: "Hareqa Sauce - صوص حريقه", name: "Hareqa Sauce - صوص حريقه" },
+      { label: "Spicy Potato Suace", name: "Spicy Potato Suace" },
+      { label: "Taboola - تبولة", name: "Taboola - تبولة" },
+      { label: "Fatoosh - فتوش", name: "Fatoosh - فتوش" },
+      { label: "Homos - حمص", name: "Homos - حمص" },
+      { label: "حمص - ( 500 غرام ) Homos", name: "حمص - ( 500 غرام ) Homos" },
+      { label: "( 80 جرام ) Homos - حمص", name: "( 80 جرام ) Homos - حمص" },
+      { label: "sambosa - سمبوسه", name: "sambosa - سمبوسه" },
+      { label: "Mutabal - متبل", name: "Mutabal - متبل" },
+      { label: "Fatola - فتوله", name: "Fatola - فتوله" }
+    ]
+  }
+  // لإضافة مصنع جديد (زي الكنافة) لما يبقى عنده تطبيق فروع: انسخ الكتلة دي وحطها هنا بنفس الشكل
+  // مع رابط ورمز التطبيق بتاعه، والبادئة، وقوائم الأصناف المناسبة له (أو سيبهم [] لو مفيش شيتات ثابتة).
+};
+const BRANCH_APP = BRANCH_APP_CONFIG[FACTORY] || null;
+const CORE_ITEMS = BRANCH_APP ? BRANCH_APP.coreItems : [];
+const APPETIZER_ITEMS = BRANCH_APP ? BRANCH_APP.appetizerItems : [];
+
+const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف']];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<5)+h)^t.charCodeAt(i))>>>0; return h.toString(36); };
@@ -403,6 +448,87 @@ async function addFactory(id,name){
   await sb('stock_factories',{...UPSERT,body:[{id,name}]});
   await loadFactories();
 }
+
+/* ================= إشعارات النقل بين المصانع ================= */
+// بنستخدم جدول stock_settings كصندوق بريد: كل مصنع ليه صف بمفتاح 'incoming_notify' فيه قائمة الإشعارات الواردة له.
+// المصنع المرسل بيكتب في صف المصنع المستلم مباشرة (من غير ما يحتاج يدخل حسابه).
+async function fetchFactoryInbox(factoryId){
+  try{
+    const rows = await sb(`stock_settings?factory=eq.${encodeURIComponent(factoryId)}&k=eq.incoming_notify&select=v`,{prefer:'return=representation'});
+    return (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
+  }catch(e){ return []; }
+}
+async function saveFactoryInbox(factoryId, list){
+  try{
+    await sb('stock_settings',{...UPSERT,body:[{factory:factoryId,k:'incoming_notify',v:{list}}]});
+    return true;
+  }catch(e){ return false; }
+}
+async function notifyFactory(toFactoryId, payload){
+  const list = await fetchFactoryInbox(toFactoryId);
+  list.unshift({id:uid('nt'), ...payload, status:'pending', createdAt:new Date().toISOString()});
+  return await saveFactoryInbox(toFactoryId, list);
+}
+
+let MY_INBOX = [];
+async function loadMyInbox(){
+  MY_INBOX = await fetchFactoryInbox(FACTORY);
+  render();
+}
+function pendingInboxCount(){ return MY_INBOX.filter(n=>n.status==='pending').length; }
+
+async function receiveInboxNotification(notifId){
+  const n = MY_INBOX.find(x=>x.id===notifId);
+  if(!n) return;
+  let it = S.items.find(i=>i.name.toLowerCase()===n.itemName.toLowerCase());
+  if(!it){
+    it = {id:uid('i'), name:n.itemName, desc:'', unit:n.unit||'', cat:'وارد من مصانع', opening:0, price:0, min:0, packUnit:'', packSize:0, note:''};
+    S.items.push(it);
+    await saveMain();
+  }
+  S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:n.qty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
+  await saveTx();
+
+  n.status='received'; n.receivedAt=new Date().toISOString();
+  await saveFactoryInbox(FACTORY, MY_INBOX);
+  toast(`تم استلام "${n.itemName}" (${fmt(n.qty)} ${n.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون`);
+  render();
+}
+
+function viewInbox(){
+  const pending = MY_INBOX.filter(n=>n.status==='pending');
+  const done = MY_INBOX.filter(n=>n.status!=='pending');
+  return `
+  <div class="panel"><div class="pad">
+    <div class="hint">لما مصنع تاني يصرفلك صنف، بيوصلك إشعار هنا عشان تستلمه — وقتها الصنف بيتضاف لمخزنك تلقائي.</div>
+  </div></div>
+  <div class="panel">
+    <h2>محتاج استلام <em>${pending.length}</em>
+      <button class="btn sm g" data-act="inbox-refresh" style="margin-inline-start:auto">تحديث</button></h2>
+    ${pending.length?`<div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>من مصنع</th><th>الصنف</th><th class="n">الكمية</th><th>التاريخ</th><th></th></tr></thead>
+      <tbody>${pending.map(n=>`<tr>
+        <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
+        <td>${esc(n.itemName)}</td>
+        <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
+        <td class="n">${esc(n.date||'')}</td>
+        <td><button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`:`<div class="empty">مفيش حاجة محتاجة استلام دلوقتي</div>`}
+  </div>
+  ${done.length?`<div class="panel">
+    <h2>سبق استلامها <em>${done.length}</em></h2>
+    <div class="tblwrap"><table><thead><tr><th>من مصنع</th><th>الصنف</th><th class="n">الكمية</th><th>وقت الاستلام</th></tr></thead>
+      <tbody>${done.slice(0,30).map(n=>`<tr>
+        <td>${esc(n.fromFactory||'-')}</td><td>${esc(n.itemName)}</td>
+        <td class="n">${fmt(n.qty)} ${esc(n.unit||'')}</td>
+        <td class="n">${n.receivedAt?new Date(n.receivedAt).toLocaleString('ar-EG'):''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+  `;
+}
+
  
 /* ---------- calculations ---------- */
 function calc(it){
@@ -462,12 +588,12 @@ function render(){
         </div>
       </div>
       <nav>
-        ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${v}</button>`).join('')}
+        ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${v}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}
         ${(!isMgr&&Object.values(SESS).some(Boolean))?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">قفل الجلسة</button>`:''}
       </nav>
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -624,18 +750,15 @@ function viewDailyStock(){
   </div>`;
 }
 
-/* ================= طلبيات الفروع (جسر مع تطبيق الفروج) ================= */
-// نفس بيانات الاتصال المستخدمة في تطبيق الفروج بالظبط، عشان نقرأ منه بس (قراءة فقط، مفيش أي كتابة أو تعديل هناك)
-const FAROOJ_GSCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMNYT0w8XeiPSXW9_of3gA7fyS6EqCw842-YA5MfVMRdppDbkz_w5Wr9xZCviXSaJw/exec";
-const FAROOJ_SECRET_TOKEN = "B_pS9joBTY2q0lCXopjE5xMegt4fCEl9sTsyNqSGFI0";
 
 async function faroojRequest(params){
-  const res = await fetch(FAROOJ_GSCRIPT_URL, {
+  if(!BRANCH_APP) throw new Error('المصنع ده معندوش تطبيق فروع متربط بيه لسه');
+  const res = await fetch(BRANCH_APP.gscriptUrl, {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: new URLSearchParams({...params, token: FAROOJ_SECRET_TOKEN}).toString()
+    body: new URLSearchParams({...params, token: BRANCH_APP.secretToken}).toString()
   });
-  if(!res.ok) throw new Error('تعذر الاتصال بتطبيق الفروج');
+  if(!res.ok) throw new Error('تعذر الاتصال بتطبيق الفروع');
   const data = await res.json();
   if(!data.success && data.error && data.error !== 'not_found') throw new Error(data.error);
   return data;
@@ -659,43 +782,13 @@ function faroojDateRange(from, to){
   return dates;
 }
 
-// قوائم ثابتة بنفس ترتيب شيتات الإكسل الأصلية (نفس اللي في تطبيق الفروج بالظبط)
-const CORE_ITEMS = [
-  { label: "كباب", name: "Kabab - كباب" },
-  { label: "كباب دجاج", name: "chicken kabab - كباب دجاج" },
-  { label: "فروج كامل", name: "Whole Chicken - فروج كامل" },
-  { label: "اجنحه", name: "Aboalabd Wings - جوانح ابو العبد" },
-  { label: "افخاد", name: "Farooj Thigh وجبة افخاذ" },
-  { label: "فروج مخلي", name: "Bone free chicken - فروج خالي من العظم" },
-  { label: "مسحب", name: "Bone Less Chicken - مسحب" },
-  { label: "طاووق", name: "Tawooq - طاووق" },
-  { label: "طحينه", name: "Tahina  - طحينة" },
-  { label: "بيواز", name: "Biwaz - بيواز" },
-  { label: "صدور برجر", name: "Boneless Burger - صدور برجر" },
-  { label: "لحم عرايس", name: "Araies Meat" }
-];
-const APPETIZER_ITEMS = [
-  { label: "Sandwich - ساندويتش", name: "Cocktail Sandwich Sauce - صوص كوكتيل ساندويش" },
-  { label: "Mix - ميكس", name: "Cocktail Chicken Sauce - صوص كوكتيل دجاج" },
-  { label: "Hareqa Sauce - صوص حريقه", name: "Hareqa Sauce - صوص حريقه" },
-  { label: "Spicy Potato Suace", name: "Spicy Potato Suace" },
-  { label: "Taboola - تبولة", name: "Taboola - تبولة" },
-  { label: "Fatoosh - فتوش", name: "Fatoosh - فتوش" },
-  { label: "Homos - حمص", name: "Homos - حمص" },
-  { label: "حمص - ( 500 غرام ) Homos", name: "حمص - ( 500 غرام ) Homos" },
-  { label: "( 80 جرام ) Homos - حمص", name: "( 80 جرام ) Homos - حمص" },
-  { label: "sambosa - سمبوسه", name: "sambosa - سمبوسه" },
-  { label: "Mutabal - متبل", name: "Mutabal - متبل" },
-  { label: "Fatola - فتوله", name: "Fatola - فتوله" }
-];
-
 let BO = { from:'', to:'', loading:false, err:'', totals:{}, orders:[], ordersCount:0, branchesCount:0, view:'totals', openOrder:null, changes:[], changesCount:0 };
 
 async function fetchBranchOrders(){
   BO.loading=true; BO.err=''; render();
   try{
     const dates = faroojDateRange(BO.from, BO.to);
-    const listResults = await Promise.all(dates.map(d=>faroojList(`inv_factory_order:${d}:`)));
+    const listResults = await Promise.all(dates.map(d=>faroojList(`${BRANCH_APP.keyPrefix}:${d}:`)));
     const allKeys = listResults.flat();
     const results = await Promise.all(allKeys.map(k=>faroojGet(k).catch(()=>null)));
     const totals={}; const branches=new Set(); const orders=[]; let ordersCount=0;
@@ -718,10 +811,10 @@ async function fetchBranchOrders(){
 
 async function fetchFactoryChangeRequests(){
   try{
-    const idxVal = await faroojGet('inv_factory_order_change:index');
+    const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:index`);
     const index = idxVal ? JSON.parse(idxVal) : [];
     const sorted = index.slice().sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
-    const details = await Promise.all(sorted.map(r=>faroojGet(`inv_factory_order_change:${r.id}`).catch(()=>null)));
+    const details = await Promise.all(sorted.map(r=>faroojGet(`${BRANCH_APP.keyPrefix}_change:${r.id}`).catch(()=>null)));
     BO.changes = sorted.map((r,i)=>{
       let note='-';
       try{ if(details[i]) note = JSON.parse(details[i]).note || '-'; }catch(e){}
@@ -733,16 +826,16 @@ async function fetchFactoryChangeRequests(){
 
 async function decideFactoryChangeRequest(id, decision){
   try{
-    const idxVal = await faroojGet('inv_factory_order_change:index');
+    const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:index`);
     let index = idxVal ? JSON.parse(idxVal) : [];
     const idx = index.findIndex(r=>r.id===id);
     if(idx===-1) return;
     index[idx].status = decision;
-    const ok = await faroojSet('inv_factory_order_change:index', JSON.stringify(index));
+    const ok = await faroojSet(`${BRANCH_APP.keyPrefix}_change:index`, JSON.stringify(index));
     if(!ok) throw new Error();
     try{
-      const fullVal = await faroojGet(`inv_factory_order_change:${id}`);
-      if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`inv_factory_order_change:${id}`, JSON.stringify(obj)); }
+      const fullVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:${id}`);
+      if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`${BRANCH_APP.keyPrefix}_change:${id}`, JSON.stringify(obj)); }
     }catch(e){}
     toast(decision==='done' ? 'اتعلّم الطلب إنه اتعمل' : 'اترفض الطلب');
     await fetchFactoryChangeRequests();
@@ -924,7 +1017,7 @@ function viewCount(){
 }
  
 /* ================= 2/3. وارد و منصرف ================= */
-const OUT_REASONS=['صرف للإنتاج','صرف للفروع','هالك / تالف','مرتجع للمورد','عينات','أخرى'];
+const OUT_REASONS=['صرف للإنتاج','صرف للفروع','صرف لمصنع تاني','هالك / تالف','مرتجع للمورد','عينات','أخرى'];
 /* ---------- شاشة الجرد لوضع المدير: بسيطة، من غير أسعار ولا تبويبات تانية ---------- */
 function viewCountManager(){
   const t=totals(), list=filtered();
@@ -1048,6 +1141,9 @@ function viewMove(dir){
             <select id="m-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option>${esc(br)}</option>`).join('')}</select>
             <button type="button" class="btn sm" data-act="add-branch">+ فرع جديد</button>
           </div>`
+          :ui.moveReason==='صرف لمصنع تاني'?`<label class="f">المصنع المستلم</label>
+            <select id="m-party" style="width:100%">${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('') || '<option value="">مفيش مصانع تانية مسجلة</option>'}</select>
+            <div class="hint" style="margin-top:4px">المصنع المستلم هيوصله إشعار يقدر يستلمه منه، والصنف هيتضاف لمخزنه تلقائي وقت الاستلام.</div>`
           :`<label class="f">ملاحظة</label><input type="text" id="m-party" style="width:100%">`}</div>`}
         <div><label class="f">التاريخ</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
         <div><label class="f">تاريخ الإنتاج <span class="hint">(اختياري)</span></label><input type="date" id="m-proddate" style="width:100%"></div>
@@ -1504,7 +1600,9 @@ function bind(){
   root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.tab;
     if(!canOpen(k)){ ui.modal=unlockModal(k); return render(); }
-    tab=k;ui.q='';ui.only='الكل';render();});
+    tab=k;ui.q='';ui.only='الكل';render();
+    if(k==='inbox') loadMyInbox();
+  });
   const mCat=$('#m-cat'); if(mCat) mCat.onchange=e=>{ui.moveCat=e.target.value; render();};
   const mReason=$('#m-reason'); if(mReason) mReason.onchange=e=>{ui.moveReason=e.target.value; render();};
   const bReason=$('#b-reason'); if(bReason) bReason.onchange=e=>{readBulkHeader(); ui.bulk.reason=e.target.value; render();};
@@ -1953,6 +2051,8 @@ async function act(a,d){
     const el=document.createElement('a'); el.href=url; el.download=`الجرد-اليومي-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
     return toast('تم تصدير الجرد اليومي');
   }
+  if(a==='inbox-refresh'){ return loadMyInbox(); }
+  if(a==='inbox-receive'){ return receiveInboxNotification(d.id); }
   if(a==='fc-decide'){
     return decideFactoryChangeRequest(+d.fcid, d.fcdecision);
   }
@@ -2090,6 +2190,11 @@ async function act(a,d){
       m = res.move;
       if(m){ m.prodDate=prodDate; m.temp=temp; }
       if(res.auto) autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
+      if(reason==='صرف لمصنع تاني' && party){
+        const toFac = FACTORIES.find(f=>f.id===party);
+        const sent = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty, date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY});
+        autoMsg += sent? ` — وتم إبلاغ "${toFac?toFac.name:party}"` : ' — بس حصل خطأ في إبلاغ المصنع المستلم، كلّمه يدوي';
+      }
     }
     await saveTx(); toast((isIn?'الوارد اتسجل':'المنصرف اتسجل')+autoMsg);
     ui.modal = receiptModal(m);
@@ -2301,6 +2406,7 @@ async function boot(){
   }
   try{ render(); }
   catch(e){ console.error(e); document.getElementById('root').innerHTML='<div class="boot">مشكلة في العرض: '+esc(e.message)+'</div>'; }
+  if(DB.on){ fetchFactoryInbox(FACTORY).then(list=>{ MY_INBOX=list; if(pendingInboxCount()) render(); }); }
   if(ROLE==='owner' && DB.on){
     setInterval(async ()=>{
       const typing = document.activeElement && document.activeElement.hasAttribute('data-count');
