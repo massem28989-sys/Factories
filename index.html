@@ -293,7 +293,7 @@ const KEY_MAIN = 'kunafa:main:v1:'+FACTORY;     // items + recipes + settings
 const KEY_TX   = 'kunafa:tx:v1:'+FACTORY;       // moves + counts
 const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
  
-let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boDone:{}, restrictDispatchTo:'' };
+let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boDone:{}, restrictDispatchTo:'', dispatchOnlyMode:false };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
 /* ================= طلبيات الفروع (جسر مع تطبيق فروع كل مصنع) ================= */
 // إعدادات منفصلة لكل مصنع عنده تطبيق فروع (زي تطبيق الفروج اليومي). أي مصنع جديد يتضاف هنا،
@@ -392,7 +392,7 @@ async function sset(k,v){
   if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
   return saved;
 }
-async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boDone:S.boDone,restrictDispatchTo:S.restrictDispatchTo}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boDone:S.boDone,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -415,7 +415,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boDone=main.boDone||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boDone=main.boDone||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -506,7 +506,7 @@ async function pushAll(quiet){
     if(S.closed.length) await sb('stock_periods',{...UPSERT,body:S.closed.map(c=>({
       factory:F,period:c.period,closed_at:c.date,value:+c.value||0,snapshot:c.items}))});
  
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||''}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode}}]});
  
     DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
   }catch(e){ DB.err=e.message; DB.busy=false; if(!isTypingCount()) render(); toast('فشل الرفع: '+e.message,1); return false; }
@@ -528,7 +528,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||'';
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode);
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -1214,15 +1214,16 @@ function bulkOutPanel(){
       <button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">${t('back_normal')}</button></h2>
     <div class="pad">
       <div class="grid" style="margin-bottom:0">
-        <div><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
-        <div>${b.reason==='صرف للفروع'?`<label class="f">${t('branch')}</label>
+        ${S.dispatchOnlyMode && S.restrictDispatchTo?`<div style="grid-column:1/-1"><div class="hint">${LANG==='en'?'This factory only dispatches to':'\u0627\u0644\u0645\u0635\u0646\u0639 \u062f\u0647 \u0628\u064a\u0635\u0631\u0641 \u0628\u0633 \u0644\u0640'} <b>${esc((FACTORIES.find(f=>f.id===S.restrictDispatchTo)||{name:S.restrictDispatchTo}).name)}</b></div></div>`
+        :`<div><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        <div>${b.reason==='\u0635\u0631\u0641 \u0644\u0644\u0641\u0631\u0648\u0639'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="b-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option ${b.party===br?'selected':''}>${br}</option>`).join('')}</select>
             <button type="button" class="btn sm" data-act="add-branch">${t('new_branch')}</button>
           </div>`
-          :b.reason==='صرف لمصنع تاني'?`<label class="f">${t('receiving_factory')}</label>
+          :b.reason==='\u0635\u0631\u0641 \u0644\u0645\u0635\u0646\u0639 \u062a\u0627\u0646\u064a'?`<label class="f">${t('receiving_factory')}</label>
             <select id="b-party" style="width:100%">${allowedDispatchFactories().map(f=>`<option value="${esc(f.id)}" ${b.party===f.id?'selected':''}>${esc(f.name)}</option>`).join('') || `<option value="">${t('no_other_factories')}</option>`}</select>`
-          :`<label class="f">${t('note')}</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>
+          :`<label class="f">${t('note')}</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>`}
         <div><label class="f">${t('date')}</label><input type="date" id="b-date" value="${b.date||today()}" style="width:100%"></div>
       </div>
     </div>
@@ -1289,6 +1290,7 @@ function viewMove(dir){
             <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
             <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
           </div></div>`
+        :S.dispatchOnlyMode && S.restrictDispatchTo?`<div style="grid-column:span 2"><div class="hint">${LANG==='en'?'This factory only dispatches to':'المصنع ده بيصرف بس لـ'} <b>${esc((FACTORIES.find(f=>f.id===S.restrictDispatchTo)||{name:S.restrictDispatchTo}).name)}</b> — ${t('notify_hint')}</div></div>`
         :`<div><label class="f">${t('dispense_to')}</label><select id="m-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${ui.moveReason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
         <div>${ui.moveReason==='صرف للفروع'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
@@ -1536,6 +1538,11 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
         <option value="">بدون قيد (كل المصانع)</option>
         ${FACTORIES.filter(f=>f.id!==FACTORY).map(f=>`<option value="${esc(f.id)}" ${S.restrictDispatchTo===f.id?'selected':''}>${esc(f.name)}</option>`).join('')}
       </select>
+      ${S.restrictDispatchTo?`
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer">
+        <input type="checkbox" id="dispatch-only-mode" ${S.dispatchOnlyMode?'checked':''}>
+        <span>المصنع ده مخصص للتوريد للمصنع ده بس — اخفِ كل خيارات الصرف التانية (للإنتاج، هالك، عينات...) واعتبر أي منصرف صرف تلقائي ليه</span>
+      </label>`:''}
     </div>
   </div>
  
@@ -1821,8 +1828,15 @@ function bind(){
   const biQ=$('#bi-q'); if(biQ){ biQ.oninput=e=>{ui.bulkIn.q=e.target.value; const p=e.target.selectionStart; readBulkInHeader(); render(); const n=$('#bi-q'); if(n){n.focus(); n.setSelectionRange(p,p);}}; }
   const rd=$('#restrict-dispatch'); if(rd) rd.onchange=async e=>{
     S.restrictDispatchTo=e.target.value;
+    if(!S.restrictDispatchTo) S.dispatchOnlyMode=false;
     await saveMain();
     toast(S.restrictDispatchTo?'اتقفل الصرف لمصنع تاني على مصنع واحد بس':'اتشال القيد');
+    render();
+  };
+  const dom=$('#dispatch-only-mode'); if(dom) dom.onchange=async e=>{
+    S.dispatchOnlyMode=e.target.checked;
+    await saveMain();
+    toast(S.dispatchOnlyMode?'المصنع بقى مخصص للتوريد لمصنع واحد بس':'رجعت كل خيارات الصرف');
     render();
   };
   const mItem=$('#m-item');
@@ -2390,7 +2404,9 @@ async function act(a,d){
       S.moves.push(m);
       if(m.price>0){ it.price=m.price; await saveMain(); }
     }else{
-      const party=$('#m-party')?$('#m-party').value.trim():'', reason=$('#m-reason').value;
+      const lockedMode = S.dispatchOnlyMode && S.restrictDispatchTo;
+      const party = lockedMode ? S.restrictDispatchTo : ($('#m-party')?$('#m-party').value.trim():'');
+      const reason = lockedMode ? 'صرف لمصنع تاني' : $('#m-reason').value;
       const res = dispenseOut(id, qty, date, party, reason);
       if(res.error) return toast(res.error,1);
       m = res.move;
@@ -2433,7 +2449,10 @@ async function act(a,d){
     const b=ui.bulk;
     const entries = Object.entries(b.qty).filter(([id,v])=>item(id)&&+v>0);
     if(!entries.length) return toast('اكتب كمية لصنف واحد على الأقل',1);
-    const date = b.date||today(), party=(b.party||'').trim(), reason=b.reason;
+    const lockedMode = S.dispatchOnlyMode && S.restrictDispatchTo;
+    const date = b.date||today();
+    const party = lockedMode ? S.restrictDispatchTo : (b.party||'').trim();
+    const reason = lockedMode ? 'صرف لمصنع تاني' : b.reason;
     if(reason==='صرف لمصنع تاني' && !party) return toast('اختار المصنع المستلم',1);
     const moves=[]; let autoCount=0; const skipped=[];
     for(const [id,v] of entries){
