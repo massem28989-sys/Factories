@@ -1491,18 +1491,118 @@ function viewMove(dir){
  
 /* ================= 4. الإنتاج والوصفات ================= */
 function viewProd(){
+  const runs = (S.runs||[]).slice();
+  // ===== تحليل الإنتاجية والتكلفة =====
+  const totalRuns   = runs.length;
+  const totalCost   = runs.reduce((s,r)=>s+(+r.cost||0),0);
+  const totalOut    = runs.reduce((s,r)=>s+(+r.outQty||0),0);
+  const avgUnitCost = totalOut ? totalCost/totalOut : 0;
+
+  // تجميع حسب الوصفة: كام تشغيلة، إجمالي الناتج، إجمالي التكلفة، متوسط تكلفة الوحدة
+  const byRecipe = {};
+  runs.forEach(r=>{
+    if(!byRecipe[r.name]) byRecipe[r.name]={name:r.name, runs:0, out:0, cost:0, dates:[]};
+    const g=byRecipe[r.name];
+    g.runs++; g.out=n2(g.out+(+r.outQty||0)); g.cost=n2(g.cost+(+r.cost||0)); g.dates.push(r.date);
+  });
+  const recipeStats = Object.values(byRecipe).map(g=>({
+    ...g, unitCost: g.out ? g.cost/g.out : 0
+  })).sort((a,b)=>b.cost-a.cost);
+
+  // اتجاه تكلفة الوحدة: بنقارن أول نص التشغيلات بآخر نص، عشان نعرف التكلفة بتزيد ولا بتقل
+  function costTrend(recipeName){
+    const rs = runs.filter(r=>r.name===recipeName && r.outQty>0)
+                   .sort((a,b)=> String(a.date).localeCompare(String(b.date)));
+    if(rs.length<2) return null;
+    const mid = Math.floor(rs.length/2);
+    const firstHalf = rs.slice(0,mid), lastHalf = rs.slice(mid);
+    const avg = arr => { const o=arr.reduce((s,r)=>s+r.outQty,0), c=arr.reduce((s,r)=>s+r.cost,0); return o? c/o : 0; };
+    const a = avg(firstHalf), b = avg(lastHalf);
+    if(!a) return null;
+    return { pct: ((b-a)/a)*100, from:a, to:b };
+  }
+
+  // أكتر الخامات استهلاكًا في الإنتاج (من حركات الصرف التلقائي المرتبطة بتشغيلات)
+  const rawUse = {};
+  S.moves.filter(m=>m.dir==='out' && m.runId).forEach(m=>{
+    const it=item(m.itemId); if(!it) return;
+    if(!rawUse[m.itemId]) rawUse[m.itemId]={it, qty:0, cost:0};
+    rawUse[m.itemId].qty = n2(rawUse[m.itemId].qty + (+m.qty||0));
+    rawUse[m.itemId].cost = n2(rawUse[m.itemId].cost + (+m.qty||0)*(it.price||0));
+  });
+  const topRaw = Object.values(rawUse).sort((a,b)=>b.cost-a.cost).slice(0,8);
+  const totalRawCost = Object.values(rawUse).reduce((s,r)=>s+r.cost,0);
+
   return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">تشغيلات الشهر</div><div class="v">${totalRuns}</div><div class="s">${periodLabel(S.period)}</div></div>
+    <div class="card"><div class="k">إجمالي الإنتاج</div><div class="v">${fmt(totalOut)}</div><div class="s">وحدة منتجة</div></div>
+    <div class="card"><div class="k">تكلفة الإنتاج</div><div class="v">${money(totalCost)}</div><div class="s">درهم</div></div>
+    <div class="card"><div class="k">متوسط تكلفة الوحدة</div><div class="v" style="color:var(--blue)">${money(avgUnitCost)}</div><div class="s">لكل وحدة منتجة</div></div>
+    <div class="card"><div class="k">منتجات مختلفة</div><div class="v">${recipeStats.length}</div><div class="s">وصفة اشتغلت</div></div>
+  </div></div></div>
+
+  ${recipeStats.length?`<div class="panel">
+    <h2>تحليل الإنتاجية والتكلفة لكل منتج <em>${recipeStats.length} منتج</em></h2>
+    <p class="hint" style="margin:-6px 14px 0">"اتجاه التكلفة" بيقارن متوسط تكلفة الوحدة في أول التشغيلات بآخرها — لو أحمر يبقى التكلفة بتزيد ومحتاج تراجع أسعار الخامات أو الهدر.</p>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>المنتج / الوصفة</th><th class="n">عدد التشغيلات</th><th class="n">إجمالي الناتج</th><th class="n">إجمالي التكلفة</th><th class="n">تكلفة الوحدة</th><th>اتجاه التكلفة</th><th class="n">% من تكلفة الإنتاج</th></tr></thead>
+      <tbody>${recipeStats.map(g=>{
+        const tr = costTrend(g.name);
+        const share = totalCost ? (g.cost/totalCost)*100 : 0;
+        let trendHtml = '<span class="hint">—</span>';
+        if(tr){
+          const up = tr.pct > 2, down = tr.pct < -2;
+          trendHtml = up ? `<span class="chip r">▲ ${fmt(Math.abs(tr.pct),1)}%</span>`
+                    : down ? `<span class="chip g">▼ ${fmt(Math.abs(tr.pct),1)}%</span>`
+                    : '<span class="chip">ثابتة</span>';
+        }
+        return `<tr>
+          <td><div class="iname">${esc(g.name)}</div></td>
+          <td class="n">${fmt(g.runs)}</td>
+          <td class="n">${fmt(g.out)}</td>
+          <td class="n">${money(g.cost)}</td>
+          <td class="n hl">${money(g.unitCost)}</td>
+          <td>${trendHtml}</td>
+          <td class="n">${fmt(share,1)}%</td>
+        </tr>`;
+      }).join('')}</tbody>
+      <tfoot><tr style="font-weight:700">
+        <td>الإجمالي</td><td class="n">${totalRuns}</td><td class="n">${fmt(totalOut)}</td>
+        <td class="n">${money(totalCost)}</td><td class="n hl">${money(avgUnitCost)}</td><td colspan="2"></td>
+      </tr></tfoot>
+    </table></div>
+  </div>`:''}
+
+  ${topRaw.length?`<div class="panel">
+    <h2>أكتر الخامات استهلاكًا في الإنتاج <em>أعلى ${topRaw.length}</em></h2>
+    <p class="hint" style="margin:-6px 14px 0">الخامات اللي بتاكل أكبر نصيب من تكلفة إنتاجك — أي وفر هنا بيأثر مباشرة على الربح.</p>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الخامة</th><th class="n">الكمية المستهلكة</th><th class="n">تكلفتها</th><th class="n">% من تكلفة الخامات</th></tr></thead>
+      <tbody>${topRaw.map(r=>{
+        const share = totalRawCost ? (r.cost/totalRawCost)*100 : 0;
+        return `<tr>
+          <td><div class="iname">${esc(r.it.name)}</div></td>
+          <td class="n">${fmt(r.qty)} <span class="chip">${esc(r.it.unit)}</span></td>
+          <td class="n hl">${money(r.cost)}</td>
+          <td class="n">${fmt(share,1)}%</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+
   <div class="panel">
     <h2>وصفات الإنتاج <em>الوصفة بتخصم الخامات وتضيف المنتج بضغطة واحدة</em>
       <button class="btn sm p" data-act="new-recipe" style="margin-inline-start:auto">وصفة جديدة</button></h2>
-    ${S.recipes.length? `<div class="tblwrap"><table>
-      <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th>تكلفة التشغيلة</th><th>تكلفة الوحدة</th><th></th></tr></thead>
+    ${S.recipes.length? `<div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th class="n">تكلفة التشغيلة</th><th class="n">تكلفة الوحدة</th><th></th></tr></thead>
       <tbody>${S.recipes.map(r=>{const out=item(r.outItemId); const c=recipeCost(r);
-        return `<tr><td class="iname">${esc(r.name)}</td>
+        const missingPrice = r.lines.some(l=>{ const it=item(l.itemId); return !it || !(it.price>0); });
+        return `<tr><td class="iname">${esc(r.name)}${missingPrice?' <span class="chip a">خامة من غير سعر</span>':''}</td>
           <td class="n">${fmt(r.outQty)} <span class="chip">${esc(out?out.unit:'')}</span> ${esc(out?out.name:'—')}</td>
           <td>${r.lines.map(l=>`<span class="chip">${esc((item(l.itemId)||{}).name||'?')} · ${fmt(l.qty)}</span>`).join(' ')}</td>
           <td class="n"><b>${money(c)}</b></td>
-          <td class="n">${money(r.outQty? c/r.outQty:0)}</td>
+          <td class="n hl">${money(r.outQty? c/r.outQty:0)}</td>
           <td style="white-space:nowrap">
             <button class="btn sm g" data-run="${r.id}">تشغيل</button>
             <button class="btn sm" data-act="edit-recipe" data-id="${r.id}">تعديل</button>
@@ -1510,11 +1610,12 @@ function viewProd(){
       </tbody></table></div>`
       : `<div class="empty">لسه مفيش وصفات. اعمل وصفة لكل منتج (كنافة، مبرومة، كوكيز…) عشان الخامات تتخصم لوحدها وتعرف تكلفة الحبة.</div>`}
   </div>
-  <div class="panel"><h2>تشغيلات الإنتاج الشهر ده</h2>
-    <div class="tblwrap"><table><thead><tr><th>التاريخ</th><th>الوصفة</th><th>عدد التشغيلات</th><th>الناتج</th><th>التكلفة</th><th></th></tr></thead>
-    <tbody>${(S.runs||[]).slice().reverse().map(r=>`<tr><td class="n">${r.date}</td><td>${esc(r.name)}${r.auto?' <span class="chip b">تلقائي</span>':''}</td><td class="n">${fmt(r.batches)}</td><td class="n">${fmt(r.outQty)}</td><td class="n">${money(r.cost)}</td>
+
+  <div class="panel"><h2>سجل تشغيلات الإنتاج <em>${runs.length} تشغيلة</em></h2>
+    <div class="tblwrap"><table class="gridcols"><thead><tr><th>التاريخ</th><th>الوصفة</th><th class="n">عدد التشغيلات</th><th class="n">الناتج</th><th class="n">التكلفة</th><th class="n">تكلفة الوحدة</th><th></th></tr></thead>
+    <tbody>${runs.slice().reverse().map(r=>`<tr><td class="n">${r.date}</td><td>${esc(r.name)}${r.auto?' <span class="chip b">تلقائي</span>':''}</td><td class="n">${fmt(r.batches)}</td><td class="n">${fmt(r.outQty)}</td><td class="n">${money(r.cost)}</td><td class="n">${money(r.outQty? r.cost/r.outQty : 0)}</td>
       <td>${r.id?`<button class="btn sm danger" data-act="del-run" data-id="${r.id}">تراجع</button>`:''}</td></tr>`).join('')
-      ||`<tr><td colspan="6" class="empty">لسه مفيش تشغيلات</td></tr>`}</tbody></table></div>
+      ||`<tr><td colspan="7" class="empty">لسه مفيش تشغيلات</td></tr>`}</tbody></table></div>
   </div>`;
 }
  
@@ -2236,59 +2337,148 @@ async function boSaveOrder(order){
 // جدول فروع × أصناف قابل للتعديل، بنفس شكل شيت الإكسل الأصلي
 // بيحسب المواد الخام اللازمة لتلبية إجمالي طلبيات الفروع كلها، بناءً على الوصفات المسجلة
 function buildProductionPlan(){
-  const needed = {}; // rawItemId -> { it, qty }
-  const unmatched = []; // أصناف من الفروج مالهاش صنف مطابق أو مالهاش وصفة
+  const products = [];   // كل منتج مطلوب: المطلوب، الجاهز، المحتاج إنتاجه، عدد التشغيلات، التكلفة
+  const needed = {};      // rawItemId -> { it, qty }
+  const unmatched = [];
+
   Object.values(BO.totals).forEach(r=>{
     const match = findMatchingLocalItem(r.name);
-    if(!match){ unmatched.push({name:r.name, reason:'مالوش صنف مطابق في المخزن'}); return; }
+    if(!match){ unmatched.push({name:r.name, qty:r.qty, unit:r.unit, reason:'مالوش صنف مطابق في المخزن'}); return; }
+
+    const onHand = calc(match).book;                 // المخزون الجاهز من المنتج ده
+    const toProduce = n2(Math.max(0, r.qty - onHand)); // المحتاج إنتاجه فعلًا = المطلوب − الجاهز
     const rec = S.recipes.find(x=>x.outItemId===match.id);
-    if(!rec || !(rec.outQty>0)){ unmatched.push({name:r.name, reason:'الصنف مالوش وصفة إنتاج مسجلة'}); return; }
-    const b = r.qty / rec.outQty;
-    rec.lines.forEach(l=>{
-      const li = item(l.itemId); if(!li) return;
-      if(!needed[l.itemId]) needed[l.itemId]={it:li, qty:0};
-      needed[l.itemId].qty = n2(needed[l.itemId].qty + l.qty*b);
-    });
+
+    if(!rec || !(rec.outQty>0)){
+      // مفيش وصفة: يا إما جاهز في المخزن (يتصرف مباشرة) يا إما ناقص ومحتاج توريد
+      products.push({ name:r.name, item:match, demand:r.qty, onHand, toProduce, batches:null, cost:0, rec:null,
+                      status: toProduce>0 ? 'no_recipe_short' : 'ready' });
+      if(toProduce>0) unmatched.push({name:r.name, qty:toProduce, unit:r.unit, reason:'مالوش وصفة إنتاج — لازم يتورّد جاهز'});
+      return;
+    }
+
+    const batches = toProduce>0 ? toProduce/rec.outQty : 0;
+    const cost = n2(recipeCost(rec) * batches);
+    products.push({ name:r.name, item:match, demand:r.qty, onHand, toProduce, batches:n2(batches), cost, rec,
+                    status: toProduce>0 ? 'produce' : 'ready' });
+
+    if(batches>0){
+      rec.lines.forEach(l=>{
+        const li = item(l.itemId); if(!li) return;
+        if(!needed[l.itemId]) needed[l.itemId]={it:li, qty:0};
+        needed[l.itemId].qty = n2(needed[l.itemId].qty + l.qty*batches);
+      });
+    }
   });
+
   const rows = Object.values(needed).map(n=>{
     const bal = calc(n.it).book;
-    return {...n, bal, short: n2(n.qty-bal)};
-  }).sort((a,b)=>a.it.name.localeCompare(b.it.name,'ar'));
-  return {rows, unmatched};
+    const short = n2(Math.max(0, n.qty-bal));
+    return {...n, bal, short, shortCost: n2(short*(n.it.price||0)) };
+  }).sort((a,b)=> b.short - a.short || a.it.name.localeCompare(b.it.name,'ar'));
+
+  products.sort((a,b)=> b.toProduce - a.toProduce);
+  return {products, rows, unmatched};
 }
 
 function viewProductionPlan(){
-  const {rows, unmatched} = buildProductionPlan();
-  const shortRows = rows.filter(r=>r.short>0);
+  const {products, rows, unmatched} = buildProductionPlan();
+  const toProduceList = products.filter(p=>p.status==='produce');
+  const readyList     = products.filter(p=>p.status==='ready');
+  const shortRows     = rows.filter(r=>r.short>0);
+
+  const totalProdCost = n2(products.reduce((s,p)=>s+p.cost,0));
+  const totalShortCost= n2(shortRows.reduce((s,r)=>s+r.shortCost,0));
+  const canProduceAll = shortRows.length===0 && toProduceList.length>0;
+
   return `
   <div class="panel"><div class="pad"><div class="cards">
-    <div class="card"><div class="k">خامات مطلوبة</div><div class="v">${rows.length}</div><div class="s">من ${Object.keys(BO.totals).length} صنف مطلوب</div></div>
-    <div class="card"><div class="k">خامات ناقصة</div><div class="v" style="color:${shortRows.length?'var(--red)':'var(--green)'}">${shortRows.length}</div><div class="s">محتاجة توريد قبل الصرف</div></div>
-    ${unmatched.length?`<div class="card"><div class="k">أصناف من غير تخطيط</div><div class="v" style="color:var(--amber)">${unmatched.length}</div><div class="s">مالهاش وصفة أو مطابقة</div></div>`:''}
+    <div class="card"><div class="k">محتاج إنتاج</div><div class="v">${toProduceList.length}</div><div class="s">منتج من ${products.length} مطلوب</div></div>
+    <div class="card"><div class="k">جاهز في المخزن</div><div class="v" style="color:var(--green)">${readyList.length}</div><div class="s">يتصرف من غير إنتاج</div></div>
+    <div class="card"><div class="k">خامات ناقصة</div><div class="v" style="color:${shortRows.length?'var(--red)':'var(--green)'}">${shortRows.length}</div><div class="s">${shortRows.length?'محتاجة توريد فورًا':'كل الخامات متوفرة'}</div></div>
+    <div class="card"><div class="k">تكلفة الإنتاج المتوقعة</div><div class="v">${money(totalProdCost)}</div><div class="s">درهم</div></div>
+    ${totalShortCost?`<div class="card"><div class="k">تكلفة التوريد الناقص</div><div class="v" style="color:var(--red)">${money(totalShortCost)}</div><div class="s">لشراء الخامات الناقصة</div></div>`:''}
   </div></div></div>
 
   <div class="panel"><div class="pad">
-    <div class="hint">التقرير ده بيحسب المواد الخام اللازمة لإنتاج <b>كل</b> الكميات المطلوبة من الفروع في الفترة دي، بناءً على الوصفات المسجلة في "الإنتاج والوصفات" — قبل ما تصرف حاجة فعليًا. الأصناف اللي مالهاش وصفة (زي المقبلات الجاهزة) مش هتظهر هنا لأنها بتتصرف مباشرة من غير استهلاك خامات.</div>
+    <div class="${canProduceAll?'hint':'warnbar'}" style="${canProduceAll?'':'margin:0'}">
+      ${canProduceAll
+        ? '✅ كل الخامات متوفرة — تقدر تنفّذ خطة الإنتاج دي كاملة دلوقتي.'
+        : shortRows.length
+          ? `⚠️ فيه ${shortRows.length} خامة ناقصة — لازم توردها الأول قبل ما تقدر تنفّذ الخطة كاملة.`
+          : 'مفيش حاجة محتاجة إنتاج — كل المطلوب متوفر جاهز في المخزن.'}
+    </div>
+    <div class="hint" style="margin-top:8px">الحساب بيطرح <b>المخزون الجاهز</b> من المطلوب، فمش هتنتج ولا تشتري أكتر من اللازم.</div>
   </div></div>
 
-  ${rows.length?`<div class="panel">
-    <h2>المواد الخام المطلوبة <em>${rows.length} خامة</em></h2>
+  ${toProduceList.length?`<div class="panel">
+    <h2>أمر الإنتاج — إيه اللي تنتجه بالظبط <em>${toProduceList.length} منتج</em></h2>
     <div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>الخامة</th><th class="n">المطلوب للإنتاج</th><th class="n">الرصيد الحالي</th><th class="n">الناقص</th><th>الحالة</th></tr></thead>
+      <thead><tr><th>المنتج</th><th class="n">مطلوب من الفروع</th><th class="n">جاهز عندك</th><th class="n hl">محتاج تنتج</th><th class="n">عدد التشغيلات</th><th class="n">تكلفة الإنتاج</th><th></th></tr></thead>
+      <tbody>${toProduceList.map(p=>`<tr>
+        <td><div class="iname">${esc(p.item.name)}</div>${p.rec?`<div class="idesc">وصفة: ${esc(p.rec.name)}</div>`:''}</td>
+        <td class="n">${fmt(p.demand)} <span class="chip">${esc(p.item.unit)}</span></td>
+        <td class="n" style="color:var(--green)">${fmt(p.onHand)}</td>
+        <td class="n hl">${fmt(p.toProduce)}</td>
+        <td class="n">${p.batches!=null?fmt(p.batches):'—'}</td>
+        <td class="n">${p.cost?money(p.cost):'—'}</td>
+        <td>${p.rec?`<button class="btn sm g" data-run="${p.rec.id}">تشغيل</button>`:'<span class="hint">مفيش وصفة</span>'}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:700"><td colspan="5">إجمالي تكلفة الإنتاج المتوقعة</td><td class="n hl">${money(totalProdCost)}</td><td></td></tr></tfoot>
+    </table></div>
+  </div>`:''}
+
+  ${readyList.length?`<div class="panel">
+    <h2>جاهز في المخزن — مش محتاج إنتاج <em>${readyList.length} منتج</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>المنتج</th><th class="n">مطلوب</th><th class="n">جاهز عندك</th><th>الحالة</th></tr></thead>
+      <tbody>${readyList.map(p=>`<tr>
+        <td><div class="iname">${esc(p.item.name)}</div></td>
+        <td class="n">${fmt(p.demand)} <span class="chip">${esc(p.item.unit)}</span></td>
+        <td class="n hl">${fmt(p.onHand)}</td>
+        <td><span class="chip g">يتصرف مباشرة</span></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+
+  ${shortRows.length?`<div class="panel">
+    <h2>قائمة الشراء — خامات ناقصة لازم توردها <em>${shortRows.length} خامة</em></h2>
+    <p class="hint" style="margin:-6px 14px 0">دي الكميات الناقصة بالظبط عشان تقدر تنفّذ أمر الإنتاج بالكامل.</p>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الخامة</th><th class="n">مطلوب للإنتاج</th><th class="n">متاح عندك</th><th class="n hl">الناقص</th><th class="n">تكلفة الشراء</th></tr></thead>
+      <tbody>${shortRows.map(r=>`<tr class="lowrow">
+        <td><div class="iname">${esc(r.it.name)}</div></td>
+        <td class="n">${fmt(r.qty)} <span class="chip">${esc(r.it.unit)}</span></td>
+        <td class="n">${fmt(r.bal)}</td>
+        <td class="n hl" style="color:var(--red)">${fmt(r.short)}</td>
+        <td class="n">${r.it.price>0?money(r.shortCost):'<span class="hint">مفيش سعر</span>'}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:700"><td colspan="4">إجمالي تكلفة التوريد</td><td class="n hl">${money(totalShortCost)}</td></tr></tfoot>
+    </table></div>
+  </div>`:''}
+
+  ${rows.length?`<div class="panel">
+    <h2>كل المواد الخام المطلوبة <em>${rows.length} خامة</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الخامة</th><th class="n">المطلوب للإنتاج</th><th class="n">الرصيد الحالي</th><th class="n">بعد الإنتاج</th><th>الحالة</th></tr></thead>
       <tbody>${rows.map(r=>`<tr class="${r.short>0?'lowrow':''}">
         <td><div class="iname">${esc(r.it.name)}</div></td>
         <td class="n hl">${fmt(r.qty)} <span class="chip">${esc(r.it.unit)}</span></td>
         <td class="n">${fmt(r.bal)}</td>
-        <td class="n" style="color:${r.short>0?'var(--red)':'var(--muted)'}">${r.short>0?fmt(r.short):'—'}</td>
-        <td>${r.short>0?'<span class="chip r">محتاج توريد</span>':'<span class="chip g">كفاية</span>'}</td>
+        <td class="n" style="color:${r.short>0?'var(--red)':'var(--muted)'}">${fmt(n2(r.bal-r.qty))}</td>
+        <td>${r.short>0?'<span class="chip r">ناقص</span>':'<span class="chip g">كفاية</span>'}</td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`:`<div class="panel"><div class="empty">مفيش أصناف مطلوبة ليها وصفة إنتاج في الفترة دي</div></div>`}
 
   ${unmatched.length?`<div class="panel">
-    <h2>أصناف من غير تخطيط <em>${unmatched.length}</em></h2>
-    <div class="tblwrap"><table><thead><tr><th>الصنف (من الفروج)</th><th>السبب</th></tr></thead>
-      <tbody>${unmatched.map(u=>`<tr><td>${esc(u.name)}</td><td class="hint">${esc(u.reason)}</td></tr>`).join('')}</tbody>
+    <h2>أصناف محتاجة انتباه <em>${unmatched.length}</em></h2>
+    <div class="tblwrap"><table class="gridcols"><thead><tr><th>الصنف (من الفروع)</th><th class="n">الكمية</th><th>السبب</th></tr></thead>
+      <tbody>${unmatched.map(u=>`<tr>
+        <td>${esc(u.name)}</td>
+        <td class="n">${u.qty!=null?fmt(u.qty)+' '+esc(u.unit||''):'—'}</td>
+        <td class="hint">${esc(u.reason)}</td>
+      </tr>`).join('')}</tbody>
     </table></div>
   </div>`:''}
   `;
