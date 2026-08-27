@@ -392,7 +392,7 @@ const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<
 const isLocked = k => !!S.locks[k];
 const canOpen  = k => !isLocked(k) || !!SESS[k];
 let tab = 'count';
-let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], rhead:null, editingRecipe:null, editing:null, modal:null,
+let ui = { q:'', cat:'الكل', only:'الكل', itOnly:'all', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], rhead:null, editingRecipe:null, editing:null, modal:null,
   mvQ:'', mvReason:'', mvParty:'', mvEdit:false,
   bulk:{on:false, reason:'صرف للفروع', party:'', cat:'الكل', q:'', date:'', qty:{}},
   bulkIn:{on:false, party:'', cat:'الكل', q:'', date:'', qty:{}, price:{}} };
@@ -1628,30 +1628,110 @@ function viewProd(){
 }
  
 /* ================= 5. كارت الأصناف ================= */
+let itSort = { by:'name', dir:1 };
+function itToggleSort(by){
+  if(itSort.by===by) itSort.dir*=-1; else { itSort.by=by; itSort.dir=1; }
+  render();
+}
+
 function viewItems(){
-  const list=filtered();
+  const q=(ui.q||'').trim().toLowerCase();
+  let list = S.items.filter(it=>{
+    if(ui.cat!=='الكل' && it.cat!==ui.cat) return false;
+    if(q && !(it.name.toLowerCase().includes(q) || (it.desc||'').toLowerCase().includes(q) || (it.unit||'').toLowerCase().includes(q))) return false;
+    if(ui.itOnly==='noprice' && it.price>0) return false;
+    if(ui.itOnly==='nomin'   && it.min>0) return false;
+    if(ui.itOnly==='low'){ const c=calc(it); const oh=c.has?c.real:c.book; if(!(it.min>0 && oh<=it.min)) return false; }
+    if(ui.itOnly==='out'){ const c=calc(it); const oh=c.has?c.real:c.book; if(oh>0) return false; }
+    return true;
+  });
+
+  // ترتيب حقيقي بدل الترتيب العشوائي بترتيب الإضافة
+  const val = it => { const c=calc(it); return c.value; };
+  const onh = it => { const c=calc(it); return c.has?c.real:c.book; };
+  list.sort((a,b)=>{
+    let r=0;
+    if(itSort.by==='name')       r = a.name.localeCompare(b.name,'ar');
+    else if(itSort.by==='cat')   r = String(a.cat).localeCompare(String(b.cat),'ar') || a.name.localeCompare(b.name,'ar');
+    else if(itSort.by==='stock') r = onh(a)-onh(b);
+    else if(itSort.by==='price') r = (+a.price||0)-(+b.price||0);
+    else if(itSort.by==='value') r = val(a)-val(b);
+    return r*itSort.dir;
+  });
+
+  // إحصائيات صحة البيانات: بتوضح فورًا إيه الناقص اللي بيخلي التقارير غلط
+  const noPrice = S.items.filter(i=>!(i.price>0)).length;
+  const noMin   = S.items.filter(i=>!(i.min>0)).length;
+  const lowN    = S.items.filter(i=>{ const c=calc(i); const oh=c.has?c.real:c.book; return i.min>0 && oh<=i.min; }).length;
+  const outN    = S.items.filter(i=>{ const c=calc(i); return (c.has?c.real:c.book)<=0; }).length;
+  const totalVal= S.items.reduce((s,i)=>s+calc(i).value,0);
+  const arrow = k => itSort.by===k ? (itSort.dir===1?' ▲':' ▼') : '';
+  const only = ui.itOnly||'all';
+  const chip = (key,label,count,cls) => `<button class="btn sm ${only===key?'p':''}" data-itonly="${key}">${label}${count!=null?` ${count}`:''}</button>`;
+
+  const showCatCol = ui.cat==='الكل' && itSort.by!=='cat';
+
   return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">إجمالي الأصناف</div><div class="v">${S.items.length}</div><div class="s">${cats().length-1} تصنيف</div></div>
+    <div class="card"><div class="k">قيمة المخزون</div><div class="v">${money(totalVal)}</div><div class="s">درهم</div></div>
+    <div class="card"><div class="k">من غير سعر</div><div class="v" style="color:${noPrice?'var(--red)':'var(--green)'}">${noPrice}</div><div class="s">${noPrice?'التقارير هتطلع ناقصة':'كل الأصناف مسعّرة'}</div></div>
+    <div class="card"><div class="k">من غير حد أدنى</div><div class="v" style="color:${noMin?'var(--amber)':'var(--green)'}">${noMin}</div><div class="s">${noMin?'مش هتتنبّه لما تخلص':'كلها متضبطة'}</div></div>
+    <div class="card"><div class="k">محتاج انتباه</div><div class="v" style="color:${(lowN+outN)?'var(--red)':'var(--green)'}">${lowN+outN}</div><div class="s">${outN} خلص · ${lowN} تحت الحد</div></div>
+  </div></div></div>
+
   <div class="panel">
-    <h2>كارت الأصناف <em>${S.items.length} صنف · حط السعر والحد الأدنى عشان التقارير تشتغل</em>
-      <button class="btn sm p" data-act="new-item" style="margin-inline-start:auto">صنف جديد</button></h2>
+    <h2>كارت الأصناف <em>${list.length} من ${S.items.length}</em>
+      <button class="btn sm g" data-act="items-export" style="margin-inline-start:auto">تصدير CSV</button>
+      <button class="btn sm p" data-act="new-item">صنف جديد</button></h2>
     ${categoryTabs()}
-    ${filterBar(true)}
-    <div class="tblwrap"><table>
-      <thead><tr><th>الصنف</th><th>القسم</th><th>الوحدة</th><th>الشدّ</th><th>الرصيد الحالي</th><th>سعر الوحدة</th><th>الحد الأدنى</th><th>القيمة</th><th></th></tr></thead>
-      <tbody>${(()=>{let lastCat=null; return list.map(it=>{const c=calc(it); const onhand=c.has?c.real:c.book; const low=it.min>0&&onhand<=it.min;
-        const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="9">${esc(it.cat)}</td></tr>`) : '';
-        return hdr+`<tr>
-        <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}${it.note?' · <span style="color:var(--amber)">'+esc(it.note)+'</span>':''}</div></td>
-        <td><span class="chip">${esc(it.cat)}</span></td>
-        <td><span class="chip">${esc(it.unit)}</span></td>
-        <td>${it.packSize?`<span class="chip b">${esc(it.packUnit||'عبوة')} = ${fmt(it.packSize)} ${esc(it.unit)}</span>`:'<span class="hint">—</span>'}</td>
-        <td class="n">${fmt(onhand)} ${low?'<span class="chip a">تحت الحد</span>':''}</td>
-        <td><input type="number" step="any" class="cell" data-price="${it.id}" value="${it.price||''}" placeholder="0"></td>
-        <td><input type="number" step="any" class="cell" data-min="${it.id}" value="${it.min||''}" placeholder="0"></td>
-        <td class="n"><b>${money(c.value)}</b></td>
-        <td><button class="btn sm" data-edit="${it.id}">تعديل</button></td></tr>`;}).join('');})()
-        ||`<tr><td colspan="9" class="empty">مفيش نتايج</td></tr>`}
-      </tbody></table></div>
+    <div class="pad">
+      <div class="bar">
+        <input type="text" class="grow" id="q" placeholder="دور بالاسم أو الوصف أو الوحدة…" value="${esc(ui.q)}">
+        ${chip('all','الكل',S.items.length)}
+        ${chip('noprice','من غير سعر',noPrice)}
+        ${chip('nomin','من غير حد أدنى',noMin)}
+        ${chip('low','تحت الحد',lowN)}
+        ${chip('out','خلص',outN)}
+      </div>
+      <div class="hint" style="margin-top:8px">السعر والحد الأدنى بيتعدّلوا مباشرة من الجدول — أي تعديل بيتحفظ لوحده. دوس على عنوان أي عمود عشان ترتب بيه.</div>
+    </div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr>
+        <th style="cursor:pointer" data-itsort="name">الصنف${arrow('name')}</th>
+        ${showCatCol?`<th style="cursor:pointer" data-itsort="cat">القسم${arrow('cat')}</th>`:''}
+        <th>الوحدة</th>
+        <th>الشدّ</th>
+        <th class="n" style="cursor:pointer" data-itsort="stock">الرصيد${arrow('stock')}</th>
+        <th class="n" style="cursor:pointer" data-itsort="price">سعر الوحدة${arrow('price')}</th>
+        <th class="n">الحد الأدنى</th>
+        <th class="n" style="cursor:pointer" data-itsort="value">القيمة${arrow('value')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${(()=>{ let lastCat=null; const colspan = showCatCol?9:8;
+        return list.map(it=>{
+          const c=calc(it); const onhand=c.has?c.real:c.book;
+          const low=it.min>0&&onhand<=it.min; const out=onhand<=0;
+          // صف عنوان التصنيف بيظهر بس لما نكون رتبين بالتصنيف — عشان مايبقاش عشوائي وسط ترتيب تاني
+          const hdr = (itSort.by==='cat' && it.cat!==lastCat) ? (lastCat=it.cat, `<tr class="catrow"><td colspan="${colspan}">${esc(it.cat)}</td></tr>`) : '';
+          return hdr+`<tr class="${out?'lowrow':''}">
+          <td><div class="iname">${esc(it.name)}</div>${(it.desc||it.note)?`<div class="idesc">${esc(it.desc||'')}${it.note?' · <span style="color:var(--amber)">'+esc(it.note)+'</span>':''}</div>`:''}</td>
+          ${showCatCol?`<td><span class="chip">${esc(it.cat)}</span></td>`:''}
+          <td><span class="chip">${esc(it.unit)}</span></td>
+          <td>${it.packSize?`<span class="chip b">${esc(it.packUnit||'عبوة')} = ${fmt(it.packSize)}</span>`:'<span class="hint">—</span>'}</td>
+          <td class="n hl">${fmt(onhand)} ${out?'<span class="chip r">خلص</span>':(low?'<span class="chip a">تحت الحد</span>':'')}</td>
+          <td class="n"><input type="number" step="any" class="cell${it.price>0?' filled':''}" data-price="${it.id}" value="${it.price||''}" placeholder="—"></td>
+          <td class="n"><input type="number" step="any" class="cell${it.min>0?' filled':''}" data-min="${it.id}" value="${it.min||''}" placeholder="—"></td>
+          <td class="n"><b>${it.price>0?money(c.value):'<span class="hint">—</span>'}</b></td>
+          <td><button class="btn sm" data-edit="${it.id}">تعديل</button></td></tr>`;
+        }).join('');})()
+        ||`<tr><td colspan="${showCatCol?9:8}" class="empty">مفيش أصناف مطابقة</td></tr>`}
+      </tbody>
+      ${list.length?`<tfoot><tr style="font-weight:700">
+        <td colspan="${showCatCol?7:6}">الإجمالي</td>
+        <td class="n hl">${money(list.reduce((s,i)=>s+calc(i).value,0))}</td><td></td>
+      </tr></tfoot>`:''}
+    </table></div>
   </div>`;
 }
  
@@ -2234,6 +2314,8 @@ function bind(){
     render();
   });
   root.querySelectorAll('[data-dsonly]').forEach(b=>b.onclick=()=>{ dsOnly=b.dataset.dsonly; render(); });
+  root.querySelectorAll('[data-itsort]').forEach(th=>th.onclick=()=>itToggleSort(th.dataset.itsort));
+  root.querySelectorAll('[data-itonly]').forEach(b=>b.onclick=()=>{ ui.itOnly=b.dataset.itonly; render(); });
   root.querySelectorAll('[data-dssort]').forEach(th=>th.onclick=()=>dsToggleSort(th.dataset.dssort));
   root.querySelectorAll('[data-cattab]').forEach(b=>b.onclick=()=>{
     if(b.dataset.scope==='b') ui.bulk.cat=b.dataset.cattab;
@@ -2741,6 +2823,19 @@ async function act(a,d){
   if(a==='lock-all'){
     SESS={}; if(isLocked(tab)) tab='count';
     toast('كل التبويبات المقفولة رجعت مقفولة'); return render();
+  }
+  if(a==='items-export'){
+    const rows=[['الصنف','الوصف','القسم','الوحدة','الشدّ','الرصيد','سعر الوحدة','الحد الأدنى','القيمة','ملاحظة']];
+    let tv=0;
+    S.items.slice().sort((a,b)=>String(a.cat).localeCompare(String(b.cat),'ar')||a.name.localeCompare(b.name,'ar')).forEach(it=>{
+      const c=calc(it); const oh=c.has?c.real:c.book; tv+=c.value;
+      rows.push([it.name,it.desc||'',it.cat,it.unit,it.packSize?`${it.packUnit||'عبوة'}=${it.packSize}`:'',oh,it.price||'',it.min||'',n2(c.value),it.note||'']);
+    });
+    rows.push(['الإجمالي','','','','','','','',n2(tv),'']);
+    const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    const el=document.createElement('a'); el.href=url; el.download=`كارت-الأصناف-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
+    return toast('تم تصدير كارت الأصناف');
   }
   if(a==='new-item'){ ui.modal=itemModal(null); return render(); }
   if(a==='sync-prices'){
