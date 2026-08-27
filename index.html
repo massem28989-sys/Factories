@@ -1308,7 +1308,7 @@ function bulkInPanel(){
           <td><span class="chip">${esc(it.unit)}</span></td>
           <td class="n">${fmt(c.book)}</td>
           <td><input type="number" step="any" class="cell${v?' filled':''}" data-bulkinqty="${it.id}" data-row="${idx}" value="${v}" placeholder="—"></td>
-          <td><input type="number" step="any" class="cell" data-bulkinprice="${it.id}" value="${pr}" placeholder="${it.price>0?fmt(it.price):'—'}"></td>
+          <td><input type="number" step="any" class="cell${(pr!==''||it.price>0)?' filled':''}" data-bulkinprice="${it.id}" value="${pr!==''?pr:(it.price>0?it.price:'')}" placeholder="—" title="${it.price>0?'السعر المسجل في كارت الأصناف — عدّله لو اتغيّر':'الصنف لسه من غير سعر'}"></td>
         </tr>`;}).join('');})()||`<tr><td colspan="5" class="empty">${t('no_items_filter')}</td></tr>`}
       </tbody></table></div>
     <div class="pad" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line)">
@@ -1398,7 +1398,7 @@ function viewMove(dir){
           </div>
           <div class="hint" id="m-conv" style="margin-top:4px"></div>
         </div>
-        ${isIn?`<div><label class="f">${t('unit_price')}</label><input type="number" step="any" id="m-price" style="width:100%"></div>
+        ${isIn?`<div><label class="f">${t('unit_price')}</label><input type="number" step="any" id="m-price" style="width:100%"><div class="hint" id="m-price-hint" style="margin-top:4px"></div></div>
         <div><label class="f">${t('supplier')}</label>
           <div style="display:flex;gap:6px">
             <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
@@ -1593,22 +1593,30 @@ function viewProd(){
 
   <div class="panel">
     <h2>وصفات الإنتاج <em>الوصفة بتخصم الخامات وتضيف المنتج بضغطة واحدة</em>
-      <button class="btn sm p" data-act="new-recipe" style="margin-inline-start:auto">وصفة جديدة</button></h2>
+      ${(()=>{ const n=S.recipes.filter(r=>{const o=item(r.outItemId); if(!o||!r.outQty) return false; const uc=recipeCost(r)/r.outQty; return uc>0 && Math.abs(uc-(+o.price||0))>0.005; }).length;
+        return n?`<button class="btn sm" data-act="sync-prices" style="margin-inline-start:auto">مزامنة أسعار ${n} منتج</button><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`
+                :`<button class="btn sm p" data-act="new-recipe" style="margin-inline-start:auto">وصفة جديدة</button>`; })()}</h2>
     ${S.recipes.length? `<div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th class="n">تكلفة التشغيلة</th><th class="n">تكلفة الوحدة</th><th></th></tr></thead>
+      <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th class="n">تكلفة التشغيلة</th><th class="n">تكلفة الوحدة</th><th class="n">سعره في الكارت</th><th></th></tr></thead>
       <tbody>${S.recipes.map(r=>{const out=item(r.outItemId); const c=recipeCost(r);
         const missingPrice = r.lines.some(l=>{ const it=item(l.itemId); return !it || !(it.price>0); });
+        const unitCost = r.outQty ? c/r.outQty : 0;
+        const cardPrice = out ? (+out.price||0) : 0;
+        const diff = unitCost>0 ? Math.abs(unitCost-cardPrice) : 0;
+        const stale = unitCost>0 && diff>0.005;
         return `<tr><td class="iname">${esc(r.name)}${missingPrice?' <span class="chip a">خامة من غير سعر</span>':''}</td>
           <td class="n">${fmt(r.outQty)} <span class="chip">${esc(out?out.unit:'')}</span> ${esc(out?out.name:'—')}</td>
           <td>${r.lines.map(l=>`<span class="chip">${esc((item(l.itemId)||{}).name||'?')} · ${fmt(l.qty)}</span>`).join(' ')}</td>
           <td class="n"><b>${money(c)}</b></td>
-          <td class="n hl">${money(r.outQty? c/r.outQty:0)}</td>
+          <td class="n hl">${money(unitCost)}</td>
+          <td class="n">${cardPrice>0?money(cardPrice):'<span class="hint">مفيش</span>'}${stale?` <span class="chip a" title="سعر الكارت مختلف عن تكلفة الوصفة">مختلف</span>`:''}</td>
           <td style="white-space:nowrap">
             <button class="btn sm g" data-run="${r.id}">تشغيل</button>
             <button class="btn sm" data-act="edit-recipe" data-id="${r.id}">تعديل</button>
             <button class="btn sm danger" data-delr="${r.id}">حذف</button></td></tr>`;}).join('')}
       </tbody></table></div>`
       : `<div class="empty">لسه مفيش وصفات. اعمل وصفة لكل منتج (كنافة، مبرومة، كوكيز…) عشان الخامات تتخصم لوحدها وتعرف تكلفة الحبة.</div>`}
+  </div>
   </div>
 
   <div class="panel"><h2>سجل تشغيلات الإنتاج <em>${runs.length} تشغيلة</em></h2>
@@ -2073,7 +2081,28 @@ function bind(){
       const cv=$('#m-conv');
       if(cv) cv.textContent = it? `= ${fmt(total)} ${it.unit}` : '';
     };
-    mItem.onchange=refreshUnitMode; refreshUnitMode();
+    // تعبئة سعر الوحدة تلقائي من كارت الأصناف، عشان متروحش تدوّر عليه كل مرة — وتقدر تعدّله لو السعر اتغيّر
+    const refreshPrice=()=>{
+      const pEl=$('#m-price'); if(!pEl) return; // في المنصرف مفيش خانة سعر
+      const it=item(mItem.value);
+      const hint=$('#m-price-hint');
+      if(!it){ pEl.value=''; if(hint) hint.textContent=''; return; }
+      const lastIn = S.moves.filter(m=>m.dir==='in' && m.itemId===it.id && +m.price>0)
+                            .sort((a,b)=> String(b.date).localeCompare(String(a.date)))[0];
+      const known = (+it.price>0) ? +it.price : (lastIn? +lastIn.price : 0);
+      pEl.value = known>0 ? known : '';
+      if(hint){
+        if(known>0){
+          hint.innerHTML = lastIn && Math.abs(+lastIn.price-known)<0.005
+            ? `آخر سعر شراء: <b>${fmt(known)}</b> بتاريخ ${lastIn.date} — عدّله لو اتغيّر`
+            : `السعر المسجل في كارت الأصناف: <b>${fmt(known)}</b> — عدّله لو اتغيّر`;
+        } else {
+          hint.textContent = 'الصنف ده لسه من غير سعر — اكتب سعر الوحدة وهيتسجل تلقائي في كارت الأصناف';
+        }
+      }
+    };
+    mItem.onchange=()=>{ refreshUnitMode(); refreshPrice(); };
+    refreshUnitMode(); refreshPrice();
     const mp=$('#m-packs'); if(mp) mp.oninput=updateConv;
     const mu=$('#m-unitmode'); if(mu) mu.onchange=updateConv;
   }
@@ -2678,6 +2707,21 @@ async function act(a,d){
     toast('كل التبويبات المقفولة رجعت مقفولة'); return render();
   }
   if(a==='new-item'){ ui.modal=itemModal(null); return render(); }
+  if(a==='sync-prices'){
+    const stale = S.recipes.map(r=>{
+      const o=item(r.outItemId); if(!o||!r.outQty) return null;
+      const uc = n2(recipeCost(r)/r.outQty);
+      if(!(uc>0) || Math.abs(uc-(+o.price||0))<=0.005) return null;
+      return {item:o, from:+o.price||0, to:uc};
+    }).filter(Boolean);
+    if(!stale.length) return toast('كل الأسعار متطابقة مع تكلفة الوصفات بالفعل');
+    const preview = stale.slice(0,12).map(s=>`• ${s.item.name}: ${fmt(s.from)} ← ${fmt(s.to)}`).join('\n');
+    if(!confirm(`هيتم تحديث سعر ${stale.length} منتج في كارت الأصناف لتكلفتها الحقيقية من الوصفة:\n\n${preview}${stale.length>12?`\n… و${stale.length-12} منتج كمان`:''}\n\nتكمل؟`)) return;
+    stale.forEach(s=>{ s.item.price = s.to; });
+    await saveMain();
+    toast(`اتحدّث سعر ${stale.length} منتج من تكلفة وصفاتهم`);
+    return render();
+  }
   if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.modal=recipeModal(); return render(); }
   if(a==='add-line'){ readLines(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(); return render(); }
  
@@ -2749,7 +2793,9 @@ async function act(a,d){
     const moves=[];
     for(const [id,v] of entries){
       const it=item(id), qty=+v;
-      const price = b.price[id]!==undefined && b.price[id]!=='' ? +b.price[id] : 0;
+      // لو المستخدم ساب السعر المعبّى تلقائي زي ما هو من غير ما يلمسه، ناخد سعر الكارت بدل ما نسجّل صفر
+      const typed = b.price[id];
+      const price = (typed!==undefined && typed!=='') ? +typed : (+it.price>0 ? +it.price : 0);
       const m={id:uid('m'),dir:'in',itemId:id,qty:n2(qty),date,price:n2(price),party,reason:''};
       S.moves.push(m); moves.push(m);
       if(price>0) it.price=n2(price);
@@ -2828,6 +2874,16 @@ async function act(a,d){
       if(r){ Object.assign(r,{name,outItemId:outId,outQty,lines}); }
     } else {
       S.recipes.push({id:uid('r'),name,outItemId:outId,outQty,lines});
+    }
+
+    // تحديث سعر المنتج من تكلفة الوصفة (اختياري) — عشان كارت الأصناف مايفضلش على سعر قديم
+    const unitCost = outQty ? n2(lines.reduce((s,l)=>{ const it=item(l.itemId); return s + (it?(it.price||0)*l.qty:0); },0) / outQty) : 0;
+    const oldPrice = +outIt.price || 0;
+    if(unitCost>0 && Math.abs(unitCost-oldPrice) > 0.005){
+      const msg = oldPrice>0
+        ? `تكلفة الوحدة من الوصفة دي = ${fmt(unitCost)} درهم، بينما سعر "${outIt.name}" في كارت الأصناف = ${fmt(oldPrice)}.\n\nتحب أحدّث السعر في كارت الأصناف للتكلفة الجديدة؟`
+        : `تكلفة الوحدة من الوصفة دي = ${fmt(unitCost)} درهم، و"${outIt.name}" لسه من غير سعر في كارت الأصناف.\n\nتحب أسجّل التكلفة دي كسعر ليه؟`;
+      if(confirm(msg)) outIt.price = unitCost;
     }
     await saveMain(); ui.modal=null; toast('الوصفة اتحفظت'); return render();
   }
