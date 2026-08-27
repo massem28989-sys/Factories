@@ -392,7 +392,7 @@ const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<
 const isLocked = k => !!S.locks[k];
 const canOpen  = k => !isLocked(k) || !!SESS[k];
 let tab = 'count';
-let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], editing:null, modal:null,
+let ui = { q:'', cat:'الكل', only:'الكل', moveCat:'الكل', moveReason:'صرف للإنتاج', rlines:[{itemId:'',qty:''}], rhead:null, editingRecipe:null, editing:null, modal:null,
   mvQ:'', mvReason:'', mvParty:'', mvEdit:false,
   bulk:{on:false, reason:'صرف للفروع', party:'', cat:'الكل', q:'', date:'', qty:{}},
   bulkIn:{on:false, party:'', cat:'الكل', q:'', date:'', qty:{}, price:{}} };
@@ -724,7 +724,7 @@ function viewInbox(){
         <td>${esc(n.itemName)}</td>
         <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
         <td class="n">${esc(n.date||'')}</td>
-        <td><button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button></td>
+        <td style="white-space:nowrap"><button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button> <button class="btn sm danger" data-act="inbox-dismiss" data-id="${n.id}">تجاهل</button></td>
       </tr>`).join('')}
       ${processing.map(n=>`<tr style="opacity:.6">
         <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
@@ -1867,25 +1867,33 @@ function recipeModal(editRecipe){
   const r = editRecipe;
   const outItem = r ? item(r.outItemId) : null;
   const cats = [...new Set(S.items.map(i=>i.cat))];
+  // القيم المحفوظة مؤقتًا (لو المستخدم كان بيكتب وضغط "+ خامة") لها الأولوية عشان مايضيعش اللي كتبه
+  const H = ui.rhead || {};
+  const vName   = H.name    !== undefined ? H.name    : (r? r.name : '');
+  const vOutName= H.outName !== undefined ? H.outName : (outItem? outItem.name : '');
+  const vOutQty = H.outQty  !== undefined ? H.outQty  : (r? r.outQty : '');
+  const vOutUnit= H.outUnit !== undefined ? H.outUnit : (outItem? outItem.unit : '');
+  const vOutCat = H.outCat  !== undefined ? H.outCat  : '';
+  const matched = S.items.find(i=>i.name.toLowerCase()===String(vOutName||'').trim().toLowerCase());
   return `<div class="modal" data-close="1"><div class="box">
     <h3>${r?'تعديل وصفة':'وصفة جديدة'}</h3>
     <div class="pad">
       <div class="grid" style="margin-bottom:12px">
-        <div style="grid-column:1/-1"><label class="f">اسم الوصفة</label><input type="text" id="r-name" value="${esc(r?r.name:'')}" placeholder="مثال: تشغيلة كنافة مبرومة قشطة" style="width:100%"></div>
+        <div style="grid-column:1/-1"><label class="f">اسم الوصفة</label><input type="text" id="r-name" value="${esc(vName)}" placeholder="مثال: تشغيلة كنافة مبرومة قشطة" style="width:100%"></div>
         <div style="grid-column:span 2">
           <label class="f">المنتج الناتج</label>
-          <input type="text" id="r-out-name" list="r-out-datalist" value="${esc(outItem?outItem.name:'')}" placeholder="اكتب اسم المنتج (لو جديد هيتضاف تلقائي)" style="width:100%" oninput="onRecipeOutNameInput()">
+          <input type="text" id="r-out-name" list="r-out-datalist" value="${esc(vOutName)}" placeholder="اكتب اسم المنتج (لو جديد هيتضاف تلقائي)" style="width:100%" oninput="onRecipeOutNameInput()">
           <datalist id="r-out-datalist">${S.items.map(i=>`<option value="${esc(i.name)}">`).join('')}</datalist>
-          <div class="hint" id="r-out-hint" style="margin-top:4px">${outItem?`منتج موجود بالفعل — الوحدة: ${esc(outItem.unit)}`:'اكتب اسم منتج موجود يتربط بيه، أو اسم جديد يتضاف تلقائي'}</div>
+          <div class="hint" id="r-out-hint" style="margin-top:4px">${matched?`منتج موجود بالفعل — الوحدة: ${esc(matched.unit)}`:(vOutName?'ده اسم منتج جديد — هيتضاف لكارت الأصناف تلقائي لما تحفظ':'اكتب اسم منتج موجود يتربط بيه، أو اسم جديد يتضاف تلقائي')}</div>
         </div>
-        <div><label class="f">الكمية الناتجة</label><input type="number" step="any" id="r-outqty" value="${r?r.outQty:''}" style="width:100%"></div>
+        <div><label class="f">الكمية الناتجة</label><input type="number" step="any" id="r-outqty" value="${esc(String(vOutQty))}" style="width:100%"></div>
       </div>
-      <div class="grid" id="r-out-newfields" style="margin-bottom:12px; ${outItem?'display:none':''}">
-        <div><label class="f">وحدة المنتج الجديد</label><input type="text" id="r-out-unit" placeholder="مثال: كيلو، حبة" value="${outItem?esc(outItem.unit):''}" style="width:100%"></div>
+      <div class="grid" id="r-out-newfields" style="margin-bottom:12px; ${matched||!vOutName?'display:none':''}">
+        <div><label class="f">وحدة المنتج الجديد</label><input type="text" id="r-out-unit" placeholder="مثال: كيلو، حبة" value="${esc(vOutUnit)}" style="width:100%"></div>
         <div><label class="f">تصنيف المنتج الجديد</label>
           <select id="r-out-cat" style="width:100%">
-            <option value="منتج نهائي">منتج نهائي</option>
-            ${cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+            <option value="منتج نهائي" ${vOutCat==='منتج نهائي'?'selected':''}>منتج نهائي</option>
+            ${cats.map(c=>`<option value="${esc(c)}" ${vOutCat===c?'selected':''}>${esc(c)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -2278,7 +2286,18 @@ function bind(){
     S.recipes=S.recipes.filter(r=>r.id!==b.dataset.delr); await saveMain(); render();});
   root.querySelectorAll('[data-run]').forEach(b=>b.onclick=()=>{ui.modal=runModal(S.recipes.find(r=>r.id===b.dataset.run));render();});
   root.querySelectorAll('[data-close]').forEach(el=>el.onclick=e=>{if(e.target===el){ui.modal=null;render();}});
-  root.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=()=>{readLines();ui.rlines.splice(+b.dataset.rdel,1);if(!ui.rlines.length)ui.rlines=[{itemId:'',qty:''}];ui.modal=recipeModal();render();});
+  root.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=()=>{readLines();readRecipeHeader();ui.rlines.splice(+b.dataset.rdel,1);if(!ui.rlines.length)ui.rlines=[{itemId:'',qty:''}];ui.modal=recipeModal(ui.editingRecipe);render();});
+  // لما تختار خامة في آخر صف، بيتفتح صف جديد فاضي لوحده — مش محتاج تدوس "+ خامة" كل مرة
+  root.querySelectorAll('[data-rl]').forEach(sel=>sel.onchange=()=>{
+    const idx = +sel.dataset.rl;
+    readLines(); readRecipeHeader();
+    if(sel.value && idx === ui.rlines.length-1){
+      ui.rlines.push({itemId:'',qty:''});
+      ui.modal=recipeModal(ui.editingRecipe);
+      render();
+      setTimeout(()=>{ const q=document.querySelector(`[data-rq="${idx}"]`); if(q){ q.focus(); q.select(); } },40);
+    }
+  });
   root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
   const rf=$('#restore');
   if(rf) rf.onchange=e=>{
@@ -2305,6 +2324,14 @@ function readLines(){
   const box=$('#rlines'); if(!box) return;
   ui.rlines = [...box.querySelectorAll('.rline')].map(el=>({
     itemId: el.querySelector('select').value, qty: el.querySelector('input').value }));
+}
+// بنحفظ الحقول العلوية (اسم الوصفة/المنتج/الكمية/الوحدة/التصنيف) قبل أي إعادة بناء للنافذة، عشان ما تضيعش لما تضيف خامة جديدة
+function readRecipeHeader(){
+  const g = id => { const el=$('#'+id); return el? el.value : undefined; };
+  ui.rhead = {
+    name: g('r-name'), outName: g('r-out-name'), outQty: g('r-outqty'),
+    outUnit: g('r-out-unit'), outCat: g('r-out-cat')
+  };
 }
 function readBulkHeader(){
   const rs=$('#b-reason'); if(rs) ui.bulk.reason=rs.value;
@@ -2616,6 +2643,15 @@ async function act(a,d){
   }
   if(a==='inbox-refresh'){ return loadMyInbox(); }
   if(a==='inbox-receive'){ return receiveInboxNotification(d.id); }
+  if(a==='inbox-dismiss'){
+    const n = MY_INBOX.find(x=>x.id===d.id);
+    if(!n) return;
+    if(!confirm(`تجاهل إشعار "${n.itemName}" (${fmt(n.qty)} ${n.unit||''}) من ${n.fromFactory||'مصنع تاني'}؟\n\nاستخدم ده لو المصنع المرسل ألغى التحويل أو بعته بالغلط. الصنف مش هيتضاف لمخزنك.`)) return;
+    MY_INBOX = MY_INBOX.filter(x=>x.id!==d.id);
+    await saveFactoryInbox(FACTORY, MY_INBOX);
+    toast('اتشال الإشعار');
+    return render();
+  }
   if(a==='fc-decide'){
     return decideFactoryChangeRequest(+d.fcid, d.fcdecision);
   }
@@ -2722,8 +2758,8 @@ async function act(a,d){
     toast(`اتحدّث سعر ${stale.length} منتج من تكلفة وصفاتهم`);
     return render();
   }
-  if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.modal=recipeModal(); return render(); }
-  if(a==='add-line'){ readLines(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(); return render(); }
+  if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.rhead=null; ui.editingRecipe=null; ui.modal=recipeModal(); return render(); }
+  if(a==='add-line'){ readLines(); readRecipeHeader(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(ui.editingRecipe); return render(); }
  
   if(a==='save-item'){
     const name=$('#f-name').value.trim(); if(!name) return toast('اكتب اسم الصنف',1);
@@ -2885,11 +2921,12 @@ async function act(a,d){
         : `تكلفة الوحدة من الوصفة دي = ${fmt(unitCost)} درهم، و"${outIt.name}" لسه من غير سعر في كارت الأصناف.\n\nتحب أسجّل التكلفة دي كسعر ليه؟`;
       if(confirm(msg)) outIt.price = unitCost;
     }
-    await saveMain(); ui.modal=null; toast('الوصفة اتحفظت'); return render();
+    await saveMain(); ui.modal=null; ui.rhead=null; ui.editingRecipe=null; toast('الوصفة اتحفظت'); return render();
   }
   if(a==='edit-recipe'){
     const r=S.recipes.find(x=>x.id===d.id); if(!r) return;
     ui.rlines = r.lines.map(l=>({itemId:l.itemId,qty:l.qty}));
+    ui.rhead=null; ui.editingRecipe=r;
     ui.modal=recipeModal(r); return render();
   }
   if(a==='do-run'){
