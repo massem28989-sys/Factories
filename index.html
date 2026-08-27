@@ -376,6 +376,12 @@ const BRANCH_APP_CONFIG = {
       { label: "sambosa - سمبوسه", name: "sambosa - سمبوسه" },
       { label: "Mutabal - متبل", name: "Mutabal - متبل" },
       { label: "Fatola - فتوله", name: "Fatola - فتوله" }
+    ],
+    // صوصات نادر — لو اسم أي صنف هنا مش مطابق لاسمه في تطبيق الفروج بالظبط، الكمية هتظهر فاضية
+    naderSauces: [
+      { label: "صوص وردي", name: "pink sauce - صوص وردي" },
+      { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم" },
+      { label: "صوص سبايسي", name: "Spicy sauce - صوص سبايسي" }
     ]
   }
   // لإضافة مصنع جديد (زي الكنافة) لما يبقى عنده تطبيق فروع: انسخ الكتلة دي وحطها هنا بنفس الشكل
@@ -384,6 +390,7 @@ const BRANCH_APP_CONFIG = {
 const BRANCH_APP = BRANCH_APP_CONFIG[FACTORY] || null;
 const CORE_ITEMS = BRANCH_APP ? BRANCH_APP.coreItems : [];
 const APPETIZER_ITEMS = BRANCH_APP ? BRANCH_APP.appetizerItems : [];
+const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 
 const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
@@ -1117,6 +1124,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='orders'?'p':''}" data-boview="orders">طلبيات الفروع (${BO.orders.length})</button>
       <button class="btn sm ${BO.view==='core'?'p':''}" data-boview="core">اجمالي الفروع</button>
       <button class="btn sm ${BO.view==='appet'?'p':''}" data-boview="appet">المقبلات والصوصات</button>
+      ${NADER_SAUCES.length?`<button class="btn sm ${BO.view==='nader'?'p':''}" data-boview="nader">صوصات نادر</button>`:''}
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
@@ -1171,6 +1179,7 @@ function viewBranchOrders(){
   </div>` : ''}
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
   ${rows.length && BO.view==='appet' ? boMatrixHtml(APPETIZER_ITEMS, 'المقبلات والصوصات') : ''}
+  ${rows.length && BO.view==='nader' ? boMatrixHtml(NADER_SAUCES, 'صوصات نادر') : ''}
   ${rows.length && BO.view==='totals' ? `<div class="panel">
     <h2>إجمالي المطلوب من كل صنف <em>${rows.length} صنف</em>
       <button class="btn sm g" data-act="bo-dispense-all" style="margin-inline-start:auto">صرف كل اللي لسه ما اتصرفش</button></h2>
