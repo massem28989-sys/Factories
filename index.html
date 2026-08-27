@@ -531,10 +531,18 @@ async function pushAll(quiet){
   try{
     // نمسح كل أصناف المصنع ده الأول ثم نعيد إدراج الموجود بس حاليًا، عشان أي صنف اتحذف محليًا يتشال فعليًا من القاعدة (بدل ما يفضل موجود وبيرجع تاني)
     await sb('stock_items?'+fEq(),{method:'DELETE'});
-    if(S.items.length) await sb('stock_items',{method:'POST',body:S.items.map(i=>({
-      id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
-      opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
-      pack_unit:i.packUnit||'',pack_size:+i.packSize||0}))});
+    if(S.items.length){
+      const base = i=>({ id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
+        opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
+        pack_unit:i.packUnit||'',pack_size:+i.packSize||0 });
+      try{
+        await sb('stock_items',{method:'POST',body:S.items.map(i=>({...base(i), daily:!!i.daily}))});
+      }catch(e){
+        // لو عمود "daily" لسه ما اتضافش في القاعدة، نحفظ من غيره عشان الحفظ مايتوقفش خالص
+        await sb('stock_items',{method:'POST',body:S.items.map(base)});
+        errors.push('تنبيه: عمود "متابعة يومية" لسه مش مضاف في القاعدة — الأصناف اتحفظت من غيره. شغّل أمر SQL اللي بعتهولك عشان يتفعّل.');
+      }
+    }
   }catch(e){ errors.push('الأصناف: '+e.message); }
 
   try{
@@ -609,7 +617,7 @@ async function pullAll(silent){
     const period=(st&&st[0]&&st[0].v&&st[0].v.period)||S.period||'2026-07';
     const items=await sb('stock_items?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
-      opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',
+      opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode);
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -887,8 +895,10 @@ function viewDailyStock(){
   const DS_CAT = 'الجرد اليومي';
   const q = ui.q.trim().toLowerCase();
 
+  // الصنف يظهر هنا لو تصنيفه "الجرد اليومي" أو لو متعلّم عليه "متابعة يومية" —
+  // كده الصنف الجاهز يقدر يفضل في تصنيفه الطبيعي (منتج نهائي مثلًا) ويتصرف للفروع عادي، وبرضه تتابعه يوميًا
   const rows = S.items
-    .filter(it => it.cat === DS_CAT)
+    .filter(it => it.cat === DS_CAT || it.daily)
     .filter(it => !q || it.name.toLowerCase().includes(q) || (it.desc||'').toLowerCase().includes(q))
     .map(it=>{
       const c = calc(it);
@@ -1629,6 +1639,7 @@ function viewProd(){
  
 /* ================= 5. كارت الأصناف ================= */
 let itSort = { by:'name', dir:1 };
+let itSel = new Set(); // الأصناف المحددة للنقل الجماعي بين التصنيفات
 function itToggleSort(by){
   if(itSort.by===by) itSort.dir*=-1; else { itSort.by=by; itSort.dir=1; }
   render();
@@ -1695,9 +1706,22 @@ function viewItems(){
         ${chip('out','خلص',outN)}
       </div>
       <div class="hint" style="margin-top:8px">السعر والحد الأدنى بيتعدّلوا مباشرة من الجدول — أي تعديل بيتحفظ لوحده. دوس على عنوان أي عمود عشان ترتب بيه.</div>
+      ${itSel.size?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--amberbg);border-radius:10px;padding:10px 12px;margin-top:10px">
+        <b style="font-size:13px">${itSel.size} صنف محدد</b>
+        <select id="it-movecat" style="min-width:170px">
+          <option value="">— انقلهم لتصنيف —</option>
+          ${cats().filter(c=>c!=='الكل').map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          <option value="__new__">+ تصنيف جديد…</option>
+        </select>
+        <button class="btn sm p" data-act="it-move-cat">نقل</button>
+        <button class="btn sm" data-act="it-mark-daily">تعليم "متابعة يومية"</button>
+        <button class="btn sm" data-act="it-unmark-daily">إلغاء المتابعة اليومية</button>
+        <button class="btn sm" data-act="it-clear-sel">إلغاء التحديد</button>
+      </div>`:''}
     </div>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr>
+        <th style="width:30px"><input type="checkbox" data-act="it-sel-all" ${list.length&&list.every(i=>itSel.has(i.id))?'checked':''}></th>
         <th style="cursor:pointer" data-itsort="name">الصنف${arrow('name')}</th>
         ${showCatCol?`<th style="cursor:pointer" data-itsort="cat">القسم${arrow('cat')}</th>`:''}
         <th>الوحدة</th>
@@ -1708,13 +1732,14 @@ function viewItems(){
         <th class="n" style="cursor:pointer" data-itsort="value">القيمة${arrow('value')}</th>
         <th></th>
       </tr></thead>
-      <tbody>${(()=>{ let lastCat=null; const colspan = showCatCol?9:8;
+      <tbody>${(()=>{ let lastCat=null; const colspan = showCatCol?10:9;
         return list.map(it=>{
           const c=calc(it); const onhand=c.has?c.real:c.book;
           const low=it.min>0&&onhand<=it.min; const out=onhand<=0;
           // صف عنوان التصنيف بيظهر بس لما نكون رتبين بالتصنيف — عشان مايبقاش عشوائي وسط ترتيب تاني
           const hdr = (itSort.by==='cat' && it.cat!==lastCat) ? (lastCat=it.cat, `<tr class="catrow"><td colspan="${colspan}">${esc(it.cat)}</td></tr>`) : '';
           return hdr+`<tr class="${out?'lowrow':''}">
+          <td><input type="checkbox" data-itsel="${it.id}" ${itSel.has(it.id)?'checked':''}></td>
           <td><div class="iname">${esc(it.name)}</div>${(it.desc||it.note)?`<div class="idesc">${esc(it.desc||'')}${it.note?' · <span style="color:var(--amber)">'+esc(it.note)+'</span>':''}</div>`:''}</td>
           ${showCatCol?`<td><span class="chip">${esc(it.cat)}</span></td>`:''}
           <td><span class="chip">${esc(it.unit)}</span></td>
@@ -1725,10 +1750,10 @@ function viewItems(){
           <td class="n"><b>${it.price>0?money(c.value):'<span class="hint">—</span>'}</b></td>
           <td><button class="btn sm" data-edit="${it.id}">تعديل</button></td></tr>`;
         }).join('');})()
-        ||`<tr><td colspan="${showCatCol?9:8}" class="empty">مفيش أصناف مطابقة</td></tr>`}
+        ||`<tr><td colspan="${showCatCol?10:9}" class="empty">مفيش أصناف مطابقة</td></tr>`}
       </tbody>
       ${list.length?`<tfoot><tr style="font-weight:700">
-        <td colspan="${showCatCol?7:6}">الإجمالي</td>
+        <td colspan="${showCatCol?8:7}">الإجمالي</td>
         <td class="n hl">${money(list.reduce((s,i)=>s+calc(i).value,0))}</td><td></td>
       </tr></tfoot>`:''}
     </table></div>
@@ -1932,6 +1957,12 @@ function itemModal(it){
       <div><label class="f">رصيد أول المدة</label><input type="number" step="any" id="f-open" value="${e.opening||0}" style="width:100%"></div>
       <div><label class="f">سعر الوحدة</label><input type="number" step="any" id="f-price" value="${e.price||''}" style="width:100%"></div>
       <div><label class="f">الحد الأدنى</label><input type="number" step="any" id="f-min" value="${e.min||''}" style="width:100%"></div>
+      <div style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--lightbg);border:1px solid var(--line);border-radius:8px;padding:10px 12px">
+          <input type="checkbox" id="f-daily" ${e.daily?'checked':''}>
+          <span><b>متابعة يومية</b> <span style="color:var(--muted)">— الصنف هيظهر في شاشة "الجرد اليومي" مهما كان تصنيفه، وبيفضل يتصرف للفروع وللإنتاج عادي</span></span>
+        </label>
+      </div>
       <div style="grid-column:1/-1;border-top:1px solid var(--line);margin-top:4px;padding-top:10px">
         <label class="f">الشدّ <span style="color:var(--muted)">(اختياري — لو الصنف بيتحسب بالعبوة زي الكرتونة أو الشوال)</span></label>
       </div>
@@ -2314,6 +2345,11 @@ function bind(){
     render();
   });
   root.querySelectorAll('[data-dsonly]').forEach(b=>b.onclick=()=>{ dsOnly=b.dataset.dsonly; render(); });
+  root.querySelectorAll('[data-itsel]').forEach(cb=>cb.onchange=e=>{
+    const id=e.target.dataset.itsel;
+    if(e.target.checked) itSel.add(id); else itSel.delete(id);
+    render();
+  });
   root.querySelectorAll('[data-itsort]').forEach(th=>th.onclick=()=>itToggleSort(th.dataset.itsort));
   root.querySelectorAll('[data-itonly]').forEach(b=>b.onclick=()=>{ ui.itOnly=b.dataset.itonly; render(); });
   root.querySelectorAll('[data-dssort]').forEach(th=>th.onclick=()=>dsToggleSort(th.dataset.dssort));
@@ -2824,6 +2860,51 @@ async function act(a,d){
     SESS={}; if(isLocked(tab)) tab='count';
     toast('كل التبويبات المقفولة رجعت مقفولة'); return render();
   }
+  if(a==='it-mark-daily' || a==='it-unmark-daily'){
+    if(!itSel.size) return toast('محددش أي صنف',1);
+    const on = a==='it-mark-daily';
+    let n=0;
+    S.items.forEach(i=>{ if(itSel.has(i.id)){ i.daily=on; n++; } });
+    itSel.clear();
+    await saveMain();
+    toast(on?`اتعلّم ${n} صنف للمتابعة اليومية`:`اتشال ${n} صنف من المتابعة اليومية`);
+    return render();
+  }
+  if(a==='it-clear-sel'){ itSel.clear(); return render(); }
+  if(a==='it-sel-all'){
+    // بيحدد/يلغي تحديد المعروض حاليًا بس (بعد الفلترة والبحث)، مش كل الأصناف
+    const q=(ui.q||'').trim().toLowerCase();
+    const shown = S.items.filter(it=>{
+      if(ui.cat!=='الكل' && it.cat!==ui.cat) return false;
+      if(q && !(it.name.toLowerCase().includes(q) || (it.desc||'').toLowerCase().includes(q) || (it.unit||'').toLowerCase().includes(q))) return false;
+      if(ui.itOnly==='noprice' && it.price>0) return false;
+      if(ui.itOnly==='nomin'   && it.min>0) return false;
+      if(ui.itOnly==='low'){ const c=calc(it); const oh=c.has?c.real:c.book; if(!(it.min>0 && oh<=it.min)) return false; }
+      if(ui.itOnly==='out'){ const c=calc(it); const oh=c.has?c.real:c.book; if(oh>0) return false; }
+      return true;
+    }).map(i=>i.id);
+    if(shown.every(id=>itSel.has(id))) shown.forEach(id=>itSel.delete(id));
+    else shown.forEach(id=>itSel.add(id));
+    return render();
+  }
+  if(a==='it-move-cat'){
+    const sel=$('#it-movecat'); let cat = sel? sel.value : '';
+    if(!cat) return toast('اختار التصنيف الأول',1);
+    if(cat==='__new__'){
+      const nm=prompt('اسم التصنيف الجديد:');
+      if(!nm || !nm.trim()) return;
+      cat = nm.trim();
+    }
+    if(!itSel.size) return toast('محددش أي صنف',1);
+    const names = S.items.filter(i=>itSel.has(i.id)).slice(0,10).map(i=>'• '+i.name).join('\n');
+    if(!confirm(`هيتم نقل ${itSel.size} صنف لتصنيف "${cat}":\n\n${names}${itSel.size>10?`\n… و${itSel.size-10} صنف كمان`:''}\n\nتكمل؟`)) return;
+    let n=0;
+    S.items.forEach(i=>{ if(itSel.has(i.id)){ i.cat=cat; n++; } });
+    itSel.clear();
+    await saveMain();
+    toast(`اتنقل ${n} صنف لتصنيف "${cat}"`);
+    return render();
+  }
   if(a==='items-export'){
     const rows=[['الصنف','الوصف','القسم','الوحدة','الشدّ','الرصيد','سعر الوحدة','الحد الأدنى','القيمة','ملاحظة']];
     let tv=0;
@@ -2862,6 +2943,7 @@ async function act(a,d){
     if(cat==='__new__'){ cat=$('#f-cat-new').value.trim(); if(!cat) return toast('اكتب اسم التصنيف الجديد',1); }
     const rec={name, desc:$('#f-desc').value.trim(), unit:$('#f-unit').value, cat,
       opening:+$('#f-open').value||0, price:+$('#f-price').value||0, min:+$('#f-min').value||0,
+      daily: !!($('#f-daily') && $('#f-daily').checked),
       packUnit:$('#f-packunit').value.trim(), packSize:+$('#f-packsize').value||0};
     if(d.id){ Object.assign(item(d.id),rec); } else { S.items.push({id:uid('i'),note:'',...rec}); }
     await saveMain(); ui.modal=null; toast('اتحفظ'); return render();
