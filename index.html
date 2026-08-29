@@ -338,7 +338,7 @@ const KEY_MAIN = 'kunafa:main:v1:'+FACTORY;     // items + recipes + settings
 const KEY_TX   = 'kunafa:tx:v1:'+FACTORY;       // moves + counts
 const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
  
-let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boDone:{}, restrictDispatchTo:'', dispatchOnlyMode:false };
+let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boConv:{}, boDone:{}, restrictDispatchTo:'', dispatchOnlyMode:false };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
 /* ================= طلبيات الفروع (جسر مع تطبيق فروع كل مصنع) ================= */
 // إعدادات منفصلة لكل مصنع عنده تطبيق فروع (زي تطبيق الفروج اليومي). أي مصنع جديد يتضاف هنا،
@@ -448,7 +448,7 @@ async function sset(k,v){
   if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
   return saved;
 }
-async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boDone:S.boDone,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -471,7 +471,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boDone=main.boDone||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boDone=main.boDone||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1093,6 +1093,46 @@ function findMatchingLocalItem(faroojName){
   const norm = s => String(s||'').trim().toLowerCase();
   return S.items.find(i=>norm(i.name)===norm(faroojName)) || null;
 }
+// تطبيع أسماء الوحدات: نفس الوحدة بتتكتب بأشكال مختلفة (حبه/حبة، باكت/باكيت، كرتونه/كرتون)
+function normUnit(u){
+  let s = String(u||'').trim().toLowerCase();
+  s = s.replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ');
+  s = s.replace(/ة/g,'ه').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي');
+  const map = {
+    'حبه':'حبه','حبات':'حبه','pcs':'حبه','pc':'حبه',
+    'باكت':'باكت','باكيت':'باكت','باكية':'باكت','pkt':'باكت','packet':'باكت',
+    'كرتون':'كرتون','كرتونه':'كرتون','كرتونة':'كرتون','carton':'كرتون','ctn':'كرتون',
+    'علبه':'علبه','علبة':'علبه','box':'علبه',
+    'كيلو':'كيلو','كجم':'كيلو','kg':'كيلو','كيلوجرام':'كيلو','كيلوغرام':'كيلو',
+    'لتر':'لتر','ltr':'لتر','l':'لتر',
+    'جالون':'جالون','gallon':'جالون',
+    'سطل':'سطل','bucket':'سطل',
+  };
+  return map[s] || s;
+}
+// وحدة الفرع للصنف ده (زي ما جات في الطلبية)
+function branchUnitOf(faroojName){
+  const r = BO.totals[faroojName];
+  return r ? String(r.unit||'').trim() : '';
+}
+// معامل التحويل: كمية الفرع × المعامل = كمية المصنع. لو الوحدتين متطابقتين (بعد التطبيع) المعامل = 1 تلقائي
+function convFactorOf(faroojName){
+  const m = findMatchingLocalItem(faroojName);
+  if(!m) return null;
+  const bu = normUnit(branchUnitOf(faroojName)), fu = normUnit(m.unit);
+  if(bu && fu && bu === fu) return 1;
+  const saved = S.boConv ? S.boConv[faroojName] : undefined;
+  return (saved!==undefined && saved!=='' && +saved>0) ? +saved : null; // null = محتاج تحديد
+}
+// هل الصنف ده جاهز للصرف فعليًا؟ (متطابق + وحدته واضحة)
+function boReadyToDispense(faroojName){
+  return !!findMatchingLocalItem(faroojName) && convFactorOf(faroojName)!==null;
+}
+// الكمية الحقيقية بوحدة المصنع
+function boFactoryQty(faroojName, branchQty){
+  const f = convFactorOf(faroojName);
+  return f===null ? null : n2(branchQty * f);
+}
 
 // مفتاح فريد لكل صنف في فترة معينة، عشان منصرفش نفس الطلبية مرتين بالغلط
 function boKey(faroojName){ return `${BO.from}~${BO.to}~${faroojName}`; }
@@ -1184,31 +1224,50 @@ function viewBranchOrders(){
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
   ${rows.length && BO.view==='appet' ? boMatrixHtml(APPETIZER_ITEMS, 'المقبلات والصوصات') : ''}
   ${rows.length && BO.view==='nader' ? boMatrixHtml(NADER_SAUCES, 'صوصات نادر') : ''}
-  ${rows.length && BO.view==='totals' ? `<div class="panel">
+  ${rows.length && BO.view==='totals' ? (()=>{
+    const needConv = rows.filter(r=>findMatchingLocalItem(r.name) && convFactorOf(r.name)===null).length;
+    return `<div class="panel">
     <h2>إجمالي المطلوب من كل صنف <em>${rows.length} صنف</em>
       <button class="btn sm g" data-act="bo-dispense-all" style="margin-inline-start:auto">صرف كل اللي لسه ما اتصرفش</button></h2>
-    <div class="tblwrap"><table>
-      <thead><tr><th>الصنف (من الفروج)</th><th class="n">الكمية المطلوبة</th><th class="n">فروع</th><th>الصنف المطابق في المخزن</th><th>الحالة</th><th></th></tr></thead>
+    ${needConv?`<div class="pad"><div class="warnbar" style="margin:0">⚠️ فيه ${needConv} صنف وحدته عند الفرع مختلفة عن وحدته عندك — لازم تحدد <b>معامل التحويل</b> قبل الصرف، وإلا الكمية هتتخصم غلط من مخزنك.</div></div>`:''}
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الصنف (من الفروج)</th><th class="n">طلب الفروع</th><th class="n">فروع</th><th>الصنف المطابق في المخزن</th><th>التحويل</th><th class="n">هيتخصم من مخزنك</th><th>الحالة</th><th></th></tr></thead>
       <tbody>${rows.map(r=>{
         const match = findMatchingLocalItem(r.name);
         const done = boIsDone(r.name);
         const brN = BO.orders.filter(o=>(o.items||[]).some(x=>x.name===r.name && +x.qty>0)).length;
-        return `<tr${done?' style="opacity:.55"':''}>
+        const bu = String(r.unit||'').trim();
+        const fu = match ? String(match.unit||'').trim() : '';
+        const sameUnit = match && bu && fu && normUnit(bu)===normUnit(fu);
+        const f = match ? convFactorOf(r.name) : null;
+        const finalQty = (f!==null) ? n2(r.qty*f) : null;
+        const needsConv = match && f===null;
+        return `<tr${done?' style="opacity:.55"':(needsConv?' class="lowrow"':'')}>
           <td><div class="iname">${esc(r.name)}</div></td>
-          <td class="n">${fmt(r.qty)} <span class="chip">${esc(r.unit)}</span></td>
+          <td class="n">${fmt(r.qty)} <span class="chip">${esc(bu)}</span></td>
           <td class="n">${brN}</td>
-          <td><select data-bomap="${esc(r.name)}" style="min-width:190px">
+          <td><select data-bomap="${esc(r.name)}" style="min-width:180px">
               <option value="">— اختار الصنف المطابق —</option>
-              ${S.items.map(i=>`<option value="${i.id}" ${match&&match.id===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
-            </select>${match?` <span class="chip g" style="margin-inline-start:4px">مطابق</span>`:''}</td>
-          <td>${done?`<span class="chip g">اتصرف لـ${(S.boDone[boKey(r.name)]||{}).branches||brN} فرع ✓</span>`:(match?'<span class="chip a">جاهز للصرف</span>':'<span class="chip r">محتاج مطابقة</span>')}</td>
-          <td>${match?(done
-              ? `<button class="btn sm" data-act="bo-undo" data-bodispense="${esc(r.name)}">تراجع</button>`
-              : `<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`)
-            :'<span class="hint">حدد المطابقة الأول</span>'}</td>
+              ${S.items.map(i=>`<option value="${i.id}" ${match&&match.id===i.id?'selected':''}>${esc(i.name)} (${esc(i.unit)})</option>`).join('')}
+            </select></td>
+          <td>${!match?'<span class="hint">—</span>'
+              : sameUnit?'<span class="chip g">نفس الوحدة</span>'
+              : `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap">
+                   <span class="hint">1 ${esc(bu)} =</span>
+                   <input type="number" step="any" min="0" value="${S.boConv&&S.boConv[r.name]!==undefined?S.boConv[r.name]:''}" data-boconv="${esc(r.name)}" placeholder="؟" style="width:64px;padding:4px 6px;font-size:12px;text-align:center">
+                   <span class="hint">${esc(fu)}</span>
+                 </div>`}</td>
+          <td class="n">${finalQty!==null?`<b>${fmt(finalQty)}</b> <span class="chip">${esc(fu)}</span>`:'<span class="chip r">محتاج تحويل</span>'}</td>
+          <td>${done?`<span class="chip g">اتصرف لـ${(S.boDone[boKey(r.name)]||{}).branches||brN} فرع ✓</span>`
+              :(!match?'<span class="chip r">محتاج مطابقة</span>'
+              :(needsConv?'<span class="chip r">حدد التحويل</span>':'<span class="chip a">جاهز للصرف</span>'))}</td>
+          <td>${!match?'<span class="hint">حدد المطابقة الأول</span>'
+              :(done?`<button class="btn sm" data-act="bo-undo" data-bodispense="${esc(r.name)}">تراجع</button>`
+              :(needsConv?'<span class="hint">حدد التحويل</span>'
+              :`<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`))}</td>
         </tr>`;
       }).join('')}</tbody></table></div>
-  </div>` : (BO.loading?'':`<div class="panel"><div class="empty">دوس "جلب الطلبيات من الفروج" عشان تشوف الأرقام</div></div>`)}
+  </div>`;})() : (BO.loading?'':`<div class="panel"><div class="empty">دوس "جلب الطلبيات من الفروج" عشان تشوف الأرقام</div></div>`)}
   `;
 }
 
@@ -2297,6 +2356,14 @@ function bind(){
     BO.openOrder = BO.openOrder===i ? null : i;
     render();
   });
+  root.querySelectorAll('[data-boconv]').forEach(inp=>inp.onchange=async e=>{
+    const name=e.target.dataset.boconv, v=e.target.value;
+    if(!S.boConv) S.boConv={};
+    if(v==='' || !(+v>0)) delete S.boConv[name]; else S.boConv[name]=+v;
+    await saveMain();
+    toast(v && +v>0 ? 'اتحفظ معامل التحويل' : 'اتشال معامل التحويل');
+    render();
+  });
   root.querySelectorAll('[data-bomap]').forEach(sel=>{
     sel.onchange=async e=>{
       const name=e.target.dataset.bomap, v=e.target.value;
@@ -2532,13 +2599,18 @@ function buildProductionPlan(){
     const match = findMatchingLocalItem(r.name);
     if(!match){ unmatched.push({name:r.name, qty:r.qty, unit:r.unit, reason:'مالوش صنف مطابق في المخزن'}); return; }
 
-    const onHand = calc(match).book;                 // المخزون الجاهز من المنتج ده
-    const toProduce = n2(Math.max(0, r.qty - onHand)); // المحتاج إنتاجه فعلًا = المطلوب − الجاهز
+    // لازم نحوّل كمية الفرع لوحدة المصنع الأول، وإلا الحساب كله هيطلع غلط
+    const cf = convFactorOf(r.name);
+    if(cf===null){ unmatched.push({name:r.name, qty:r.qty, unit:r.unit, reason:`وحدة الفرع (${r.unit}) مختلفة عن وحدة المصنع (${match.unit}) — حدد معامل التحويل`}); return; }
+    const demand = n2(r.qty * cf);
+
+    const onHand = calc(match).book;                    // المخزون الجاهز من المنتج ده
+    const toProduce = n2(Math.max(0, demand - onHand)); // المحتاج إنتاجه فعلًا = المطلوب − الجاهز
     const rec = S.recipes.find(x=>x.outItemId===match.id);
 
     if(!rec || !(rec.outQty>0)){
       // مفيش وصفة: يا إما جاهز في المخزن (يتصرف مباشرة) يا إما ناقص ومحتاج توريد
-      products.push({ name:r.name, item:match, demand:r.qty, onHand, toProduce, batches:null, cost:0, rec:null,
+      products.push({ name:r.name, item:match, demand, onHand, toProduce, batches:null, cost:0, rec:null,
                       status: toProduce>0 ? 'no_recipe_short' : 'ready' });
       if(toProduce>0) unmatched.push({name:r.name, qty:toProduce, unit:r.unit, reason:'مالوش وصفة إنتاج — لازم يتورّد جاهز'});
       return;
@@ -2546,7 +2618,7 @@ function buildProductionPlan(){
 
     const batches = toProduce>0 ? toProduce/rec.outQty : 0;
     const cost = n2(recipeCost(rec) * batches);
-    products.push({ name:r.name, item:match, demand:r.qty, onHand, toProduce, batches:n2(batches), cost, rec,
+    products.push({ name:r.name, item:match, demand, onHand, toProduce, batches:n2(batches), cost, rec,
                     status: toProduce>0 ? 'produce' : 'ready' });
 
     if(batches>0){
@@ -2797,12 +2869,14 @@ async function act(a,d){
     const match = findMatchingLocalItem(faroojName);
     if(!match) return;
     if(boIsDone(faroojName)) return toast('الصنف ده اتصرف قبل كده للفترة دي',1);
+    const conv = convFactorOf(faroojName);
+    if(conv===null) return toast('حدد معامل التحويل الأول — وحدة الفرع مختلفة عن وحدة المصنع',1);
 
-    // بنصرف لكل فرع لوحده باسمه، بدل حركة واحدة مجمّعة
+    // بنصرف لكل فرع لوحده باسمه، بدل حركة واحدة مجمّعة. الكمية بتتحول لوحدة المصنع الأول
     const perBranch = [];
     BO.orders.forEach(o=>{
       const line=(o.items||[]).find(x=>x.name===faroojName);
-      if(line && +line.qty>0) perBranch.push({branch:o.branch, qty:n2(+line.qty)});
+      if(line && +line.qty>0) perBranch.push({branch:o.branch, qty:n2(+line.qty*conv)});
     });
     if(!perBranch.length) return toast('مفيش كميات مطلوبة للصنف ده',1);
 
@@ -2830,8 +2904,9 @@ async function act(a,d){
     return render();
   }
   if(a==='bo-dispense-all'){
-    const names = Object.keys(BO.totals).filter(n=>findMatchingLocalItem(n) && !boIsDone(n));
-    if(!names.length) return toast('مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
+    const names = Object.keys(BO.totals).filter(n=>boReadyToDispense(n) && !boIsDone(n));
+    const blocked = Object.keys(BO.totals).filter(n=>findMatchingLocalItem(n) && convFactorOf(n)===null && !boIsDone(n)).length;
+    if(!names.length) return toast(blocked? `مفيش أصناف جاهزة — ${blocked} صنف محتاج معامل تحويل الأول` : 'مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
     const branchCount = new Set(BO.orders.map(o=>o.branch)).size;
     if(!confirm(`هيتم صرف ${names.length} صنف على ${branchCount} فرع، كل فرع في حركة منفصلة باسمه. تكمل؟`)) return;
 
@@ -2842,10 +2917,11 @@ async function act(a,d){
       for(const o of BO.orders){
         const line=(o.items||[]).find(x=>x.name===faroojName);
         if(!line || !(+line.qty>0)) continue;
-        const res = dispenseOut(match.id, n2(+line.qty), today(), o.branch, 'صرف للفروع');
+        const cf = convFactorOf(faroojName) || 1;
+        const res = dispenseOut(match.id, n2(+line.qty*cf), today(), o.branch, 'صرف للفروع');
         if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); continue; }
         if(res.auto) autoAny=true;
-        total=n2(total+ +line.qty); brN++; moveCount++;
+        total=n2(total+ +line.qty*cf); brN++; moveCount++;
       }
       if(!brN) continue;
       if(autoAny) autoCount++;
