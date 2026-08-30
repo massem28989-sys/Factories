@@ -361,8 +361,9 @@
         <div class="card">
           <h2>طباعة ورقة جرد فارغة</h2>
           <p class="muted" style="margin-top:-8px;">ورقة منظمة بالتصنيفات، تطبعها وتاخدها معاك تعد بالقلم، وبعدين تدخّل الأرقام على النظام.</p>
-          <label>التصنيف</label>
-          <div id="printBlankCategoryChipsWrap" class="chips-row"></div>
+          <label>التصنيفات اللي هتظهر في الورقة وترتيبها</label>
+          <p class="muted" style="margin:4px 0 8px; font-size:12.5px;">شيل علامة الصح عن أي تصنيف مش عايزه، واستخدم ▲▼ لترتيبهم زي ما بتعد في الفرع بالظبط. الإعدادات بتتحفظ تلقائي.</p>
+          <div id="printBlankCategoryChipsWrap"></div>
           <div class="row" style="grid-template-columns: 1fr 1fr; margin-top:10px;">
             <div>
               <label>عدد الخانات الفاضية لكل صنف</label>
@@ -3972,26 +3973,63 @@ async function confirmTransferReceipt(key) {
   }
 }
 
-let printBlankCategoryFilter = 'الكل';
+let printBlankCategoryFilter = 'الكل'; // للتوافق مع الكود القديم
+let printSheetCats = null; // [{name, on}] بترتيب مخصص — بيتحفظ في الإعدادات
+
+// بيبني القائمة من التصنيفات الحالية، ويحافظ على ترتيبك واختيارك المحفوظ
+function ensurePrintSheetCats() {
+  const all = CATEGORIES_TREE.map(m => m.name);
+  if (!Array.isArray(printSheetCats)) printSheetCats = [];
+  // نشيل أي تصنيف اتمسح من النظام
+  printSheetCats = printSheetCats.filter(c => all.includes(c.name));
+  // نضيف أي تصنيف جديد اتضاف بعد آخر حفظ (مفعّل افتراضيًا)
+  all.forEach(n => { if (!printSheetCats.some(c => c.name === n)) printSheetCats.push({ name: n, on: true }); });
+  return printSheetCats;
+}
 
 function renderPrintBlankCategoryChips() {
   const wrap = document.getElementById('printBlankCategoryChipsWrap');
   if (!wrap) return;
-  wrap.innerHTML = '';
-  const allBtn = document.createElement('button');
-  allBtn.type = 'button';
-  allBtn.className = 'chip-btn' + (printBlankCategoryFilter === 'الكل' ? ' active' : '');
-  allBtn.textContent = 'الكل';
-  allBtn.onclick = () => { printBlankCategoryFilter = 'الكل'; renderPrintBlankCategoryChips(); };
-  wrap.appendChild(allBtn);
-  CATEGORIES_TREE.forEach(m => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'chip-btn' + (m.name === printBlankCategoryFilter ? ' active' : '');
-    btn.textContent = m.name;
-    btn.onclick = () => { printBlankCategoryFilter = m.name; renderPrintBlankCategoryChips(); };
-    wrap.appendChild(btn);
+  const cats = ensurePrintSheetCats();
+  const onCount = cats.filter(c => c.on).length;
+
+  let html = `<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+    <button class="ghost" onclick="printSheetSetAll(true)">تحديد الكل</button>
+    <button class="ghost" onclick="printSheetSetAll(false)">إلغاء الكل</button>
+    <span class="muted" style="font-size:12.5px;">${onCount} من ${cats.length} تصنيف هيظهر في الورقة</span>
+  </div>`;
+
+  html += '<div style="border:1px solid #E0E0E0; border-radius:10px; overflow:hidden;">';
+  cats.forEach((c, i) => {
+    html += `<div style="display:flex; align-items:center; gap:8px; padding:8px 10px; ${i ? 'border-top:1px solid #EEE;' : ''} ${c.on ? '' : 'opacity:.5;'}">
+      <input type="checkbox" ${c.on ? 'checked' : ''} onchange="printSheetToggle(${i}, this.checked)" style="width:16px;height:16px;">
+      <span style="flex:1; font-size:13.5px; font-weight:${c.on ? '600' : '400'};">${c.name}</span>
+      <button class="icon-btn" style="width:30px;height:30px;" ${i === 0 ? 'disabled style="opacity:.25;width:30px;height:30px;"' : ''} onclick="printSheetMove(${i}, -1)" aria-label="لأعلى">▲</button>
+      <button class="icon-btn" style="width:30px;height:30px;" ${i === cats.length - 1 ? 'disabled style="opacity:.25;width:30px;height:30px;"' : ''} onclick="printSheetMove(${i}, 1)" aria-label="لأسفل">▼</button>
+    </div>`;
   });
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+
+function printSheetToggle(i, on) { ensurePrintSheetCats()[i].on = on; savePrintSheetCats(); renderPrintBlankCategoryChips(); }
+function printSheetSetAll(on) { ensurePrintSheetCats().forEach(c => c.on = on); savePrintSheetCats(); renderPrintBlankCategoryChips(); }
+function printSheetMove(i, dir) {
+  const cats = ensurePrintSheetCats();
+  const j = i + dir;
+  if (j < 0 || j >= cats.length) return;
+  [cats[i], cats[j]] = [cats[j], cats[i]];
+  savePrintSheetCats();
+  renderPrintBlankCategoryChips();
+}
+async function savePrintSheetCats() {
+  try { await gsSet('inv_settings:printSheetCats', JSON.stringify(printSheetCats)); } catch (e) { /* الترتيب هيفضل شغال في الجلسة دي على الأقل */ }
+}
+async function loadPrintSheetCats() {
+  try {
+    const res = await gsGet('inv_settings:printSheetCats');
+    if (res && res.value) printSheetCats = JSON.parse(res.value);
+  } catch (e) { printSheetCats = null; }
 }
 
 function printBlankInventorySheet() {
@@ -3999,28 +4037,25 @@ function printBlankInventorySheet() {
   const colsN = +(document.getElementById('printBlankCols')||{value:2}).value || 2;
   const fontSz = (document.getElementById('printBlankFont')||{value:'12.5'}).value || '12.5';
 
-  const filtered = printBlankCategoryFilter === 'الكل'
-    ? inventoryItems
-    : inventoryItems.filter(it => categoryMatchesFilter(it.category, printBlankCategoryFilter, 'الكل'));
+  const catsCfg = ensurePrintSheetCats();
+  const onNames = catsCfg.filter(c => c.on).map(c => c.name);
+  if (!onNames.length) { alert('اختار تصنيف واحد على الأقل عشان يظهر في الورقة.'); return; }
 
-  if (filtered.length === 0) { alert('مفيش أصناف مطابقة للتصنيف ده.'); return; }
+  const filtered = inventoryItems.filter(it => onNames.includes(getMainCategoryOf(it.category || 'أخرى')));
+  if (filtered.length === 0) { alert('مفيش أصناف في التصنيفات المختارة.'); return; }
 
   // تجميع بالتصنيف الرئيسي ثم الفرعي، عشان الورقة تبقى مرتبة زي شاشة الجرد بالظبط
   const groups = {};
-  const order = [];
   filtered.forEach(it => {
     const cat = it.category || 'أخرى';
     const main = getMainCategoryOf(cat);
-    if (!groups[main]) { groups[main] = { direct: [], subs: {}, orderedSubs: [] }; order.push(main); }
+    if (!groups[main]) { groups[main] = { direct: [], subs: {}, orderedSubs: [] }; }
     const g = groups[main];
     if (cat === main) g.direct.push(it);
     else { if (!g.subs[cat]) { g.subs[cat] = []; g.orderedSubs.push(cat); } g.subs[cat].push(it); }
   });
-  order.sort((a, b) => {
-    const ia = CATEGORIES_TREE.findIndex(m => m.name === a);
-    const ib = CATEGORIES_TREE.findIndex(m => m.name === b);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  });
+  // الترتيب بيتبع ترتيبك المخصص في شاشة التحكم بالظبط
+  const order = onNames.filter(n => groups[n]);
 
   const colHeads = colsN === 1 ? ['الكمية']
                  : colsN === 2 ? ['ثلاجة', 'مخزن']
@@ -4086,7 +4121,7 @@ function printBlankInventorySheet() {
       <div class="hdr">
         <div>
           <h2>ورقة جرد فارغة</h2>
-          <p class="sys">Farooj Abu Alabd System${printBlankCategoryFilter !== 'الكل' ? ' — ' + printBlankCategoryFilter : ''}</p>
+          <p class="sys">Farooj Abu Alabd System${onNames.length < catsCfg.length ? ' — ' + onNames.join(' · ') : ''}</p>
         </div>
         <div class="meta">
           <div><b>الفرع:</b> ______________________</div>
@@ -6637,7 +6672,7 @@ function exportBranchToExcel() {
 }
 
 async function init() {
-  await Promise.all([loadSettings(), loadOperationUsers(), loadCategories(), loadInventoryCatalog(), loadBranches(), loadUsers()]);
+  await Promise.all([loadSettings(), loadOperationUsers(), loadCategories(), loadInventoryCatalog(), loadBranches(), loadUsers(), loadPrintSheetCats()]);
   await loadTabConfig();
   renderBranchTabsBar();
   renderAdminTabsBar();
