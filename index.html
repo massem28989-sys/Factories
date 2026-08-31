@@ -396,7 +396,7 @@ const CORE_ITEMS = BRANCH_APP ? BRANCH_APP.coreItems : [];
 const APPETIZER_ITEMS = BRANCH_APP ? BRANCH_APP.appetizerItems : [];
 const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 
-const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
+const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['suppliers','حسابات الموردين'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<5)+h)^t.charCodeAt(i))>>>0; return h.toString(36); };
@@ -725,6 +725,221 @@ async function receiveInboxNotification(notifId){
   render();
 }
 
+/* ================= حسابات الموردين ================= */
+let supOpen = null; // المورد المفتوح كشف حسابه
+let cntUnitMode = {}; // itemId -> 'base' | 'pack' — وحدة العد المختارة لكل صنف في شاشة الجرد
+
+// بيحسب لكل مورد: قيمة المشتريات (دائن) − قيمة المرتجعات (مدين) = صافي المستحق
+function supplierAccounts(){
+  const acc = {};
+  const ensure = name => { if(!acc[name]) acc[name]={name, buys:0, buyN:0, returns:0, retN:0, moves:[]}; return acc[name]; };
+  S.suppliers.forEach(sp=>ensure(sp));
+
+  S.moves.forEach(m=>{
+    const party = String(m.party||'').trim();
+    if(!party) return;
+    const it = item(m.itemId); if(!it) return;
+    const val = n2((+m.qty||0) * (+m.price||0));
+    if(m.dir==='in' && !String(m.party||'').startsWith('إنتاج تلقائي')){
+      const a=ensure(party); a.buys=n2(a.buys+val); a.buyN++; a.moves.push({...m, kind:'buy', val, itemName:it.name, unit:it.unit});
+    } else if(m.dir==='out' && m.reason==='مرتجع للمورد'){
+      const a=ensure(party); a.returns=n2(a.returns+val); a.retN++; a.moves.push({...m, kind:'ret', val, itemName:it.name, unit:it.unit});
+    }
+  });
+
+  return Object.values(acc).map(a=>({...a, net:n2(a.buys-a.returns)}))
+    .sort((x,y)=> y.net - x.net || x.name.localeCompare(y.name,'ar'));
+}
+
+function viewSuppliers(){
+  const accs = supplierAccounts();
+  const totalBuys = n2(accs.reduce((s,a)=>s+a.buys,0));
+  const totalRets = n2(accs.reduce((s,a)=>s+a.returns,0));
+  const totalNet  = n2(totalBuys-totalRets);
+  const active = accs.filter(a=>a.buyN||a.retN);
+  const open = supOpen ? accs.find(a=>a.name===supOpen) : null;
+
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">إجمالي المشتريات</div><div class="v">${money(totalBuys)}</div><div class="s">قيمة الوارد من الموردين</div></div>
+    <div class="card"><div class="k">إجمالي المرتجعات</div><div class="v" style="color:var(--red)">${money(totalRets)}</div><div class="s">اتخصمت من حسابهم</div></div>
+    <div class="card"><div class="k">الصافي المستحق</div><div class="v" style="color:var(--blue)">${money(totalNet)}</div><div class="s">مشتريات − مرتجعات</div></div>
+    <div class="card"><div class="k">موردين نشطين</div><div class="v">${active.length}</div><div class="s">من ${accs.length} مورد</div></div>
+  </div></div></div>
+
+  <div class="panel"><div class="pad">
+    <div class="hint">المشتريات بتتحسب من حركات الوارد المسجلة بسعر، والمرتجعات من أي منصرف جهته "مرتجع للمورد". أي مرتجع بيتخصم من حساب المورد تلقائي.</div>
+  </div></div>
+
+  <div class="panel">
+    <h2>كشف حساب الموردين <em>${accs.length} مورد</em>
+      <button class="btn sm g" data-act="sup-export" style="margin-inline-start:auto">تصدير CSV</button></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>المورد</th><th class="n">عدد فواتير الوارد</th><th class="n">قيمة المشتريات</th><th class="n">عدد المرتجعات</th><th class="n">قيمة المرتجعات</th><th class="n">الصافي المستحق</th><th></th></tr></thead>
+      <tbody>${accs.map(a=>`<tr${(a.buyN||a.retN)?'':' style="opacity:.5"'}>
+        <td><div class="iname">${esc(a.name)}</div></td>
+        <td class="n">${a.buyN||'—'}</td>
+        <td class="n">${a.buys?money(a.buys):'—'}</td>
+        <td class="n">${a.retN||'—'}</td>
+        <td class="n" style="color:${a.returns?'var(--red)':'inherit'}">${a.returns?'−'+money(a.returns):'—'}</td>
+        <td class="n hl">${money(a.net)}</td>
+        <td>${(a.buyN||a.retN)?`<button class="btn sm" data-act="sup-open" data-name="${esc(a.name)}">${supOpen===a.name?'إخفاء':'كشف الحساب'}</button>`:''}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:700">
+        <td>الإجمالي</td><td class="n">${accs.reduce((s,a)=>s+a.buyN,0)}</td><td class="n">${money(totalBuys)}</td>
+        <td class="n">${accs.reduce((s,a)=>s+a.retN,0)}</td><td class="n" style="color:var(--red)">−${money(totalRets)}</td>
+        <td class="n hl">${money(totalNet)}</td><td></td>
+      </tr></tfoot>
+    </table></div>
+  </div>
+
+  ${open?(()=>{
+    const ms = open.moves.slice().sort((a,b)=> String(a.date).localeCompare(String(b.date)));
+    let run = 0;
+    return `<div class="panel">
+      <h2>كشف حساب: ${esc(open.name)} <em>${ms.length} حركة</em>
+        <button class="btn sm" data-act="sup-open" data-name="${esc(open.name)}" style="margin-inline-start:auto">إغلاق</button></h2>
+      <div class="tblwrap"><table class="gridcols">
+        <thead><tr><th>التاريخ</th><th>النوع</th><th>الصنف</th><th class="n">الكمية</th><th class="n">سعر الوحدة</th><th class="n">دائن (شراء)</th><th class="n">مدين (مرتجع)</th><th class="n">الرصيد</th></tr></thead>
+        <tbody>${ms.map(m=>{
+          const isBuy = m.kind==='buy';
+          run = n2(run + (isBuy? m.val : -m.val));
+          return `<tr>
+            <td class="n">${esc(m.date)}</td>
+            <td>${isBuy?'<span class="chip b">شراء</span>':'<span class="chip r">مرتجع</span>'}</td>
+            <td>${esc(m.itemName)}</td>
+            <td class="n">${fmt(m.qty)} <span class="chip">${esc(m.unit)}</span></td>
+            <td class="n">${money(m.price||0)}</td>
+            <td class="n">${isBuy?money(m.val):'—'}</td>
+            <td class="n" style="color:var(--red)">${isBuy?'—':'−'+money(m.val)}</td>
+            <td class="n hl">${money(run)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+        <tfoot><tr style="font-weight:700">
+          <td colspan="5">الصافي المستحق للمورد</td>
+          <td class="n">${money(open.buys)}</td>
+          <td class="n" style="color:var(--red)">−${money(open.returns)}</td>
+          <td class="n hl">${money(open.net)}</td>
+        </tr></tfoot>
+      </table></div>
+    </div>`;})():''}
+  `;
+}
+
+/* ================= استيراد الوصفات من إكسل ================= */
+// الصيغة المتوقعة (كل سطر = خامة واحدة داخل وصفة):
+// اسم الوصفة | المنتج الناتج | الكمية الناتجة | وحدة المنتج | الخامة | كمية الخامة
+function recipeImportModal(){
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:640px">
+    <h3>استيراد وصفات من إكسل</h3>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">
+        انسخ الأعمدة من الإكسل والصقها هنا مباشرة (Ctrl+C ثم Ctrl+V)، أو ارفع ملف CSV.
+        <b>كل سطر = خامة واحدة</b> داخل الوصفة، وبتكرر اسم الوصفة في كل سطور خاماتها.
+      </div>
+      <div style="background:var(--lightbg);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;overflow-x:auto">
+        <b>ترتيب الأعمدة المطلوب:</b><br>
+        <code style="direction:ltr;display:inline-block;margin-top:4px">اسم الوصفة | المنتج الناتج | الكمية الناتجة | وحدة المنتج | الخامة | كمية الخامة</code><br>
+        <span class="hint">مثال: تشغيلة حمص | حمص جاهز | 10 | كيلو | حمص ناشف | 3</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input type="file" id="ri-file" accept=".csv,text/csv" style="font-size:12.5px">
+        <span class="hint">أو الصق في الخانة تحت</span>
+      </div>
+      <textarea id="ri-text" rows="9" placeholder="الصق هنا..." style="width:100%;padding:10px;font-family:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;direction:ltr;text-align:left"></textarea>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="ri-skip-header" checked>
+        <span style="font-size:13px">أول سطر عناوين أعمدة (تجاهله)</span>
+      </label>
+      <div id="ri-preview" style="margin-top:12px"></div>
+    </div>
+    <div class="foot">
+      <button class="btn p" data-act="ri-preview">فحص البيانات</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
+// بيقرأ النص (سواء من إكسل بالـTab أو CSV بالفاصلة) ويحوّله لوصفات
+function parseRecipeImport(text, skipHeader){
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(skipHeader && lines.length) lines.shift();
+  const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
+
+  const byRecipe = {};
+  const errors = [];
+  lines.forEach((line, idx)=>{
+    const p = splitRow(line).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+    const [rName, outName, outQty, outUnit, matName, matQty] = p;
+    const rowNo = idx + (skipHeader?2:1);
+    if(!rName || !outName || !matName){ errors.push(`سطر ${rowNo}: ناقص اسم الوصفة أو المنتج أو الخامة`); return; }
+    if(!(+outQty>0)){ errors.push(`سطر ${rowNo}: الكمية الناتجة لازم تكون رقم أكبر من صفر`); return; }
+    if(!(+matQty>0)){ errors.push(`سطر ${rowNo}: كمية الخامة "${matName}" لازم تكون رقم أكبر من صفر`); return; }
+
+    if(!byRecipe[rName]) byRecipe[rName] = { name:rName, outName, outQty:+outQty, outUnit:outUnit||'', lines:[] };
+    byRecipe[rName].lines.push({ matName, qty:+matQty });
+  });
+
+  // نطابق الخامات والمنتجات بالأسماء الموجودة في كارت الأصناف
+  const norm = s => String(s||'').trim().toLowerCase();
+  const list = Object.values(byRecipe).map(r=>{
+    const outIt = S.items.find(i=>norm(i.name)===norm(r.outName));
+    const lines = r.lines.map(l=>{
+      const it = S.items.find(i=>norm(i.name)===norm(l.matName));
+      return { ...l, item: it||null };
+    });
+    const missing = lines.filter(l=>!l.item).map(l=>l.matName);
+    const exists = S.recipes.find(x=>norm(x.name)===norm(r.name));
+    return { ...r, outItem:outIt||null, lines, missing, exists:!!exists };
+  });
+  return { list, errors };
+}
+
+function renderRecipeImportPreview(){
+  const text = ($('#ri-text')||{value:''}).value;
+  const skip = !!($('#ri-skip-header')&&$('#ri-skip-header').checked);
+  const wrap = $('#ri-preview'); if(!wrap) return;
+  if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; return; }
+
+  const {list, errors} = parseRecipeImport(text, skip);
+  RI_PARSED = list;
+
+  const blocked = list.filter(r=>r.missing.length);
+  const ok = list.filter(r=>!r.missing.length);
+  const newProducts = ok.filter(r=>!r.outItem).length;
+  const willUpdate = ok.filter(r=>r.exists).length;
+
+  let html = `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+    <div class="card"><div class="k">وصفات جاهزة</div><div class="v" style="color:var(--green)">${ok.length}</div><div class="s">${willUpdate?willUpdate+' منها هيتحدّث':'كلها جديدة'}</div></div>
+    <div class="card"><div class="k">منتجات جديدة</div><div class="v">${newProducts}</div><div class="s">هتتضاف لكارت الأصناف</div></div>
+    ${blocked.length?`<div class="card"><div class="k">فيها خامات ناقصة</div><div class="v" style="color:var(--red)">${blocked.length}</div><div class="s">مش هتتستورد</div></div>`:''}
+  </div>`;
+
+  if(errors.length){
+    html += `<div class="warnbar" style="margin-top:10px">${errors.length} سطر فيه مشكلة:<br>${errors.slice(0,6).map(esc).join('<br>')}${errors.length>6?`<br>… و${errors.length-6} كمان`:''}</div>`;
+  }
+  if(blocked.length){
+    html += `<div class="warnbar" style="margin-top:10px"><b>خامات مش موجودة في كارت الأصناف:</b><br>${
+      [...new Set(blocked.flatMap(r=>r.missing))].slice(0,12).map(esc).join(' · ')}<br>
+      <span class="hint">ضيفها في كارت الأصناف الأول، أو صلّح أسماءها في الشيت.</span></div>`;
+  }
+  if(ok.length){
+    html += `<div class="tblwrap" style="margin-top:10px;max-height:260px"><table class="gridcols">
+      <thead><tr><th>الوصفة</th><th>المنتج</th><th class="n">الناتج</th><th class="n">خامات</th><th>الحالة</th></tr></thead>
+      <tbody>${ok.map(r=>`<tr>
+        <td><div class="iname">${esc(r.name)}</div></td>
+        <td>${esc(r.outName)}${!r.outItem?' <span class="chip a">جديد</span>':''}</td>
+        <td class="n">${fmt(r.outQty)} ${esc(r.outUnit|| (r.outItem?r.outItem.unit:''))}</td>
+        <td class="n">${r.lines.length}</td>
+        <td>${r.exists?'<span class="chip b">هيتحدّث</span>':'<span class="chip g">جديدة</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>
+      <button class="btn p" data-act="ri-apply" style="width:100%;margin-top:12px">استيراد ${ok.length} وصفة</button>`;
+  }
+  wrap.innerHTML = html;
+}
+
+let RI_PARSED = [];
+
 function viewInbox(){
   const pending = MY_INBOX.filter(n=>n.status==='pending');
   const processing = MY_INBOX.filter(n=>n.status==='processing');
@@ -837,7 +1052,7 @@ function render(){
       </nav>
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -1307,14 +1522,27 @@ function viewCount(){
       <thead><tr><th>الصنف</th><th>الوحدة</th><th>أول المدة</th><th>وارد</th><th>منصرف</th><th>دفتري</th><th>الفعلي</th><th>الفرق</th><th>قيمة الفرق</th></tr></thead>
       <tbody>${(()=>{let lastCat=null; return list.map((it,idx)=>{const c=calc(it);
         const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="9">${esc(it.cat)}</td></tr>`) : '';
+        const hasPack0 = +it.packSize>0;
+        const mode0 = cntUnitMode[it.id]||'base';
+        const factor0 = hasPack0 ? +it.packSize : 1;
+        const shown0 = c.has ? (mode0==='pack' ? n2(c.real/factor0) : c.real) : '';
         return hdr+`<tr>
           <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}</div></td>
-          <td><span class="chip">${esc(it.unit)}</span></td>
+          <td><span class="chip">${esc(it.unit)}</span>${hasPack0?`<div class="hint" style="margin-top:2px">${esc(it.packUnit||'عبوة')} = ${fmt(it.packSize)}</div>`:''}</td>
           <td class="n">${fmt(it.opening)}</td>
           <td class="n pos">${c.inQ?'+'+fmt(c.inQ):'—'}</td>
           <td class="n neg">${c.outQ?'−'+fmt(c.outQ):'—'}</td>
           <td class="n"><b>${fmt(c.book)}</b></td>
-          <td><input type="number" step="any" class="cell${c.has?' filled':''}" data-count="${it.id}" data-row="${idx}" value="${c.has?c.real:''}" placeholder="—"></td>
+          <td>
+            <div style="display:flex;gap:5px;align-items:center">
+              <input type="number" step="any" class="cell${c.has?' filled':''}" data-count="${it.id}" data-row="${idx}" data-factor="${mode0==='pack'?factor0:1}" value="${shown0}" placeholder="—" style="flex:1;min-width:0">
+              ${hasPack0?`<select data-cntunit="${it.id}" style="width:80px;padding:4px;font-size:11.5px">
+                  <option value="base" ${mode0==='base'?'selected':''}>${esc(it.unit)}</option>
+                  <option value="pack" ${mode0==='pack'?'selected':''}>${esc(it.packUnit||'عبوة')}</option>
+                </select>`:''}
+            </div>
+            ${(hasPack0 && mode0==='pack' && shown0!=='')?`<div class="hint" style="margin-top:2px">= ${fmt(c.real)} ${esc(it.unit)}</div>`:''}
+          </td>
           <td class="n ${c.has?(c.diff>0?'pos':c.diff<0?'neg':'zero'):''}">${c.has?(c.diff>0?'+':'')+fmt(c.diff):'—'}</td>
           <td class="n ${c.has&&c.diff<0?'neg':''}">${c.has&&it.price?money(c.diff*it.price):'—'}</td>
         </tr>`;}).join('');})()||`<tr><td colspan="9" class="empty">مفيش أصناف بالفلتر ده</td></tr>`}
@@ -1335,19 +1563,33 @@ function viewCountManager(){
   }
   return `
   <div class="panel"><div class="pad">
-    <div class="hint">اكتب الكمية اللي عدّيتها فعليًا في المخزن قدام كل صنف. لما تخلص، دوس <b>«إرسال الجرد»</b> تحت. تقدر تدوس ↓ أو Enter بعد كل رقم عشان تنتقل للصنف اللي بعده.</div>
+    <div class="hint">اكتب الكمية اللي عدّيتها فعليًا في المخزن قدام كل صنف. لما تخلص، دوس <b>«إرسال الجرد»</b> تحت. تقدر تدوس ↓ أو Enter بعد كل رقم عشان تنتقل للصنف اللي بعده.<br>
+    <b>الأصناف اللي ليها شدّ</b> (زي كرتونة = 12 حبة) تقدر تعد بالكرتونة مباشرة وتسيب النظام يحوّلها — بدّل الوحدة من القايمة جنب الخانة.</div>
   </div></div>
   <div class="panel">
     <h2>جرد ${periodLabel(S.period)} <em>${t.counted} من ${t.total} صنف اتعدّوا</em></h2>
     ${filterBar(false)}
     <div class="tblwrap"><table>
-      <thead><tr><th>الصنف</th><th>الوحدة</th><th>الفعلي</th></tr></thead>
+      <thead><tr><th>الصنف</th><th>الوحدة</th><th style="width:210px">الفعلي</th></tr></thead>
       <tbody>${(()=>{let lastCat=null; return list.map((it,idx)=>{const c=calc(it);
         const hdr = it.cat!==lastCat ? (lastCat=it.cat, `<tr class="catrow"><td colspan="3">${esc(it.cat)}</td></tr>`) : '';
+        const hasPack = +it.packSize>0;
+        const mode = cntUnitMode[it.id]||'base';         // base = وحدة الصنف، pack = الشدّ
+        const factor = hasPack ? +it.packSize : 1;
+        const shown = c.has ? (mode==='pack' ? n2(c.real/factor) : c.real) : '';
         return hdr+`<tr>
           <td><div class="iname">${esc(it.name)}</div><div class="idesc">${esc(it.desc)}</div></td>
-          <td><span class="chip">${esc(it.unit)}</span></td>
-          <td><input type="number" step="any" class="cell${c.has?' filled':''}" data-count="${it.id}" data-row="${idx}" value="${c.has?c.real:''}" placeholder="—"></td>
+          <td><span class="chip">${esc(it.unit)}</span>${hasPack?`<div class="hint" style="margin-top:2px">${esc(it.packUnit||'عبوة')} = ${fmt(it.packSize)}</div>`:''}</td>
+          <td>
+            <div style="display:flex;gap:5px;align-items:center">
+              <input type="number" step="any" class="cell${c.has?' filled':''}" data-count="${it.id}" data-row="${idx}" data-factor="${mode==='pack'?factor:1}" value="${shown}" placeholder="—" style="flex:1;min-width:0">
+              ${hasPack?`<select data-cntunit="${it.id}" style="width:86px;padding:5px;font-size:12px">
+                  <option value="base" ${mode==='base'?'selected':''}>${esc(it.unit)}</option>
+                  <option value="pack" ${mode==='pack'?'selected':''}>${esc(it.packUnit||'عبوة')}</option>
+                </select>`:''}
+            </div>
+            ${(hasPack && mode==='pack' && shown!=='')?`<div class="hint" style="margin-top:2px">= ${fmt(c.real)} ${esc(it.unit)}</div>`:''}
+          </td>
         </tr>`;}).join('');})()||`<tr><td colspan="3" class="empty">مفيش أصناف بالفلتر ده</td></tr>`}
       </tbody></table></div>
     <div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1496,7 +1738,14 @@ function viewMove(dir){
           :ui.moveReason==='صرف لمصنع تاني'?`<label class="f">${t('receiving_factory')}</label>
             <select id="m-party" style="width:100%">${allowedDispatchFactories().map(f=>`<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('') || `<option value="">${t('no_other_factories')}</option>`}</select>
             <div class="hint" style="margin-top:4px">${t('notify_hint')}</div>`
-          :`<label class="f">${t('note')}</label><input type="text" id="m-party" style="width:100%">`}</div>`}
+          :ui.moveReason==='مرتجع للمورد'?`<label class="f">المورد المرتجع له</label>
+            <div style="display:flex;gap:6px">
+              <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
+              <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
+            </div>
+            <div class="hint" style="margin-top:4px">قيمة المرتجع هتتخصم من حساب المورد تلقائي في كشف الحساب</div>`
+          :`<label class="f">${t('note')}</label><input type="text" id="m-party" style="width:100%">`}</div>
+        ${ui.moveReason==='مرتجع للمورد'?`<div><label class="f">سعر الوحدة وقت الشراء <span class="hint">(بيتعبّى تلقائي)</span></label><input type="number" step="any" id="m-retprice" style="width:100%"><div class="hint" id="m-retprice-hint" style="margin-top:4px"></div></div>`:''}`}
         <div><label class="f">${t('date')}</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
         <div><label class="f">${t('prod_date')} <span class="hint">${t('optional')}</span></label><input type="date" id="m-proddate" style="width:100%"></div>
         <div><label class="f">${t('temp')} <span class="hint">${t('optional')}</span></label><input type="number" step="any" id="m-temp" placeholder="${t('temp_ph')}" style="width:100%"></div>
@@ -1676,8 +1925,8 @@ function viewProd(){
   <div class="panel">
     <h2>وصفات الإنتاج <em>الوصفة بتخصم الخامات وتضيف المنتج بضغطة واحدة</em>
       ${(()=>{ const n=S.recipes.filter(r=>{const o=item(r.outItemId); if(!o||!r.outQty) return false; const uc=recipeCost(r)/r.outQty; return uc>0 && Math.abs(uc-(+o.price||0))>0.005; }).length;
-        return n?`<button class="btn sm" data-act="sync-prices" style="margin-inline-start:auto">مزامنة أسعار ${n} منتج</button><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`
-                :`<button class="btn sm p" data-act="new-recipe" style="margin-inline-start:auto">وصفة جديدة</button>`; })()}</h2>
+        return n?`<button class="btn sm" data-act="sync-prices" style="margin-inline-start:auto">مزامنة أسعار ${n} منتج</button><button class="btn sm" data-act="import-recipes">استيراد من إكسل</button><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`
+                :`<button class="btn sm" data-act="import-recipes" style="margin-inline-start:auto">استيراد من إكسل</button><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`; })()}</h2>
     ${S.recipes.length? `<div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th class="n">تكلفة التشغيلة</th><th class="n">تكلفة الوحدة</th><th class="n">سعره في الكارت</th><th></th></tr></thead>
       <tbody>${S.recipes.map(r=>{const out=item(r.outItemId); const c=recipeCost(r);
@@ -2081,11 +2330,17 @@ function recipeModal(editRecipe){
         </div>
       </div>
       <label class="f">الخامات المستهلكة في التشغيلة الواحدة</label>
+      <div class="hint" style="margin-bottom:6px">اكتب أول حروف من اسم الخامة وهتظهرلك، أو اختار من القايمة</div>
+      <datalist id="rmat-list">${S.items.map(x=>`<option value="${esc(x.name)}">${esc(x.cat)} · ${esc(x.unit)}</option>`).join('')}</datalist>
       <div class="rlines" id="rlines">
-        ${ui.rlines.map((l,i)=>`<div class="rline">
-          <select data-rl="${i}"><option value="">— خامة —</option>${S.items.map(x=>`<option value="${x.id}" ${l.itemId===x.id?'selected':''}>${esc(x.name)} (${esc(x.unit)})</option>`).join('')}</select>
+        ${ui.rlines.map((l,i)=>{ const cur = l.itemId? item(l.itemId) : null;
+          return `<div class="rline">
+          <div style="flex:1;min-width:0">
+            <input type="text" list="rmat-list" data-rl="${i}" value="${cur?esc(cur.name):''}" placeholder="اكتب اسم الخامة…" style="width:100%">
+            <div class="hint" data-rlhint="${i}" style="margin-top:2px">${cur?`${esc(cur.cat)} · الوحدة: ${esc(cur.unit)}`:''}</div>
+          </div>
           <input type="number" step="any" class="cell" data-rq="${i}" value="${l.qty}" placeholder="كمية">
-          <button class="btn sm danger" data-rdel="${i}">×</button></div>`).join('')}
+          <button class="btn sm danger" data-rdel="${i}">×</button></div>`;}).join('')}
       </div>
       <button class="btn sm" data-act="add-line" style="margin-top:8px">+ خامة</button>
     </div>
@@ -2247,6 +2502,13 @@ function bind(){
     toast(S.restrictDispatchTo?'اتقفل الصرف لمصنع تاني على مصنع واحد بس':'اتشال القيد');
     render();
   };
+  const riFile=$('#ri-file'); if(riFile) riFile.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{ const ta=$('#ri-text'); if(ta){ ta.value=String(rd.result||''); renderRecipeImportPreview(); } };
+    rd.readAsText(f,'utf-8');
+  };
+  const riText=$('#ri-text'); if(riText) riText.onblur=()=>renderRecipeImportPreview();
   const langSel=$('#lang-select'); if(langSel) langSel.onchange=e=>{ setLang(e.target.value); };
   const dom=$('#dispatch-only-mode'); if(dom) dom.onchange=async e=>{
     S.dispatchOnlyMode=e.target.checked;
@@ -2274,6 +2536,21 @@ function bind(){
     };
     // تعبئة سعر الوحدة تلقائي من كارت الأصناف، عشان متروحش تدوّر عليه كل مرة — وتقدر تعدّله لو السعر اتغيّر
     const refreshPrice=()=>{
+      // سعر المرتجع كمان بيتعبّى تلقائي من آخر سعر شراء، عشان قيمة المرتجع تبقى صح
+      const rEl=$('#m-retprice');
+      if(rEl){
+        const rit=item(mItem.value);
+        const rHint=$('#m-retprice-hint');
+        if(rit){
+          const lastBuy = S.moves.filter(m=>m.dir==='in' && m.itemId===rit.id && +m.price>0)
+                                 .sort((a,b)=> String(b.date).localeCompare(String(a.date)))[0];
+          const p = lastBuy? +lastBuy.price : (+rit.price||0);
+          rEl.value = p>0? p : '';
+          if(rHint) rHint.innerHTML = p>0
+            ? (lastBuy? `آخر سعر شراء: <b>${fmt(p)}</b> بتاريخ ${lastBuy.date}` : `سعر الصنف المسجل: <b>${fmt(p)}</b>`)
+            : 'الصنف من غير سعر — اكتب سعر المرتجع';
+        } else { rEl.value=''; if(rHint) rHint.textContent=''; }
+      }
       const pEl=$('#m-price'); if(!pEl) return; // في المنصرف مفيش خانة سعر
       const it=item(mItem.value);
       const hint=$('#m-price-hint');
@@ -2441,10 +2718,16 @@ function bind(){
   });
   const o=$('#only'); if(o) o.onchange=e=>{ui.only=e.target.value;render();};
  
+  root.querySelectorAll('[data-cntunit]').forEach(sel=>sel.onchange=e=>{
+    cntUnitMode[e.target.dataset.cntunit] = e.target.value;
+    render();
+  });
   root.querySelectorAll('[data-count]').forEach(inp=>{
     inp.onchange=e=>{
       const id=e.target.dataset.count, v=e.target.value;
-      const qty = (v===''||v===null) ? null : +v;
+      // لو المستخدم بيعد بالشدّ (كرتونة مثلًا)، نحوّل لوحدة الصنف الأساسية قبل الحفظ
+      const factor = +e.target.dataset.factor || 1;
+      const qty = (v===''||v===null) ? null : n2(+v * factor);
       if(qty===null) delete S.counts[id]; else S.counts[id]=qty;
       saveTx();
       render();
@@ -2486,15 +2769,31 @@ function bind(){
   root.querySelectorAll('[data-close]').forEach(el=>el.onclick=e=>{if(e.target===el){ui.modal=null;render();}});
   root.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=()=>{readLines();readRecipeHeader();ui.rlines.splice(+b.dataset.rdel,1);if(!ui.rlines.length)ui.rlines=[{itemId:'',qty:''}];ui.modal=recipeModal(ui.editingRecipe);render();});
   // لما تختار خامة في آخر صف، بيتفتح صف جديد فاضي لوحده — مش محتاج تدوس "+ خامة" كل مرة
-  root.querySelectorAll('[data-rl]').forEach(sel=>sel.onchange=()=>{
-    const idx = +sel.dataset.rl;
-    readLines(); readRecipeHeader();
-    if(sel.value && idx === ui.rlines.length-1){
-      ui.rlines.push({itemId:'',qty:''});
-      ui.modal=recipeModal(ui.editingRecipe);
-      render();
-      setTimeout(()=>{ const q=document.querySelector(`[data-rq="${idx}"]`); if(q){ q.focus(); q.select(); } },40);
-    }
+  root.querySelectorAll('[data-rl]').forEach(inp=>{
+    const norm = s => String(s||'').trim().toLowerCase();
+    // مؤشر فوري: بيقولك لو الاسم اللي كتبته موجود فعلًا وبيوريك تصنيفه ووحدته
+    const showHint = () => {
+      const h = document.querySelector(`[data-rlhint="${inp.dataset.rl}"]`);
+      if(!h) return;
+      const v = inp.value.trim();
+      if(!v){ h.textContent=''; h.style.color=''; return; }
+      const it = S.items.find(i=>norm(i.name)===norm(v));
+      if(it){ h.textContent = `${it.cat} · الوحدة: ${it.unit}`; h.style.color=''; }
+      else { h.textContent = 'الخامة دي مش موجودة في كارت الأصناف'; h.style.color='var(--red)'; }
+    };
+    inp.oninput = showHint;
+    inp.onchange = () => {
+      showHint();
+      const idx = +inp.dataset.rl;
+      const matched = S.items.find(i=>norm(i.name)===norm(inp.value));
+      readLines(); readRecipeHeader();
+      if(matched && idx === ui.rlines.length-1){
+        ui.rlines.push({itemId:'',qty:''});
+        ui.modal=recipeModal(ui.editingRecipe);
+        render();
+        setTimeout(()=>{ const q=document.querySelector(`[data-rq="${idx}"]`); if(q){ q.focus(); q.select(); } },40);
+      }
+    };
   });
   root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
   const rf=$('#restore');
@@ -2520,8 +2819,13 @@ function bind(){
 }
 function readLines(){
   const box=$('#rlines'); if(!box) return;
-  ui.rlines = [...box.querySelectorAll('.rline')].map(el=>({
-    itemId: el.querySelector('select').value, qty: el.querySelector('input').value }));
+  const norm = s => String(s||'').trim().toLowerCase();
+  ui.rlines = [...box.querySelectorAll('.rline')].map(el=>{
+    const nameEl = el.querySelector('[data-rl]');
+    const qtyEl  = el.querySelector('[data-rq]');
+    const it = nameEl ? S.items.find(i=>norm(i.name)===norm(nameEl.value)) : null;
+    return { itemId: it? it.id : '', qty: qtyEl? qtyEl.value : '', raw: nameEl? nameEl.value : '' };
+  });
 }
 // بنحفظ الحقول العلوية (اسم الوصفة/المنتج/الكمية/الوحدة/التصنيف) قبل أي إعادة بناء للنافذة، عشان ما تضيعش لما تضيف خامة جديدة
 function readRecipeHeader(){
@@ -2844,6 +3148,47 @@ async function act(a,d){
     const el=document.createElement('a'); el.href=url; el.download=`الجرد-اليومي-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
     return toast('تم تصدير الجرد اليومي');
   }
+  if(a==='import-recipes'){ RI_PARSED=[]; ui.modal=recipeImportModal(); return render(); }
+  if(a==='ri-preview'){ renderRecipeImportPreview(); return; }
+  if(a==='ri-apply'){
+    const ok = RI_PARSED.filter(r=>!r.missing.length);
+    if(!ok.length) return toast('مفيش وصفات جاهزة للاستيراد',1);
+    if(!confirm(`هيتم استيراد ${ok.length} وصفة${ok.filter(r=>r.exists).length?` (${ok.filter(r=>r.exists).length} منها هتتحدّث)`:''}. تكمل؟`)) return;
+
+    const norm = s => String(s||'').trim().toLowerCase();
+    let added=0, updated=0, newItems=0;
+    ok.forEach(r=>{
+      let outIt = r.outItem;
+      if(!outIt){
+        outIt = { id:uid('i'), name:r.outName, desc:'', unit:r.outUnit||'', cat:'منتج نهائي',
+                  opening:0, price:0, min:0, packUnit:'', packSize:0, note:'' };
+        S.items.push(outIt); newItems++;
+      }
+      const lines = r.lines.map(l=>({ itemId:l.item.id, qty:l.qty }));
+      const existing = S.recipes.find(x=>norm(x.name)===norm(r.name));
+      if(existing){ Object.assign(existing,{ name:r.name, outItemId:outIt.id, outQty:r.outQty, lines }); updated++; }
+      else { S.recipes.push({ id:uid('r'), name:r.name, outItemId:outIt.id, outQty:r.outQty, lines }); added++; }
+    });
+    await saveMain();
+    ui.modal=null; RI_PARSED=[];
+    toast(`تم استيراد ${added} وصفة جديدة${updated?` وتحديث ${updated}`:''}${newItems?` وإضافة ${newItems} منتج لكارت الأصناف`:''}`);
+    return render();
+  }
+  if(a==='sup-open'){ supOpen = (supOpen===d.name? null : d.name); return render(); }
+  if(a==='sup-export'){
+    const accs = supplierAccounts();
+    const rows=[['المورد','عدد فواتير الوارد','قيمة المشتريات','عدد المرتجعات','قيمة المرتجعات','الصافي المستحق']];
+    accs.forEach(a=>rows.push([a.name,a.buyN,n2(a.buys),a.retN,n2(a.returns),n2(a.net)]));
+    rows.push([]);
+    rows.push(['تفاصيل الحركات']);
+    rows.push(['المورد','التاريخ','النوع','الصنف','الكمية','الوحدة','سعر الوحدة','القيمة']);
+    accs.forEach(a=>a.moves.slice().sort((x,y)=>String(x.date).localeCompare(String(y.date)))
+      .forEach(m=>rows.push([a.name,m.date,m.kind==='buy'?'شراء':'مرتجع',m.itemName,m.qty,m.unit,m.price||0,n2(m.val)])));
+    const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    const el=document.createElement('a'); el.href=url; el.download=`حسابات-الموردين-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
+    return toast('تم تصدير حسابات الموردين');
+  }
   if(a==='inbox-refresh'){ return loadMyInbox(); }
   if(a==='inbox-receive'){ return receiveInboxNotification(d.id); }
   if(a==='inbox-dismiss'){
@@ -3071,7 +3416,15 @@ async function act(a,d){
       const res = dispenseOut(id, qty, date, party, reason);
       if(res.error) return toast(res.error,1);
       m = res.move;
-      if(m){ m.prodDate=prodDate; m.temp=temp; }
+      if(m){
+        m.prodDate=prodDate; m.temp=temp;
+        // في المرتجع بنخزّن السعر على الحركة عشان نقدر نحسب قيمته في كشف حساب المورد
+        if(reason==='مرتجع للمورد'){
+          const rp = $('#m-retprice') ? +$('#m-retprice').value||0 : 0;
+          const fallback = (+it.price||0);
+          m.price = rp>0 ? n2(rp) : n2(fallback);
+        }
+      }
       if(res.auto) autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
       if(reason==='صرف لمصنع تاني' && party){
         const toFac = FACTORIES.find(f=>f.id===party);
@@ -3160,6 +3513,9 @@ async function act(a,d){
     if(!name||!outName||!outQty) return toast('اكتب اسم الوصفة والمنتج والكمية',1);
     const lines=ui.rlines.filter(l=>l.itemId&&+l.qty>0).map(l=>({itemId:l.itemId,qty:+l.qty}));
     if(!lines.length) return toast('ضيف خامة واحدة على الأقل',1);
+    // لو المستخدم كتب اسم خامة مش موجود، نوقفه بدل ما نحفظ وصفة ناقصة من غير ما يحس
+    const unknown = ui.rlines.filter(l=>!l.itemId && String(l.raw||'').trim()).map(l=>l.raw);
+    if(unknown.length) return toast(`الخامات دي مش موجودة في كارت الأصناف: ${unknown.slice(0,3).join('، ')}${unknown.length>3?` و${unknown.length-3} كمان`:''}`,1);
 
     let outIt = S.items.find(i=>i.name.toLowerCase()===outName.toLowerCase());
     if(!outIt){
