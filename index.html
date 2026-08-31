@@ -563,7 +563,7 @@ async function pushAll(quiet){
         id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
         party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
         prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
-        notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null}));
+        notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null,invoice:m.invoice||null}));
       try{
         await sb('stock_moves',{method:'POST',body:fullBody});
       }catch(e){
@@ -632,7 +632,7 @@ async function pullAll(silent){
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode);
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
-    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined}));
+    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty);
     const rc=await sb('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
@@ -939,6 +939,60 @@ function renderRecipeImportPreview(){
 }
 
 let RI_PARSED = [];
+
+/* ================= مرفقات صور الفواتير ================= */
+// الصور بتتخزن في Supabase Storage (bucket اسمه invoices)، والحركة بتشيل اسم الملف بس
+// عشان الحفظ يفضل خفيف وسريع
+const INVOICE_BUCKET = 'invoices';
+
+async function uploadInvoiceImage(file, moveId){
+  if(!DB.on) throw new Error('لازم تكون متصل بالقاعدة عشان ترفع صورة');
+  const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+  const path = `${FACTORY}/${moveId}-${Date.now()}.${ext}`;
+  const base = DB.url.replace(/\/+$/,'');
+  const r = await fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
+    method:'POST',
+    headers:{ apikey:DB.key, Authorization:'Bearer '+DB.key, 'Content-Type': file.type||'image/jpeg', 'x-upsert':'true' },
+    body: file
+  });
+  if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,140)||('HTTP '+r.status)); }
+  return path;
+}
+
+function invoiceImageUrl(path){
+  if(!path) return '';
+  const base = DB.url.replace(/\/+$/,'');
+  return `${base}/storage/v1/object/public/${INVOICE_BUCKET}/${path}`;
+}
+
+async function deleteInvoiceImage(path){
+  if(!path || !DB.on) return false;
+  const base = DB.url.replace(/\/+$/,'');
+  try{
+    const r = await fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
+      method:'DELETE', headers:{ apikey:DB.key, Authorization:'Bearer '+DB.key }
+    });
+    return r.ok;
+  }catch(e){ return false; }
+}
+
+function invoiceViewModal(moveId){
+  const m = S.moves.find(x=>x.id===moveId);
+  if(!m || !m.invoice) return '';
+  const it = item(m.itemId)||{name:'—',unit:''};
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:720px">
+    <h3>صورة الفاتورة — ${esc(it.name)} <span style="color:var(--muted);font-weight:400">${esc(m.date)}</span></h3>
+    <div class="pad" style="text-align:center">
+      <img src="${invoiceImageUrl(m.invoice)}" alt="فاتورة" style="max-width:100%;border-radius:8px;border:1px solid var(--line)">
+      <div class="hint" style="margin-top:8px">${esc(m.party||'')} · ${fmt(m.qty)} ${esc(it.unit)} · ${money(m.price||0)} للوحدة</div>
+    </div>
+    <div class="foot">
+      <a class="btn p" href="${invoiceImageUrl(m.invoice)}" target="_blank" rel="noopener">فتح بالحجم الكامل</a>
+      <button class="btn danger" data-act="inv-del" data-id="${m.id}">حذف الصورة</button>
+      <button class="btn" data-close="1">قفل</button>
+    </div>
+  </div></div>`;
+}
 
 function viewInbox(){
   const pending = MY_INBOX.filter(n=>n.status==='pending');
@@ -1749,6 +1803,11 @@ function viewMove(dir){
         <div><label class="f">${t('date')}</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
         <div><label class="f">${t('prod_date')} <span class="hint">${t('optional')}</span></label><input type="date" id="m-proddate" style="width:100%"></div>
         <div><label class="f">${t('temp')} <span class="hint">${t('optional')}</span></label><input type="number" step="any" id="m-temp" placeholder="${t('temp_ph')}" style="width:100%"></div>
+        ${isIn?`<div style="grid-column:1/-1">
+          <label class="f">صورة الفاتورة <span class="hint">(اختياري — تتحفظ كمرجع للحركة)</span></label>
+          <input type="file" id="m-invoice" accept="image/*" capture="environment" style="width:100%;font-size:12.5px">
+          <div class="hint" id="m-invoice-hint" style="margin-top:4px">${DB.on?'صوّر الفاتورة أو اختار صورة من جهازك — هتتربط بالحركة دي وتقدر ترجعلها أي وقت':'لازم تكون متصل بالقاعدة عشان ترفع صور'}</div>
+        </div>`:''}
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
         <input type="hidden" id="m-qty" value="">
@@ -1807,7 +1866,7 @@ function viewMove(dir){
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
         ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
               :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
-        <td style="white-space:nowrap"><button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> <button class="btn sm danger" data-del="${m.id}">${t('delete')}</button></td></tr>`;}).join('')
+        <td style="white-space:nowrap">${m.invoice?`<button class="btn sm" data-act="inv-view" data-id="${m.id}" title="عرض صورة الفاتورة">📎</button> `:''}<button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> <button class="btn sm danger" data-del="${m.id}">${t('delete')}</button></td></tr>`;}).join('')
         ||`<tr><td colspan="${ui.mvEdit?10:9}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
       </tbody>
       ${shownMoves.length?`<tfoot><tr style="font-weight:700">
@@ -3148,6 +3207,15 @@ async function act(a,d){
     const el=document.createElement('a'); el.href=url; el.download=`الجرد-اليومي-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
     return toast('تم تصدير الجرد اليومي');
   }
+  if(a==='inv-view'){ ui.modal = invoiceViewModal(d.id); return render(); }
+  if(a==='inv-del'){
+    const m=S.moves.find(x=>x.id===d.id); if(!m||!m.invoice) return;
+    if(!confirm('حذف صورة الفاتورة دي؟ الحركة نفسها هتفضل زي ما هي.')) return;
+    await deleteInvoiceImage(m.invoice);
+    delete m.invoice;
+    await saveTx();
+    ui.modal=null; toast('اتحذفت صورة الفاتورة'); return render();
+  }
   if(a==='import-recipes'){ RI_PARSED=[]; ui.modal=recipeImportModal(); return render(); }
   if(a==='ri-preview'){ renderRecipeImportPreview(); return; }
   if(a==='ri-apply'){
@@ -3409,6 +3477,15 @@ async function act(a,d){
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:+($('#m-price').value||0),party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp};
       S.moves.push(m);
       if(m.price>0){ it.price=m.price; await saveMain(); }
+      // رفع صورة الفاتورة لو اتحطت — الحركة بتتسجل عادي حتى لو الرفع فشل
+      const invEl = $('#m-invoice');
+      if(invEl && invEl.files && invEl.files[0]){
+        try{
+          toast('بيرفع صورة الفاتورة…');
+          m.invoice = await uploadInvoiceImage(invEl.files[0], m.id);
+          autoMsg += ' + اترفعت صورة الفاتورة';
+        }catch(e){ autoMsg += ' — بس صورة الفاتورة ما اترفعتش: '+e.message; }
+      }
     }else{
       const lockedMode = S.dispatchOnlyMode && S.restrictDispatchTo;
       const party = lockedMode ? S.restrictDispatchTo : ($('#m-party')?$('#m-party').value.trim():'');
