@@ -396,7 +396,7 @@ const CORE_ITEMS = BRANCH_APP ? BRANCH_APP.coreItems : [];
 const APPETIZER_ITEMS = BRANCH_APP ? BRANCH_APP.appetizerItems : [];
 const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 
-const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['suppliers','حسابات الموردين'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
+const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['expiry','الصلاحيات'],['suppliers','حسابات الموردين'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<5)+h)^t.charCodeAt(i))>>>0; return h.toString(36); };
@@ -563,7 +563,7 @@ async function pushAll(quiet){
         id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
         party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
         prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
-        notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null,invoice:m.invoice||null}));
+        notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null,invoice:m.invoice||null,exp_date:m.expDate||null}));
       try{
         await sb('stock_moves',{method:'POST',body:fullBody});
       }catch(e){
@@ -578,8 +578,19 @@ async function pushAll(quiet){
   }catch(e){ errors.push('الحركات: '+e.message); }
 
   try{
+    // خطر حقيقي: الحذف الكامل هنا كان بيمسح أي جرد اتسجل من جهاز تاني (المدير مثلاً) لسه ما وصلش لنسختنا.
+    // الحل: نقرأ اللي في القاعدة الأول، ندمجه مع اللي عندنا، وبعدين نكتب المجموع — من غير ما نفقد أي رقم.
+    let remote = {};
+    try{
+      const cur = await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=item_id,qty',{prefer:'return=representation'})||[];
+      cur.forEach(r=>{ remote[r.item_id]=+r.qty||0; });
+    }catch(e){ /* لو القراءة فشلت، نكمل باللي عندنا بس */ }
+
+    const merged = {...remote, ...S.counts};   // اللي عندنا له الأولوية، والباقي بيتحافظ عليه
+    S.counts = merged;                          // نحدّث نسختنا المحلية كمان عشان الشاشة تبان صح
+
     await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
-    const cs=Object.entries(S.counts).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
+    const cs=Object.entries(merged).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
     if(cs.length) await sb('stock_counts',{method:'POST',body:cs});
   }catch(e){ errors.push('الجرد: '+e.message); }
 
@@ -632,7 +643,7 @@ async function pullAll(silent){
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode);
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
-    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined}));
+    S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty);
     const rc=await sb('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
@@ -994,6 +1005,109 @@ function invoiceViewModal(moveId){
   </div></div>`;
 }
 
+/* ================= تتبع التشغيلات وتواريخ الصلاحية ================= */
+// كل حركة وارد ليها تاريخ صلاحية = تشغيلة مستقلة. بنستهلك التشغيلات بمنهج FIFO
+// (الأقدم صلاحية بتتصرف الأول) عشان نعرف الرصيد الباقي فعليًا من كل تشغيلة
+function expiryBatches(){
+  const byItem = {};
+  S.moves.filter(m=>m.dir==='in' && m.expDate).forEach(m=>{
+    if(!byItem[m.itemId]) byItem[m.itemId]=[];
+    byItem[m.itemId].push({ id:m.id, qty:+m.qty||0, expDate:m.expDate, date:m.date, party:m.party||'', price:+m.price||0 });
+  });
+
+  const out = [];
+  Object.keys(byItem).forEach(itemId=>{
+    const it = item(itemId); if(!it) return;
+    const batches = byItem[itemId].sort((a,b)=> String(a.expDate).localeCompare(String(b.expDate)));
+    const totalIn  = S.moves.filter(m=>m.dir==='in' && m.itemId===itemId).reduce((s,m)=>s+(+m.qty||0),0);
+    const totalOut = S.moves.filter(m=>m.dir==='out'&& m.itemId===itemId).reduce((s,m)=>s+(+m.qty||0),0);
+    // الكميات اللي جت من غير تاريخ صلاحية بتتصرف الأول منطقيًا، والباقي بيتوزع على التشغيلات
+    const noExpIn = totalIn - batches.reduce((s,b)=>s+b.qty,0);
+    let consume = Math.max(0, totalOut - Math.max(0, noExpIn));
+
+    batches.forEach(b=>{
+      const used = Math.min(b.qty, consume);
+      consume = n2(consume - used);
+      const remain = n2(b.qty - used);
+      if(remain > 0) out.push({ ...b, item:it, remain });
+    });
+  });
+  return out.sort((a,b)=> String(a.expDate).localeCompare(String(b.expDate)));
+}
+
+function daysUntil(dateStr){
+  const d = new Date(dateStr+'T00:00:00'), t = new Date(today()+'T00:00:00');
+  return Math.round((d-t)/86400000);
+}
+
+function viewExpiry(){
+  const all = expiryBatches();
+  const q = (ui.q||'').trim().toLowerCase();
+  const warnDays = 14; // حد التنبيه المبكر
+
+  const rows = all.filter(b=>!q || b.item.name.toLowerCase().includes(q));
+  const expired = rows.filter(b=>daysUntil(b.expDate) < 0);
+  const soon    = rows.filter(b=>{ const d=daysUntil(b.expDate); return d>=0 && d<=warnDays; });
+  const okRows  = rows.filter(b=>daysUntil(b.expDate) > warnDays);
+
+  const valOf = arr => n2(arr.reduce((s,b)=>s+b.remain*(b.price||b.item.price||0),0));
+  const noExpItems = S.items.filter(it=>{
+    const c=calc(it); if(c.book<=0) return false;
+    return !S.moves.some(m=>m.dir==='in' && m.itemId===it.id && m.expDate);
+  }).length;
+
+  const only = ui.expOnly||'all';
+  const shown = only==='expired'?expired : only==='soon'?soon : only==='ok'?okRows : rows;
+  const chip=(k,l,n)=>`<button class="btn sm ${only===k?'p':''}" data-exponly="${k}">${l} ${n}</button>`;
+
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">منتهية الصلاحية</div><div class="v" style="color:var(--red)">${expired.length}</div><div class="s">قيمتها ${money(valOf(expired))}</div></div>
+    <div class="card"><div class="k">قربت تنتهي</div><div class="v" style="color:var(--amber)">${soon.length}</div><div class="s">خلال ${warnDays} يوم · ${money(valOf(soon))}</div></div>
+    <div class="card"><div class="k">سليمة</div><div class="v" style="color:var(--green)">${okRows.length}</div><div class="s">تشغيلة في المخزن</div></div>
+    <div class="card"><div class="k">من غير تاريخ صلاحية</div><div class="v">${noExpItems}</div><div class="s">صنف عنده رصيد</div></div>
+  </div></div></div>
+
+  <div class="panel"><div class="pad">
+    <div class="hint">كل كمية وارد بتاريخ صلاحية = تشغيلة مستقلة. الصرف بيستهلك <b>الأقدم صلاحية الأول</b> تلقائي، والجدول بيوريك الباقي فعليًا من كل تشغيلة.</div>
+    <div class="bar" style="margin-top:10px">
+      <input type="text" class="grow" id="q" placeholder="دور على صنف…" value="${esc(ui.q)}">
+      ${chip('all','الكل',rows.length)}
+      ${chip('expired','منتهية',expired.length)}
+      ${chip('soon','قربت تنتهي',soon.length)}
+      ${chip('ok','سليمة',okRows.length)}
+    </div>
+  </div></div>
+
+  <div class="panel">
+    <h2>${only==='expired'?'التشغيلات المنتهية':only==='soon'?'التشغيلات اللي قربت تنتهي':only==='ok'?'التشغيلات السليمة':'كل التشغيلات في المخزن'} <em>${shown.length}</em>
+      <button class="btn sm g" data-act="exp-export" style="margin-inline-start:auto">تصدير CSV</button></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الصنف</th><th class="n">الباقي</th><th class="n">تاريخ الصلاحية</th><th class="n">باقي كام يوم</th><th>المورد</th><th class="n">تاريخ الاستلام</th><th class="n">القيمة</th><th>الحالة</th></tr></thead>
+      <tbody>${shown.length? shown.map(b=>{
+        const d = daysUntil(b.expDate);
+        const cls = d<0?'lowrow':'';
+        const badge = d<0?`<span class="chip r">انتهت من ${Math.abs(d)} يوم</span>`
+                    : d<=warnDays?`<span class="chip a">باقي ${d} يوم</span>`
+                    : '<span class="chip g">سليمة</span>';
+        return `<tr class="${cls}">
+          <td><div class="iname">${esc(b.item.name)}</div></td>
+          <td class="n hl">${fmt(b.remain)} <span class="chip">${esc(b.item.unit)}</span></td>
+          <td class="n">${esc(b.expDate)}</td>
+          <td class="n" style="color:${d<0?'var(--red)':d<=warnDays?'var(--amber)':'var(--muted)'}">${d<0?'−'+Math.abs(d):d}</td>
+          <td>${esc(b.party||'—')}</td>
+          <td class="n">${esc(b.date)}</td>
+          <td class="n">${money(b.remain*(b.price||b.item.price||0))}</td>
+          <td>${badge}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="8" class="empty">${q?'مفيش نتائج للبحث':'مفيش تشغيلات هنا'}</td></tr>`}</tbody>
+      ${shown.length?`<tfoot><tr style="font-weight:700">
+        <td colspan="6">الإجمالي</td><td class="n hl">${money(valOf(shown))}</td><td></td>
+      </tr></tfoot>`:''}
+    </table></div>
+  </div>`;
+}
+
 function viewInbox(){
   const pending = MY_INBOX.filter(n=>n.status==='pending');
   const processing = MY_INBOX.filter(n=>n.status==='processing');
@@ -1106,7 +1220,7 @@ function render(){
       </nav>
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -1648,6 +1762,10 @@ function viewCountManager(){
       </tbody></table></div>
     <div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="btn p" data-act="mgr-submit" ${DB.busy?'disabled':''}>${DB.busy?'بيترفع…':'إرسال الجرد لصاحب المصنع'}</button>
+      ${(PENDING_SYNCS>0||DB.busy)
+        ? '<span class="chip a">⏳ لسه بيحفظ… متعملش ريفريش دلوقتي</span>'
+        : (DB.on ? `<span class="chip g">✓ ${Object.keys(S.counts).length} صنف محفوظين في القاعدة</span>`
+                 : '<span class="chip r">مش متصل بالقاعدة — الأرقام محفوظة على الجهاز بس</span>')}
       ${S.submittedAt?`<span class="hint">آخر إرسال: ${esc(S.submittedAt)}</span>`:''}
       ${DB.err?`<span class="chip r">${esc(DB.err)}</span>`:''}
     </div>
@@ -1803,6 +1921,7 @@ function viewMove(dir){
         <div><label class="f">${t('date')}</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
         <div><label class="f">${t('prod_date')} <span class="hint">${t('optional')}</span></label><input type="date" id="m-proddate" style="width:100%"></div>
         <div><label class="f">${t('temp')} <span class="hint">${t('optional')}</span></label><input type="number" step="any" id="m-temp" placeholder="${t('temp_ph')}" style="width:100%"></div>
+        ${isIn?`<div><label class="f">تاريخ الصلاحية <span class="hint">(اختياري)</span></label><input type="date" id="m-expdate" style="width:100%"><div class="hint" style="margin-top:4px">كل كمية بتتسجل بتاريخ صلاحيتها لوحدها — تقدر تتابعها من تبويب "الصلاحيات"</div></div>`:''}
         ${isIn?`<div style="grid-column:1/-1">
           <label class="f">صورة الفاتورة <span class="hint">(اختياري — تتحفظ كمرجع للحركة)</span></label>
           <input type="file" id="m-invoice" accept="image/*" capture="environment" style="width:100%;font-size:12.5px">
@@ -1853,7 +1972,7 @@ function viewMove(dir){
       <thead><tr>
         ${ui.mvEdit?`<th style="width:30px"><input type="checkbox" data-act="mv-sel-all" ${shownMoves.length&&mvSel.size===shownMoves.length?'checked':''}></th>`:''}
         <th>${t('th_date')}</th><th>${t('th_item')}</th><th class="n">${t('th_qty')}</th>
-        <th>${t('th_proddate')}</th><th class="n">${t('th_temp')}</th>
+        <th>${t('th_proddate')}</th><th class="n">${t('th_temp')}</th>${isIn?'<th>الصلاحية</th>':''}
         ${isIn?`<th class="n">${t('th_unitprice')}</th><th class="n">${t('th_total')}</th><th>${t('th_supplier')}</th>`:`<th>${t('th_dispense_to')}</th><th>${t('th_branch_note')}</th>`}
         <th></th></tr></thead>
       <tbody>${shownMoves.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
@@ -1864,15 +1983,16 @@ function viewMove(dir){
         <td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.qty}" data-mvqty="${m.id}" style="padding:4px 6px;font-size:12px;width:78px;text-align:center"> <span class="chip">${esc(it.unit)}</span>`:`${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span>`}</td>
         <td>${ui.mvEdit?`<input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.prodDate?`<span class="n">${m.prodDate}</span>`:'<span class="hint">—</span>')}</td>
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
+        ${isIn?`<td>${ui.mvEdit?`<input type="date" value="${m.expDate||''}" data-mvexp="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.expDate?`<span class="n">${m.expDate}</span>`:'<span class="hint">—</span>')}</td>`:''}
         ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
               :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
         <td style="white-space:nowrap">${m.invoice?`<button class="btn sm" data-act="inv-view" data-id="${m.id}" title="عرض صورة الفاتورة">📎</button> `:''}<button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> <button class="btn sm danger" data-del="${m.id}">${t('delete')}</button></td></tr>`;}).join('')
-        ||`<tr><td colspan="${ui.mvEdit?10:9}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
+        ||`<tr><td colspan="${(ui.mvEdit?10:9)+(isIn?1:0)}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
       </tbody>
       ${shownMoves.length?`<tfoot><tr style="font-weight:700">
         <td colspan="${ui.mvEdit?3:2}">${t('total')}</td>
         <td class="n">${fmt(shownMoves.reduce((s,m)=>s+ +m.qty,0))}</td>
-        <td colspan="2"></td>
+        <td colspan="2"></td>${isIn?'<td></td>':''}
         ${isIn?`<td></td><td class="n hl">${money(shownMoves.reduce((s,m)=>s+m.qty*(m.price||0),0))}</td><td></td>`:'<td colspan="2"></td>'}
         <td></td></tr></tfoot>`:''}
     </table></div>
@@ -2721,6 +2841,10 @@ function bind(){
     const m=S.moves.find(x=>x.id===e.target.dataset.mvprod); if(!m) return;
     m.prodDate=e.target.value; await saveTx(); toast('اتحفظ تاريخ الإنتاج');
   });
+  root.querySelectorAll('[data-mvexp]').forEach(inp=>inp.onchange=async e=>{
+    const m=S.moves.find(x=>x.id===e.target.dataset.mvexp); if(!m) return;
+    m.expDate=e.target.value; await saveTx(); toast('اتحفظ تاريخ الصلاحية'); render();
+  });
   root.querySelectorAll('[data-mvtemp]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvtemp); if(!m) return;
     m.temp = e.target.value===''? null : +e.target.value;
@@ -2767,6 +2891,7 @@ function bind(){
     render();
   });
   root.querySelectorAll('[data-itsort]').forEach(th=>th.onclick=()=>itToggleSort(th.dataset.itsort));
+  root.querySelectorAll('[data-exponly]').forEach(b=>b.onclick=()=>{ ui.expOnly=b.dataset.exponly; render(); });
   root.querySelectorAll('[data-itonly]').forEach(b=>b.onclick=()=>{ ui.itOnly=b.dataset.itonly; render(); });
   root.querySelectorAll('[data-dssort]').forEach(th=>th.onclick=()=>dsToggleSort(th.dataset.dssort));
   root.querySelectorAll('[data-cattab]').forEach(b=>b.onclick=()=>{
@@ -3207,6 +3332,20 @@ async function act(a,d){
     const el=document.createElement('a'); el.href=url; el.download=`الجرد-اليومي-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
     return toast('تم تصدير الجرد اليومي');
   }
+  if(a==='exp-export'){
+    const all = expiryBatches();
+    if(!all.length) return toast('مفيش تشغيلات بتواريخ صلاحية',1);
+    const rows=[['الصنف','الباقي','الوحدة','تاريخ الصلاحية','باقي كام يوم','المورد','تاريخ الاستلام','سعر الوحدة','القيمة','الحالة']];
+    all.forEach(b=>{
+      const d=daysUntil(b.expDate);
+      rows.push([b.item.name,b.remain,b.item.unit,b.expDate,d,b.party||'',b.date,b.price||b.item.price||0,
+                 n2(b.remain*(b.price||b.item.price||0)), d<0?'منتهية':d<=14?'قربت تنتهي':'سليمة']);
+    });
+    const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    const el=document.createElement('a'); el.href=url; el.download=`تواريخ-الصلاحية-${today()}.csv`; el.click(); URL.revokeObjectURL(url);
+    return toast('تم تصدير تواريخ الصلاحية');
+  }
   if(a==='inv-view'){ ui.modal = invoiceViewModal(d.id); return render(); }
   if(a==='inv-del'){
     const m=S.moves.find(x=>x.id===d.id); if(!m||!m.invoice) return;
@@ -3474,7 +3613,8 @@ async function act(a,d){
     const tempEl = $('#m-temp'); const temp = (tempEl && tempEl.value!=='') ? +tempEl.value : null;
     let m, autoMsg='';
     if(isIn){
-      m={id:uid('m'),dir:'in',itemId:id,qty,date,price:+($('#m-price').value||0),party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp};
+      const expDate = $('#m-expdate') ? $('#m-expdate').value : '';
+      m={id:uid('m'),dir:'in',itemId:id,qty,date,price:+($('#m-price').value||0),party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
       if(m.price>0){ it.price=m.price; await saveMain(); }
       // رفع صورة الفاتورة لو اتحطت — الحركة بتتسجل عادي حتى لو الرفع فشل
@@ -3784,7 +3924,8 @@ async function boot(){
 }
 boot();
 window.addEventListener('beforeunload', e => {
-  if(PENDING_SYNCS>0 || (BK.dirty>0 && MODE!=='cloud' && !DB.on)){
+  // بنحذّر لو فيه أي حاجة لسه ما اتحفظتش: مزامنة شغالة، أو رفع مؤجل لسه ما اتنفذش، أو تعديلات محلية بس
+  if(PENDING_SYNCS>0 || DB.busy || (DB.on && DB.dirty) || (BK.dirty>0 && MODE!=='cloud' && !DB.on)){
     e.preventDefault(); e.returnValue = '';
   }
 });
