@@ -338,7 +338,7 @@ const KEY_MAIN = 'kunafa:main:v1:'+FACTORY;     // items + recipes + settings
 const KEY_TX   = 'kunafa:tx:v1:'+FACTORY;       // moves + counts
 const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
  
-let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boConv:{}, boDone:{}, restrictDispatchTo:'', dispatchOnlyMode:false };
+let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boConv:{}, boDone:{}, inboxMap:{}, restrictDispatchTo:'', dispatchOnlyMode:false };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
 /* ================= طلبيات الفروع (جسر مع تطبيق فروع كل مصنع) ================= */
 // إعدادات منفصلة لكل مصنع عنده تطبيق فروع (زي تطبيق الفروج اليومي). أي مصنع جديد يتضاف هنا،
@@ -448,7 +448,7 @@ async function sset(k,v){
   if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
   return saved;
 }
-async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -471,7 +471,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boDone=main.boDone||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -712,23 +712,37 @@ async function loadMyInbox(){
 }
 function pendingInboxCount(){ return MY_INBOX.filter(n=>n.status==='pending').length; }
 
+// مطابقة أصناف الاستلام: بنحفظ ربط اسم الصنف الجاي من المصنع التاني بالصنف عندك
+// عشان مايتعملش صنف مكرر جديد كل مرة والرصيد يتفرّق
+function inboxMatchItem(notifName){
+  if(S.inboxMap && S.inboxMap[notifName]) { const m=item(S.inboxMap[notifName]); if(m) return m; }
+  const norm = s => String(s||'').trim().toLowerCase();
+  return S.items.find(i=>norm(i.name)===norm(notifName)) || null;
+}
+
 async function receiveInboxNotification(notifId){
   const n = MY_INBOX.find(x=>x.id===notifId);
   if(!n || n.status!=='pending') return; // حماية من الضغط المزدوج: لو مش معلّق (يعني قيد التنفيذ أو اتم بالفعل)، منكملش
+
+  const it = inboxMatchItem(n.itemName);
+  if(!it){
+    toast('حدد الصنف المطابق في مخزنك الأول',1);
+    return;
+  }
+  // تحذير لو الوحدة مختلفة، عشان الكمية ماتتسجلش غلط
+  const norm = u => String(u||'').trim().toLowerCase();
+  if(n.unit && it.unit && norm(n.unit)!==norm(it.unit)){
+    if(!confirm(`تنبيه: الوحدة الجاية "${n.unit}" مختلفة عن وحدة الصنف عندك "${it.unit}".\n\nهيتسجل ${fmt(n.qty)} ${it.unit} في مخزنك. متأكد؟`)) return;
+  }
+
   n.status='processing'; render();
   try{
-    let it = S.items.find(i=>i.name.toLowerCase()===n.itemName.toLowerCase());
-    if(!it){
-      it = {id:uid('i'), name:n.itemName, desc:'', unit:n.unit||'', cat:'وارد من مصانع', opening:0, price:0, min:0, packUnit:'', packSize:0, note:''};
-      S.items.push(it);
-      await saveMain();
-    }
     S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:n.qty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
     await saveTx();
 
-    n.status='received'; n.receivedAt=new Date().toISOString();
+    n.status='received'; n.receivedAt=new Date().toISOString(); n.matchedItemId=it.id;
     await saveFactoryInbox(FACTORY, MY_INBOX);
-    toast(`تم استلام "${n.itemName}" (${fmt(n.qty)} ${n.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون`);
+    toast(`تم استلام "${it.name}" (${fmt(n.qty)} ${it.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون`);
   }catch(e){
     n.status='pending'; // لو حصل خطأ، نرجّعه معلّق تاني عشان يقدر يعيد المحاولة
     toast('حصل خطأ أثناء الاستلام، حاول تاني: '+e.message, 1);
@@ -1120,18 +1134,27 @@ function viewInbox(){
     <h2>محتاج استلام <em>${pending.length}</em>
       <button class="btn sm g" data-act="inbox-refresh" style="margin-inline-start:auto">تحديث</button></h2>
     ${(pending.length||processing.length)?`<div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>من مصنع</th><th>الصنف</th><th class="n">الكمية</th><th>التاريخ</th><th></th></tr></thead>
-      <tbody>${pending.map(n=>`<tr>
+      <thead><tr><th>من مصنع</th><th>الصنف الجاي</th><th class="n">الكمية</th><th>الصنف المطابق في مخزنك</th><th>التاريخ</th><th></th></tr></thead>
+      <tbody>${pending.map(n=>{
+        const mt = inboxMatchItem(n.itemName);
+        const norm = u => String(u||'').trim().toLowerCase();
+        const unitDiff = mt && n.unit && mt.unit && norm(n.unit)!==norm(mt.unit);
+        return `<tr${mt?'':' class="lowrow"'}>
         <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
         <td>${esc(n.itemName)}</td>
         <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
+        <td><select data-inboxmap="${esc(n.itemName)}" style="min-width:190px">
+            <option value="">— اختار الصنف المطابق —</option>
+            ${S.items.map(i=>`<option value="${i.id}" ${mt&&mt.id===i.id?'selected':''}>${esc(i.name)} (${esc(i.unit)})</option>`).join('')}
+          </select>${mt?(unitDiff?' <span class="chip a">وحدة مختلفة</span>':' <span class="chip g">مطابق</span>'):' <span class="chip r">محتاج مطابقة</span>'}</td>
         <td class="n">${esc(n.date||'')}</td>
-        <td style="white-space:nowrap"><button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button> <button class="btn sm danger" data-act="inbox-dismiss" data-id="${n.id}">تجاهل</button></td>
-      </tr>`).join('')}
+        <td style="white-space:nowrap">${mt?`<button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button>`:'<span class="hint">حدد المطابقة</span>'} <button class="btn sm danger" data-act="inbox-dismiss" data-id="${n.id}">تجاهل</button></td>
+      </tr>`;}).join('')}
       ${processing.map(n=>`<tr style="opacity:.6">
         <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
         <td>${esc(n.itemName)}</td>
         <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
+        <td class="hint">—</td>
         <td class="n">${esc(n.date||'')}</td>
         <td><span class="hint">جاري الاستلام…</span></td>
       </tr>`).join('')}</tbody>
@@ -1410,7 +1433,7 @@ function faroojDateRange(from, to){
   return dates;
 }
 
-let BO = { from:'', to:'', loading:false, err:'', totals:{}, orders:[], ordersCount:0, branchesCount:0, view:'totals', openOrder:null, changes:[], changesCount:0 };
+let BO = { from:'', to:'', loading:false, err:'', totals:{}, orders:[], ordersCount:0, branchesCount:0, view:'totals', openOrder:null, changes:[], changesCount:0, matrixQ:'' };
 
 async function fetchBranchOrders(){
   BO.loading=true; BO.err=''; render();
@@ -2812,6 +2835,18 @@ function bind(){
     BO.openOrder = BO.openOrder===i ? null : i;
     render();
   });
+  const bmq=$('#bo-matrix-q'); if(bmq) bmq.oninput=e=>{
+    BO.matrixQ=e.target.value; const p=e.target.selectionStart; render();
+    const n2el=$('#bo-matrix-q'); if(n2el){ n2el.focus(); n2el.setSelectionRange(p,p); }
+  };
+  root.querySelectorAll('[data-inboxmap]').forEach(sel=>sel.onchange=async e=>{
+    const name=e.target.dataset.inboxmap, v=e.target.value;
+    if(!S.inboxMap) S.inboxMap={};
+    if(v) S.inboxMap[name]=v; else delete S.inboxMap[name];
+    await saveMain();
+    toast(v?'اتحفظت المطابقة — هيفتكرها المرات الجاية':'اتشالت المطابقة');
+    render();
+  });
   root.querySelectorAll('[data-boconv]').forEach(inp=>inp.onchange=async e=>{
     const name=e.target.dataset.boconv, v=e.target.value;
     if(!S.boConv) S.boConv={};
@@ -3232,16 +3267,24 @@ function viewProductionPlan(){
 }
 
 function boMatrixHtml(itemsList, title){
-  const branches = [...new Set(BO.orders.map(o=>o.branch))].sort((a,b)=>a.localeCompare(b,'ar'));
-  if(!branches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في الفترة دي</div></div>`;
+  const allBranches = [...new Set(BO.orders.map(o=>o.branch))].sort((a,b)=>a.localeCompare(b,'ar'));
+  if(!allBranches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في الفترة دي</div></div>`;
 
-  const totalsCol = {}; itemsList.forEach(ci=>totalsCol[ci.name]=0);
+  // بحث بيفلتر الأصناف (الأعمدة) والفروع (الصفوف) مع بعض — عشان توصل بسرعة للخانة اللي عايز تعدلها
+  const q = String(BO.matrixQ||'').trim().toLowerCase();
+  const cols = q ? itemsList.filter(ci=> ci.label.toLowerCase().includes(q) || ci.name.toLowerCase().includes(q)) : itemsList;
+  const matchedBranches = q ? allBranches.filter(b=>b.toLowerCase().includes(q)) : [];
+  // لو البحث طابق أصناف، نعرض كل الفروع. لو طابق فروع بس، نعرض الفروع دي بكل الأصناف
+  const branches = (q && cols.length===0 && matchedBranches.length) ? matchedBranches : allBranches;
+  const showCols = (q && cols.length===0 && matchedBranches.length) ? itemsList : cols;
+
+  const totalsCol = {}; showCols.forEach(ci=>totalsCol[ci.name]=0);
   let body='';
   branches.forEach(br=>{
     const oi = BO.orders.findIndex(o=>o.branch===br);
     const o = BO.orders[oi];
     body += `<tr><td><div class="iname">${esc(br)}</div></td>`;
-    itemsList.forEach(ci=>{
+    showCols.forEach(ci=>{
       const ji = (o.items||[]).findIndex(x=>x.name===ci.name);
       const qty = ji>=0 ? o.items[ji].qty : '';
       if(ji>=0) totalsCol[ci.name] += (+o.items[ji].qty||0);
@@ -3251,14 +3294,23 @@ function boMatrixHtml(itemsList, title){
     body += '</tr>';
   });
 
+  const noResult = q && showCols.length===0 && branches.length===0;
+
   return `<div class="panel">
-    <h2>${title} <em>${branches.length} فرع · ${itemsList.length} صنف</em>
+    <h2>${title} <em>${branches.length} فرع · ${showCols.length} صنف</em>
       <span class="hint" style="margin-inline-start:auto">أي تعديل بيتكتب فعليًا في طلبية الفرع</span></h2>
-    <div class="tblwrap"><table class="gridcols" style="min-width:900px">
-      <thead><tr><th>الفرع</th>${itemsList.map(ci=>`<th class="n" style="font-size:11px">${esc(ci.label)}</th>`).join('')}</tr></thead>
+    <div class="pad">
+      <div class="bar">
+        <input type="text" class="grow" id="bo-matrix-q" placeholder="دور باسم الصنف أو الفرع…" value="${esc(BO.matrixQ||'')}">
+        ${q?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
+      </div>
+    </div>
+    ${noResult?`<div class="empty">مفيش صنف ولا فرع مطابق للبحث</div>`:`
+    <div class="tblwrap"><table class="gridcols" style="min-width:${Math.max(420, 180 + showCols.length*90)}px">
+      <thead><tr><th>الفرع</th>${showCols.map(ci=>`<th class="n" style="font-size:11px">${esc(ci.label)}</th>`).join('')}</tr></thead>
       <tbody>${body}</tbody>
-      <tfoot><tr style="font-weight:700"><td>الإجمالي</td>${itemsList.map(ci=>`<td class="n hl">${totalsCol[ci.name]?fmt(n2(totalsCol[ci.name])):'—'}</td>`).join('')}</tr></tfoot>
-    </table></div>
+      <tfoot><tr style="font-weight:700"><td>الإجمالي</td>${showCols.map(ci=>`<td class="n hl">${totalsCol[ci.name]?fmt(n2(totalsCol[ci.name])):'—'}</td>`).join('')}</tr></tfoot>
+    </table></div>`}
   </div>`;
 }
 
@@ -3410,6 +3462,7 @@ async function act(a,d){
   if(a==='fc-decide'){
     return decideFactoryChangeRequest(+d.fcid, d.fcdecision);
   }
+  if(a==='bo-matrix-clear'){ BO.matrixQ=''; return render(); }
   if(a==='bo-fetch'){
     const f=$('#bo-from'), t=$('#bo-to');
     if(f) BO.from=f.value; if(t) BO.to=t.value;
