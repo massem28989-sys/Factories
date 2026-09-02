@@ -1579,11 +1579,19 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
   </div></div>`:''}
-  ${rows.length && BO.view==='orders' ? `<div class="panel">
-    <h2>كل الطلبيات في الفترة دي <em>${BO.orders.length} طلبية</em></h2>
+  ${rows.length && BO.view==='orders' ? (()=>{
+    const oq = String(BO.matrixQ||'').trim().toLowerCase();
+    const shownOrders = BO.orders.map((o,i)=>({o,i}))
+      .filter(({o})=> !oq || o.branch.toLowerCase().includes(oq) || (o.items||[]).some(it=>it.name.toLowerCase().includes(oq)));
+    return `<div class="panel">
+    <h2>كل الطلبيات في الفترة دي <em>${shownOrders.length} من ${BO.orders.length} طلبية</em></h2>
+    <div class="pad"><div class="bar">
+      <input type="text" class="grow" id="bo-matrix-q" placeholder="دور باسم الفرع أو الصنف…" value="${esc(BO.matrixQ||'')}">
+      ${oq?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
+    </div></div>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الفرع</th><th>التاريخ</th><th class="n">عدد الأصناف</th><th>وقت الإرسال</th><th></th></tr></thead>
-      <tbody>${BO.orders.map((o,i)=>{
+      <tbody>${shownOrders.map(({o,i})=>{
         const open = BO.openOrder===i;
         return `<tr>
           <td><div class="iname">${esc(o.branch)}</div></td>
@@ -1595,7 +1603,7 @@ function viewBranchOrders(){
           <div class="hint" style="margin-bottom:8px">أي تعديل هنا بيتكتب فعليًا في طلبية الفرع نفسها.</div>
           <table class="gridcols" style="background:#fff;border-radius:8px">
             <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>الوحدة</th><th></th></tr></thead>
-            <tbody>${(o.items||[]).map((it,j)=>`<tr>
+            <tbody>${(o.items||[]).map((it,j)=>({it,j})).filter(({it})=>!oq||it.name.toLowerCase().includes(oq)||o.branch.toLowerCase().includes(oq)).map(({it,j})=>`<tr>
               <td>${esc(it.name)}</td>
               <td class="n"><input type="number" step="any" min="0" value="${it.qty}" data-boqty="${i}:${j}" style="padding:5px 7px;font-size:12.5px;width:90px;text-align:center"></td>
               <td><span class="chip">${esc(it.unit)}</span></td>
@@ -1603,7 +1611,7 @@ function viewBranchOrders(){
             </tr>`).join('')}</tbody>
           </table></td></tr>`:''}`;
       }).join('')}</tbody></table></div>
-  </div>` : ''}
+  </div>`;})() : ''}
   ${BO.view==='plan' ? viewProductionPlan() : ''}
   ${BO.view==='changes' ? `<div class="panel">
     <h2>طلبات تعديل الطلبيات من الفروع <em>${BO.changes.length} طلب</em></h2>
@@ -1632,13 +1640,20 @@ function viewBranchOrders(){
   ${rows.length && BO.view==='nader' ? boMatrixHtml(NADER_SAUCES, 'صوصات نادر') : ''}
   ${rows.length && BO.view==='totals' ? (()=>{
     const needConv = rows.filter(r=>findMatchingLocalItem(r.name) && convFactorOf(r.name)===null).length;
+    const tq = String(BO.matrixQ||'').trim().toLowerCase();
+    const shownRows = tq ? rows.filter(r=>{ const m=findMatchingLocalItem(r.name);
+      return r.name.toLowerCase().includes(tq) || (m && m.name.toLowerCase().includes(tq)); }) : rows;
     return `<div class="panel">
-    <h2>إجمالي المطلوب من كل صنف <em>${rows.length} صنف</em>
+    <h2>إجمالي المطلوب من كل صنف <em>${shownRows.length} من ${rows.length} صنف</em>
       <button class="btn sm g" data-act="bo-dispense-all" style="margin-inline-start:auto">صرف كل اللي لسه ما اتصرفش</button></h2>
     ${needConv?`<div class="pad"><div class="warnbar" style="margin:0">⚠️ فيه ${needConv} صنف وحدته عند الفرع مختلفة عن وحدته عندك — لازم تحدد <b>معامل التحويل</b> قبل الصرف، وإلا الكمية هتتخصم غلط من مخزنك.</div></div>`:''}
+    <div class="pad"><div class="bar">
+      <input type="text" class="grow" id="bo-matrix-q" placeholder="دور باسم الصنف…" value="${esc(BO.matrixQ||'')}">
+      ${tq?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
+    </div></div>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الصنف (من الفروج)</th><th class="n">طلب الفروع</th><th class="n">فروع</th><th>الصنف المطابق في المخزن</th><th>التحويل</th><th class="n">هيتخصم من مخزنك</th><th>الحالة</th><th></th></tr></thead>
-      <tbody>${rows.map(r=>{
+      <tbody>${shownRows.length? shownRows.map(r=>{
         const match = findMatchingLocalItem(r.name);
         const done = boIsDone(r.name);
         const brN = BO.orders.filter(o=>(o.items||[]).some(x=>x.name===r.name && +x.qty>0)).length;
@@ -1672,7 +1687,7 @@ function viewBranchOrders(){
               :(needsConv?'<span class="hint">حدد التحويل</span>'
               :`<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`))}</td>
         </tr>`;
-      }).join('')}</tbody></table></div>
+      }).join('') : `<tr><td colspan="8" class="empty">مفيش صنف مطابق للبحث</td></tr>`}</tbody></table></div>
   </div>`;})() : (BO.loading?'':`<div class="panel"><div class="empty">دوس "جلب الطلبيات من الفروج" عشان تشوف الأرقام</div></div>`)}
   `;
 }
@@ -1908,8 +1923,11 @@ function viewMove(dir){
         <div style="grid-column:span 2"><label class="f">${t('category')} <span style="color:var(--muted)">${t('optional_narrow')}</span></label>
           <select id="m-cat" style="width:100%">${cats().map(c=>`<option ${ui.moveCat===c?'selected':''}>${c}</option>`).join('')}</select></div>
         <div style="grid-column:span 2"><label class="f">${t('item')}</label>
-          <select id="m-item" style="width:100%"><option value="">${t('choose_item')}</option>
-          ${S.items.filter(i=>ui.moveCat==='الكل'||i.cat===ui.moveCat).map(i=>`<option value="${i.id}">${esc(i.name)} (${esc(i.unit)}) · ${esc(i.cat)}</option>`).join('')}</select></div>
+          <input type="text" id="m-item-search" list="m-item-list" placeholder="اكتب اسم الصنف للبحث…" style="width:100%" autocomplete="off">
+          <datalist id="m-item-list">${S.items.filter(i=>ui.moveCat==='الكل'||i.cat===ui.moveCat).map(i=>`<option value="${esc(i.name)}">${esc(i.cat)} · ${esc(i.unit)}</option>`).join('')}</datalist>
+          <select id="m-item" style="width:100%;margin-top:6px"><option value="">${t('choose_item')}</option>
+          ${S.items.filter(i=>ui.moveCat==='الكل'||i.cat===ui.moveCat).map(i=>`<option value="${i.id}">${esc(i.name)} (${esc(i.unit)}) · ${esc(i.cat)}</option>`).join('')}</select>
+          <div class="hint" id="m-item-hint" style="margin-top:4px">اكتب فوق للبحث السريع، أو اختار من القايمة</div></div>
         <div id="m-qtybox"><label class="f">${t('qty')}</label>
           <div style="display:flex;gap:6px">
             <input type="number" step="any" id="m-packs" style="width:78px" placeholder="${t('count_ph')}">
@@ -2771,7 +2789,32 @@ function bind(){
         }
       }
     };
-    mItem.onchange=()=>{ refreshUnitMode(); refreshPrice(); };
+    mItem.onchange=()=>{ refreshUnitMode(); refreshPrice(); syncSearchBox(); };
+    // خانة البحث السريع: اكتب اسم الصنف وهو يختاره تلقائي من القايمة
+    const searchBox=$('#m-item-search'), sHint=$('#m-item-hint');
+    const norm = s => String(s||'').trim().toLowerCase();
+    function syncSearchBox(){
+      const it=item(mItem.value);
+      if(searchBox) searchBox.value = it? it.name : '';
+      if(sHint) sHint.textContent = it? `${it.cat} · الوحدة: ${it.unit}` : 'اكتب فوق للبحث السريع، أو اختار من القايمة';
+    }
+    if(searchBox){
+      searchBox.oninput=()=>{
+        const v=norm(searchBox.value);
+        if(!v){ if(sHint){ sHint.textContent='اكتب فوق للبحث السريع، أو اختار من القايمة'; sHint.style.color=''; } return; }
+        const hit=S.items.find(i=>norm(i.name)===v);
+        if(hit){
+          mItem.value=hit.id; refreshUnitMode(); refreshPrice();
+          if(sHint){ sHint.textContent=`${hit.cat} · الوحدة: ${hit.unit}`; sHint.style.color=''; }
+          const packs=$('#m-packs'); if(packs){ packs.focus(); packs.select(); }
+        } else if(sHint){
+          const near=S.items.filter(i=>norm(i.name).includes(v)).length;
+          sHint.textContent = near? `${near} صنف مطابق — كمّل الكتابة أو اختار من الاقتراحات` : 'مفيش صنف بالاسم ده';
+          sHint.style.color = near? '' : 'var(--red)';
+        }
+      };
+    }
+    syncSearchBox();
     refreshUnitMode(); refreshPrice();
     const mp=$('#m-packs'); if(mp) mp.oninput=updateConv;
     const mu=$('#m-unitmode'); if(mu) mu.onchange=updateConv;
