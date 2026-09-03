@@ -44,6 +44,9 @@ nav button:hover{color:#fff}
 nav button.on{color:#fff;border-bottom-color:#fff;background:rgba(255,255,255,.08)}
 nav .lk{font-size:11px;margin-inline-end:5px;opacity:.85}
 nav .lk.open{opacity:.5}
+nav.subnav{background:rgba(0,0,0,.16);border-radius:8px;margin-top:6px;padding:2px}
+nav.subnav button{padding:7px 12px;font-size:12.5px;border-bottom:0;border-radius:6px;color:rgba(255,255,255,.7)}
+nav.subnav button.on{background:#fff;color:var(--brand);border-bottom:0}
 .lockrow{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid #EDF1F3;flex-wrap:wrap}
 .lockrow:last-child{border-bottom:0}
 .lockrow .nm{font-weight:500;flex:1 1 150px}
@@ -396,9 +399,19 @@ const CORE_ITEMS = BRANCH_APP ? BRANCH_APP.coreItems : [];
 const APPETIZER_ITEMS = BRANCH_APP ? BRANCH_APP.appetizerItems : [];
 const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 
-const TABS_OWNER = [['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['in','وارد'],['out','منصرف'],['expiry','الصلاحيات'],['suppliers','حسابات الموردين'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[]),['prod','الإنتاج والوصفات'],['items','كارت الأصناف'],['rep','التقارير والإقفال'],['fac','المصانع'],['sec','الصلاحيات والأقفال']];
+// التبويبات مجمّعة في مجموعات عشان تفضل ظاهرة كلها ومتتقطعش لما يزيد عددها
+const TAB_GROUPS_OWNER = [
+  { name:'المخزن',   tabs:[['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['items','كارت الأصناف'],['expiry','الصلاحيات']] },
+  { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع']] },
+  { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
+  { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['rep','التقارير والإقفال']] },
+  { name:'الإعدادات',tabs:[['fac','المصانع'],['sec','الصلاحيات والأقفال']] },
+];
+const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
+const TAB_GROUPS = ROLE==='manager'? null : TAB_GROUPS_OWNER;
+function groupOfTab(k){ return TAB_GROUPS ? (TAB_GROUPS.find(g=>g.tabs.some(t=>t[0]===k))||{}).name : null; }
 const hsh = t => { let h=5381; t=String(t); for(let i=0;i<t.length;i++) h=(((h<<5)+h)^t.charCodeAt(i))>>>0; return h.toString(36); };
 const isLocked = k => !!S.locks[k];
 const canOpen  = k => !isLocked(k) || !!SESS[k];
@@ -712,12 +725,50 @@ async function loadMyInbox(){
 }
 function pendingInboxCount(){ return MY_INBOX.filter(n=>n.status==='pending').length; }
 
+// مقياس تشابه بسيط بين اسمين (0 لحد 1) — بيستخدم أطول جزء مشترك بعد تنظيف النص
+function nameSimilarity(a, b){
+  const clean = s => String(s||'').toLowerCase()
+    .replace(/[ًٌٍَُِّْـ]/g,'')
+    .replace(/[ة]/g,'ه').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي')
+    .replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const A=clean(a), B=clean(b);
+  if(!A||!B) return 0;
+  if(A===B) return 1;
+  if(A.includes(B)||B.includes(A)) return 0.9;
+  // نسبة الكلمات المشتركة
+  const wa=new Set(A.split(' ').filter(w=>w.length>1));
+  const wb=new Set(B.split(' ').filter(w=>w.length>1));
+  if(!wa.size||!wb.size) return 0;
+  let common=0; wa.forEach(w=>{ if(wb.has(w)) common++; });
+  return common ? (2*common)/(wa.size+wb.size) : 0;
+}
+
+// بيرجّع أقرب الأصناف للاسم الجاي، مرتبة بالأعلى تشابهًا
+function suggestItemsFor(name, limit=6){
+  return S.items
+    .map(i=>({ item:i, score:nameSimilarity(name, i.name) }))
+    .filter(x=>x.score>0.25)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0, limit);
+}
+
 // مطابقة أصناف الاستلام: بنحفظ ربط اسم الصنف الجاي من المصنع التاني بالصنف عندك
 // عشان مايتعملش صنف مكرر جديد كل مرة والرصيد يتفرّق
 function inboxMatchItem(notifName){
   if(S.inboxMap && S.inboxMap[notifName]) { const m=item(S.inboxMap[notifName]); if(m) return m; }
   const norm = s => String(s||'').trim().toLowerCase();
-  return S.items.find(i=>norm(i.name)===norm(notifName)) || null;
+  const exact = S.items.find(i=>norm(i.name)===norm(notifName));
+  if(exact) return exact;
+  // مفيش تطابق حرفي: نقترح أقرب صنف تلقائي لحد ما المستخدم يغيّره بنفسه
+  const best = suggestItemsFor(notifName, 1)[0];
+  return (best && best.score>=0.5) ? best.item : null;
+}
+// هل الصنف الحالي مقترح تلقائي (مش مثبّت من المستخدم ولا تطابق حرفي)؟
+function inboxIsSuggested(notifName){
+  if(S.inboxMap && S.inboxMap[notifName]) return false;
+  const norm = s => String(s||'').trim().toLowerCase();
+  if(S.items.some(i=>norm(i.name)===norm(notifName))) return false;
+  return !!inboxMatchItem(notifName);
 }
 
 async function receiveInboxNotification(notifId){
@@ -731,12 +782,21 @@ async function receiveInboxNotification(notifId){
   }
   // تحذير لو الوحدة مختلفة، عشان الكمية ماتتسجلش غلط
   const norm = u => String(u||'').trim().toLowerCase();
+  if(inboxIsSuggested(n.itemName)){
+    if(!confirm(`"${n.itemName}" مالوش تطابق حرفي عندك.\n\nالنظام اقترح: "${it.name}"\n\nهيتسجل ${fmt(n.qty)} ${it.unit} على الصنف ده. صح؟\n\n(لو غلط، دوس إلغاء وغيّر المطابقة من خانة البحث)`)) return;
+  }
   if(n.unit && it.unit && norm(n.unit)!==norm(it.unit)){
     if(!confirm(`تنبيه: الوحدة الجاية "${n.unit}" مختلفة عن وحدة الصنف عندك "${it.unit}".\n\nهيتسجل ${fmt(n.qty)} ${it.unit} في مخزنك. متأكد؟`)) return;
   }
 
   n.status='processing'; render();
   try{
+    // لو المطابقة كانت اقتراح تلقائي، نثبّتها دلوقتي عشان تفضل محفوظة للمرات الجاية
+    if(inboxIsSuggested(n.itemName)){
+      if(!S.inboxMap) S.inboxMap={};
+      S.inboxMap[n.itemName]=it.id;
+      await saveMain();
+    }
     S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:n.qty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
     await saveTx();
 
@@ -1133,20 +1193,28 @@ function viewInbox(){
   <div class="panel">
     <h2>محتاج استلام <em>${pending.length}</em>
       <button class="btn sm g" data-act="inbox-refresh" style="margin-inline-start:auto">تحديث</button></h2>
-    ${(pending.length||processing.length)?`<div class="tblwrap"><table class="gridcols">
+    ${(pending.length||processing.length)?`<datalist id="inbox-items-list">${S.items.map(i=>`<option value="${esc(i.name)}">${esc(i.cat)} · ${esc(i.unit)}</option>`).join('')}</datalist><div class="tblwrap"><table class="gridcols">
       <thead><tr><th>من مصنع</th><th>الصنف الجاي</th><th class="n">الكمية</th><th>الصنف المطابق في مخزنك</th><th>التاريخ</th><th></th></tr></thead>
       <tbody>${pending.map(n=>{
         const mt = inboxMatchItem(n.itemName);
         const norm = u => String(u||'').trim().toLowerCase();
         const unitDiff = mt && n.unit && mt.unit && norm(n.unit)!==norm(mt.unit);
-        return `<tr${mt?'':' class="lowrow"'}>
+        const suggested = inboxIsSuggested(n.itemName);
+        const sugg = suggestItemsFor(n.itemName, 5);
+        return `<tr${mt?(suggested?' style="background:var(--amberbg)"':''):' class="lowrow"'}>
         <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
         <td>${esc(n.itemName)}</td>
         <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
-        <td><select data-inboxmap="${esc(n.itemName)}" style="min-width:190px">
-            <option value="">— اختار الصنف المطابق —</option>
-            ${S.items.map(i=>`<option value="${i.id}" ${mt&&mt.id===i.id?'selected':''}>${esc(i.name)} (${esc(i.unit)})</option>`).join('')}
-          </select>${mt?(unitDiff?' <span class="chip a">وحدة مختلفة</span>':' <span class="chip g">مطابق</span>'):' <span class="chip r">محتاج مطابقة</span>'}</td>
+        <td>
+          <input type="text" list="inbox-items-list" data-inboxsearch="${esc(n.itemName)}" value="${mt?esc(mt.name):''}" placeholder="اكتب اسم الصنف للبحث…" style="width:100%;min-width:190px;padding:5px 7px;font-size:12.5px">
+          <div style="margin-top:3px">
+            ${mt?(suggested?`<span class="chip a">مقترح تلقائي — راجعه</span>`:(unitDiff?'<span class="chip a">وحدة مختلفة</span>':'<span class="chip g">مطابق</span>')):'<span class="chip r">محتاج مطابقة</span>'}
+            ${unitDiff&&!suggested?'':''}
+          </div>
+          ${(!mt||suggested)&&sugg.length?`<div class="hint" style="margin-top:4px">أقرب الأصناف:
+            ${sugg.map(s=>`<button class="btn sm" data-inboxpick="${esc(n.itemName)}|${s.item.id}" style="padding:2px 7px;font-size:11px;margin:2px 2px 0 0">${esc(s.item.name)}</button>`).join('')}
+          </div>`:''}
+        </td>
         <td class="n">${esc(n.date||'')}</td>
         <td style="white-space:nowrap">${mt?`<button class="btn sm g" data-act="inbox-receive" data-id="${n.id}">استلام</button>`:'<span class="hint">حدد المطابقة</span>'} <button class="btn sm danger" data-act="inbox-dismiss" data-id="${n.id}">تجاهل</button></td>
       </tr>`;}).join('')}
@@ -1238,9 +1306,19 @@ function render(){
         </div>
       </div>
       <nav>
-        ${TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}
+        ${TAB_GROUPS
+          ? TAB_GROUPS.map(g=>{
+              const active = g.tabs.some(t=>t[0]===tab);
+              const n = g.tabs.reduce((s,t)=> s + (t[0]==='inbox'?pendingInboxCount():0), 0);
+              return `<button class="${active?'on':''}" data-tabgroup="${esc(g.name)}">${esc(g.name)}${n?` <span class="chip r" style="padding:1px 6px;font-size:10px">${n}</span>`:''}</button>`;
+            }).join('')
+          : TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}
         ${(!isMgr&&Object.values(SESS).some(Boolean))?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">${t('lock_session')}</button>`:''}
       </nav>
+      ${TAB_GROUPS?(()=>{
+        const g = TAB_GROUPS.find(x=>x.name===(groupOfTab(tab)||TAB_GROUPS[0].name));
+        return `<nav class="subnav">${g.tabs.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}</nav>`;
+      })():''}
     </div>
   </header>
   <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
@@ -1575,6 +1653,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='core'?'p':''}" data-boview="core">اجمالي الفروع</button>
       <button class="btn sm ${BO.view==='appet'?'p':''}" data-boview="appet">المقبلات والصوصات</button>
       ${NADER_SAUCES.length?`<button class="btn sm ${BO.view==='nader'?'p':''}" data-boview="nader">صوصات نادر</button>`:''}
+      <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
@@ -1638,6 +1717,7 @@ function viewBranchOrders(){
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
   ${rows.length && BO.view==='appet' ? boMatrixHtml(APPETIZER_ITEMS, 'المقبلات والصوصات') : ''}
   ${rows.length && BO.view==='nader' ? boMatrixHtml(NADER_SAUCES, 'صوصات نادر') : ''}
+  ${BO.view==='compare' ? viewDispenseComparison() : ''}
   ${rows.length && BO.view==='totals' ? (()=>{
     const needConv = rows.filter(r=>findMatchingLocalItem(r.name) && convFactorOf(r.name)===null).length;
     const tq = String(BO.matrixQ||'').trim().toLowerCase();
@@ -2688,6 +2768,17 @@ function receiptModal(m){
    ================================================================ */
 function bind(){
   const root=$('#root');
+  root.querySelectorAll('[data-tabgroup]').forEach(b=>b.onclick=()=>{
+    const g = TAB_GROUPS.find(x=>x.name===b.dataset.tabgroup);
+    if(!g) return;
+    // لو المجموعة فيها تبويب مفتوح بالفعل نسيبه، وإلا نفتح أول تبويب متاح فيها
+    if(g.tabs.some(t=>t[0]===tab)) return;
+    const first = g.tabs.find(t=>canOpen(t[0])) || g.tabs[0];
+    const k = first[0];
+    if(!canOpen(k)){ ui.modal=unlockModal(k); return render(); }
+    tab=k; ui.q=''; ui.only='الكل'; render();
+    if(k==='inbox') loadMyInbox();
+  });
   root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.tab;
     if(!canOpen(k)){ ui.modal=unlockModal(k); return render(); }
@@ -2748,6 +2839,17 @@ function bind(){
     await saveMain();
     toast(S.restrictDispatchTo?'اتقفل الصرف لمصنع تاني على مصنع واحد بس':'اتشال القيد');
     render();
+  };
+  const aiFile=$('#ai-file'); if(aiFile) aiFile.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{ const ta=$('#ai-text'); if(ta){ ta.value=String(rd.result||''); renderDispenseImportPreview(); } };
+    rd.readAsText(f,'utf-8');
+  };
+  const aiText=$('#ai-text'); if(aiText) aiText.onblur=()=>renderDispenseImportPreview();
+  const cmpQ=$('#cmp-q'); if(cmpQ) cmpQ.oninput=e=>{
+    CMP_Q=e.target.value; const p=e.target.selectionStart; render();
+    const n=$('#cmp-q'); if(n){ n.focus(); n.setSelectionRange(p,p); }
   };
   const riFile=$('#ri-file'); if(riFile) riFile.onchange=e=>{
     const f=e.target.files&&e.target.files[0]; if(!f) return;
@@ -2923,6 +3025,27 @@ function bind(){
     if(!outReasons().includes(ui.bulk.reason)) ui.bulk.reason = outReasons()[0];
     await saveMain();
     toast(on?`اتفعّلت "${r}"`:`اتشالت "${r}"`);
+    render();
+  });
+  root.querySelectorAll('[data-inboxsearch]').forEach(inp=>inp.onchange=async e=>{
+    const name=e.target.dataset.inboxsearch, v=e.target.value.trim();
+    const norm=s=>String(s||'').trim().toLowerCase();
+    if(!S.inboxMap) S.inboxMap={};
+    if(!v){ delete S.inboxMap[name]; await saveMain(); toast('اتشالت المطابقة'); return render(); }
+    const hit=S.items.find(i=>norm(i.name)===norm(v));
+    if(!hit){ toast('مفيش صنف بالاسم ده — اختار من الاقتراحات',1); return render(); }
+    S.inboxMap[name]=hit.id;
+    await saveMain();
+    toast(`اتثبتت المطابقة: ${hit.name}`);
+    render();
+  });
+  root.querySelectorAll('[data-inboxpick]').forEach(b=>b.onclick=async ()=>{
+    const [name,itemId]=b.dataset.inboxpick.split('|');
+    if(!S.inboxMap) S.inboxMap={};
+    S.inboxMap[name]=itemId;
+    await saveMain();
+    const it=item(itemId);
+    toast(`اتثبتت المطابقة: ${it?it.name:''}`);
     render();
   });
   root.querySelectorAll('[data-inboxmap]').forEach(sel=>sel.onchange=async e=>{
@@ -3396,6 +3519,221 @@ function viewProductionPlan(){
   `;
 }
 
+/* ================= مقارنة الصرف الفعلي (استيراد شيت مبيعات/صرف مجمّع) ================= */
+// الشيت المتوقع: تاريخ | اسم الصنف | الوحدة | الكمية — كل سطر عملية واحدة، ومفيش عمود فرع،
+// فبنجمع كل الأسطر بنفس اسم الصنف عشان نطلع الإجمالي الفعلي، ونقارنه بالمطلوب والمسجل عندنا
+let ACTUAL_PARSED = null; // {byBranchItem, hasBranch, branches, dateFrom, dateTo, rowsCount, errors}
+let CMP_Q = ''; // بحث في شاشة المقارنة
+
+function parseDateFlexible(s){
+  s = String(s||'').trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // M/D/YYYY
+  if(m) return `${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); // YYYY-M-D
+  if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  return '';
+}
+
+function parseActualDispenseSheet(text){
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(!lines.length) return {byBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[], errors:['الشيت فاضي']};
+  const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
+
+  // نحدد شكل الأعمدة تلقائي: 5 أعمدة (فرع، تاريخ، صنف، وحدة، كمية) أو 4 (تاريخ، صنف، وحدة، كمية)
+  const firstCells = splitRow(lines[0]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+  const hasBranch = firstCells.length>=5 && !parseDateFlexible(firstCells[0]) && parseDateFlexible(firstCells[1])!=='';
+  // لو أول سطر مش تاريخ في الخانة المتوقعة، يبقى صف عناوين ونتجاهله
+  const dateColIdx = hasBranch ? 1 : 0;
+  let start = 0;
+  if(!parseDateFlexible(firstCells[dateColIdx])) start = 1;
+
+  const byBranchItem = {}; // branch -> { itemName -> {name,unit,qty,rows} }
+  const branchesSet = new Set();
+  const errors = [];
+  let dateFrom='', dateTo='';
+  let rowsCount=0;
+
+  for(let i=start;i<lines.length;i++){
+    const cells = splitRow(lines[i]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+    const branch = hasBranch ? (cells[0]||'—') : '—';
+    const rawDate = hasBranch ? cells[1] : cells[0];
+    const name    = hasBranch ? cells[2] : cells[1];
+    const unit    = hasBranch ? cells[3] : cells[2];
+    const qty     = hasBranch ? cells[4] : cells[3];
+    if(!name) continue;
+    const date = parseDateFlexible(rawDate);
+    const q = +qty;
+    if(!(q>0)){ if(errors.length<20) errors.push(`سطر ${i+1}: كمية غير صحيحة (${qty})`); continue; }
+    branchesSet.add(branch);
+    if(!byBranchItem[branch]) byBranchItem[branch]={};
+    if(!byBranchItem[branch][name]) byBranchItem[branch][name] = { name, unit: unit||'', qty:0, rows:0 };
+    byBranchItem[branch][name].qty = n2(byBranchItem[branch][name].qty + q);
+    byBranchItem[branch][name].rows++;
+    rowsCount++;
+    if(date){ if(!dateFrom || date<dateFrom) dateFrom=date; if(!dateTo || date>dateTo) dateTo=date; }
+  }
+  return {byBranchItem, hasBranch, branches:[...branchesSet].sort((a,b)=>a.localeCompare(b,'ar')), dateFrom, dateTo, rowsCount, errors};
+}
+
+function buildDispenseComparison(){
+  if(!ACTUAL_PARSED) return null;
+  const {byBranchItem, hasBranch, branches, dateFrom, dateTo} = ACTUAL_PARSED;
+  const norm = s => String(s||'').trim().toLowerCase();
+
+  // المسجل فعليًا عندنا في المصنع (صرف للفروع) في نفس مدى التواريخ، مقسّم بالفرع (m.party) والصنف
+  const recordedByBranchItem = {};
+  if(dateFrom && dateTo){
+    S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.date>=dateFrom && m.date<=dateTo).forEach(m=>{
+      const it=item(m.itemId); if(!it) return;
+      const br = hasBranch ? (m.party||'—') : '—';
+      if(!recordedByBranchItem[br]) recordedByBranchItem[br]={};
+      recordedByBranchItem[br][it.name] = n2((recordedByBranchItem[br][it.name]||0) + (+m.qty||0));
+    });
+  }
+
+  // المطلوب من طلبيات الفروع — لو عندنا تفاصيل الطلبيات بالفرع (BO.orders) نطابق بالفرع، وإلا نرجع للإجمالي العام بس
+  const findRequested = (branch, itemName) => {
+    if(hasBranch && BO.orders && BO.orders.length){
+      const order = BO.orders.find(o=>norm(o.branch)===norm(branch));
+      if(order){ const line=(order.items||[]).find(x=>norm(x.name)===norm(itemName)); return line ? +line.qty : null; }
+      return null;
+    }
+    const entry = Object.entries(BO.totals||{}).find(([n])=>norm(n)===norm(itemName));
+    return entry ? entry[1].qty : null;
+  };
+
+  const rows = [];
+  Object.entries(byBranchItem).forEach(([branch, items])=>{
+    Object.values(items).forEach(actual=>{
+      const match = findMatchingLocalItem(actual.name);
+      const recorded = match ? ((recordedByBranchItem[branch]||{})[match.name]||0) : 0;
+      const requested = findRequested(branch, actual.name);
+      const diff = n2(actual.qty - recorded);
+      rows.push({ branch, ...actual, match, recorded, requested, diff });
+    });
+  });
+  rows.sort((a,b)=> Math.abs(b.diff)-Math.abs(a.diff));
+
+  return { rows, hasBranch, branches, dateFrom, dateTo };
+}
+
+function dispenseImportModal(){
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:640px">
+    <h3>مقارنة الصرف الفعلي</h3>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">
+        الصق بيانات شيت المبيعات/الصرف الفعلي (تاريخ، اسم الصنف، الوحدة، الكمية) — أو ارفع ملف CSV.
+        النظام هيجمع كل الأسطر لكل صنف، ويقارنها بالمسجل عندك فعليًا في "منصرف".
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input type="file" id="ai-file" accept=".csv,text/csv" style="font-size:12.5px">
+        <span class="hint">أو الصق في الخانة تحت</span>
+      </div>
+      <textarea id="ai-text" rows="9" placeholder="الصق هنا..." style="width:100%;padding:10px;font-family:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;direction:ltr;text-align:left"></textarea>
+      <div id="ai-preview" style="margin-top:12px"></div>
+    </div>
+    <div class="foot">
+      <button class="btn p" data-act="ai-preview">فحص البيانات</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
+function renderDispenseImportPreview(){
+  const text = ($('#ai-text')||{value:''}).value;
+  const wrap = $('#ai-preview'); if(!wrap) return;
+  if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; return; }
+
+  ACTUAL_PARSED = parseActualDispenseSheet(text);
+  const {byBranchItem, hasBranch, branches, dateFrom, dateTo, rowsCount, errors} = ACTUAL_PARSED;
+  const itemNames = new Set(); let rowN=0;
+  Object.values(byBranchItem).forEach(items=>{ Object.keys(items).forEach(n=>itemNames.add(n)); rowN+=Object.keys(items).length; });
+
+  let html = `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+    <div class="card"><div class="k">صفوف اتقرت</div><div class="v">${rowsCount}</div><div class="s">${itemNames.size} صنف مختلف</div></div>
+    ${hasBranch?`<div class="card"><div class="k">الفروع</div><div class="v">${branches.length}</div><div class="s">فرع مختلف</div></div>`:''}
+    <div class="card"><div class="k">الفترة</div><div class="v" style="font-size:16px">${dateFrom||'—'}</div><div class="s">لحد ${dateTo||'—'}</div></div>
+    ${errors.length?`<div class="card"><div class="k">صفوف فيها مشكلة</div><div class="v" style="color:var(--red)">${errors.length}</div><div class="s">اتجاهلت</div></div>`:''}
+  </div>`;
+  if(!hasBranch) html += `<div class="hint" style="margin-top:8px">مفيش عمود فرع متعرّف عليه — المقارنة هتبقى على مستوى الصنف الإجمالي بس.</div>`;
+  if(errors.length) html += `<div class="warnbar" style="margin-top:10px">${errors.slice(0,6).map(esc).join('<br>')}${errors.length>6?`<br>… و${errors.length-6} كمان`:''}</div>`;
+  if(rowN){
+    html += `<button class="btn p" data-act="ai-apply" style="width:100%;margin-top:12px">اعرض المقارنة الكاملة</button>`;
+  }
+  wrap.innerHTML = html;
+}
+
+function viewDispenseComparison(){
+  const cmp = buildDispenseComparison();
+  if(!cmp) return `<div class="panel"><div class="empty">مفيش بيانات مستوردة لسه</div></div>`;
+  const {rows, hasBranch, branches, dateFrom, dateTo} = cmp;
+
+  const q = String(CMP_Q||'').trim().toLowerCase();
+  const filtered = q ? rows.filter(r=> r.branch.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.match&&r.match.name.toLowerCase().includes(q))) : rows;
+
+  const onlyInSheet = filtered.filter(r=>r.match && r.recorded<=0 && r.qty>0);
+  const mismatched  = filtered.filter(r=>r.match && r.recorded>0 && Math.abs(r.diff)>0.01);
+  const matched     = filtered.filter(r=>r.match && r.recorded>0 && Math.abs(r.diff)<=0.01);
+  const unmatched   = filtered.filter(r=>!r.match);
+
+  const totalDiffVal = n2(filtered.reduce((s,r)=>{ const it=r.match; return s + Math.abs(r.diff)*(it?(it.price||0):0); },0));
+  const branchCol = hasBranch ? `<th>الفرع</th>` : '';
+  const branchCell = r => hasBranch ? `<td><div class="iname">${esc(r.branch)}</div></td>` : '';
+
+  return `
+  <div class="panel"><div class="pad">
+    <div class="hint">مقارنة بين <b>الصرف الفعلي من الشيت</b> (${dateFrom} إلى ${dateTo}) و<b>المسجل عندك</b> في "منصرف" لنفس الفترة بجهة "صرف للفروع"${hasBranch?' — لكل فرع لوحده':''}.</div>
+    <div class="bar" style="margin-top:8px">
+      <input type="text" class="grow" id="cmp-q" placeholder="${hasBranch?'دور بالفرع أو الصنف…':'دور بالصنف…'}" value="${esc(CMP_Q||'')}">
+      ${q?`<button class="btn sm" data-act="cmp-clear">مسح البحث</button>`:''}
+    </div>
+  </div></div>
+
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">متطابق</div><div class="v" style="color:var(--green)">${matched.length}</div><div class="s">مسجل صح عندك</div></div>
+    <div class="card"><div class="k">في الشيت ومش مسجل</div><div class="v" style="color:var(--red)">${onlyInSheet.length}</div><div class="s">صرف حصل ومتسجلش</div></div>
+    <div class="card"><div class="k">الكمية مختلفة</div><div class="v" style="color:var(--amber)">${mismatched.length}</div><div class="s">فرق في الرقم</div></div>
+    <div class="card"><div class="k">مالوش صنف مطابق</div><div class="v">${unmatched.length}</div><div class="s">محتاج مطابقة يدوي</div></div>
+    <div class="card"><div class="k">قيمة الفروق</div><div class="v">${money(totalDiffVal)}</div><div class="s">درهم تقريبًا</div></div>
+    ${hasBranch?`<div class="card"><div class="k">فروع في الشيت</div><div class="v">${branches.length}</div><div class="s">فرع</div></div>`:''}
+  </div></div></div>
+
+  ${(onlyInSheet.length||mismatched.length)?`<div class="panel">
+    <h2>محتاج تسجيل أو تصحيح <em>${onlyInSheet.length+mismatched.length}</em>
+      <button class="btn sm g" data-act="ai-record-diffs" style="margin-inline-start:auto">سجّل الفروق كصرف اليوم</button></h2>
+    <p class="hint" style="margin:-6px 14px 0">الزرار بيسجّل الفرق (الفعلي − المسجل) كحركة "صرف للفروع"${hasBranch?' لكل فرع باسمه':''} بتاريخ النهاردة. راجع الأرقام كويس الأول.</p>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr>${branchCol}<th>الصنف</th><th class="n">الفعلي (الشيت)</th><th class="n">المسجل عندك</th><th class="n">الفرق</th><th>الحالة</th></tr></thead>
+      <tbody>${[...onlyInSheet,...mismatched].map(r=>`<tr class="lowrow">
+        ${branchCell(r)}
+        <td><div class="iname">${esc(r.match.name)}</div></td>
+        <td class="n">${fmt(r.qty)} <span class="chip">${esc(r.unit)}</span></td>
+        <td class="n">${fmt(r.recorded)}</td>
+        <td class="n hl" style="color:var(--red)">${r.diff>0?'+':''}${fmt(r.diff)}</td>
+        <td>${r.recorded<=0?'<span class="chip r">مش مسجل خالص</span>':'<span class="chip a">فرق في الكمية</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+
+  ${matched.length?`<div class="panel">
+    <h2>متطابق <em>${matched.length}</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr>${branchCol}<th>الصنف</th><th class="n">الفعلي</th><th class="n">المسجل</th></tr></thead>
+      <tbody>${matched.map(r=>`<tr>${branchCell(r)}
+        <td>${esc(r.match.name)}</td><td class="n">${fmt(r.qty)} ${esc(r.unit)}</td><td class="n">${fmt(r.recorded)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+
+  ${unmatched.length?`<div class="panel">
+    <h2>مالهاش صنف مطابق <em>${unmatched.length}</em></h2>
+    <div class="tblwrap"><table><thead><tr>${branchCol}<th>الصنف (من الشيت)</th><th class="n">الكمية</th></tr></thead>
+      <tbody>${unmatched.map(r=>`<tr>${branchCell(r)}<td>${esc(r.name)}</td><td class="n">${fmt(r.qty)} ${esc(r.unit)}</td></tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
+  `;
+}
+
 function boMatrixHtml(itemsList, title){
   const allBranches = [...new Set(BO.orders.map(o=>o.branch))].sort((a,b)=>a.localeCompare(b,'ar'));
   if(!allBranches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في الفترة دي</div></div>`;
@@ -3559,6 +3897,36 @@ async function act(a,d){
     delete m.invoice;
     await saveTx();
     ui.modal=null; toast('اتحذفت صورة الفاتورة'); return render();
+  }
+  if(a==='import-dispense-compare'){ ACTUAL_PARSED=null; ui.modal=dispenseImportModal(); return render(); }
+  if(a==='ai-preview'){ renderDispenseImportPreview(); return; }
+  if(a==='ai-apply'){
+    if(!ACTUAL_PARSED) return toast('فحص البيانات الأول',1);
+    ui.modal=null; BO.view='compare'; return render();
+  }
+  if(a==='cmp-clear'){ CMP_Q=''; return render(); }
+  if(a==='ai-record-diffs'){
+    const cmp = buildDispenseComparison();
+    if(!cmp) return;
+    const q = String(CMP_Q||'').trim().toLowerCase();
+    const rows = (q? cmp.rows.filter(r=> r.branch.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || (r.match&&r.match.name.toLowerCase().includes(q))) : cmp.rows)
+      .filter(r=>r.match && Math.abs(r.diff)>0.01);
+    if(!rows.length) return toast('مفيش فروق تتسجل',1);
+    const preview = rows.slice(0,12).map(r=>`• ${r.match.name}${cmp.hasBranch?` (${r.branch})`:''}: ${r.diff>0?'+':''}${fmt(r.diff)} ${r.unit}`).join('\n');
+    if(!confirm(`هيتم تسجيل ${rows.length} حركة تصحيح كـ"صرف للفروع" بتاريخ النهاردة:\n\n${preview}${rows.length>12?`\n… و${rows.length-12} كمان`:''}\n\nملحوظة: بيتسجل الفرق بس (زيادة أو نقص)، ولو الصنف ليه وصفة هيخصم خاماتها تلقائي. تكمل؟`)) return;
+
+    let done=0, blocked=[];
+    for(const r of rows){
+      if(r.diff<=0) continue; // بنسجل بس اللي محتاج "زيادة صرف" — النقص (لو الفعلي أقل من المسجل) محتاج مراجعة يدوية مش تسجيل تلقائي
+      const party = cmp.hasBranch ? r.branch : 'الفروع';
+      const res = dispenseOut(r.match.id, r.diff, today(), party, 'صرف للفروع');
+      if(res.error){ blocked.push(`${r.match.name}${cmp.hasBranch?` (${r.branch})`:''}: ${res.error}`); continue; }
+      done++;
+    }
+    await saveTx();
+    toast(`اتسجّل ${done} حركة تصحيح${blocked.length?` — ${blocked.length} اتخطت لعدم كفاية الرصيد`:''}`);
+    if(blocked.length) alert('الحركات دي ما اتسجلتش لعدم كفاية الرصيد:\n\n'+blocked.join('\n'));
+    return render();
   }
   if(a==='import-recipes'){ RI_PARSED=[]; ui.modal=recipeImportModal(); return render(); }
   if(a==='ri-preview'){ renderRecipeImportPreview(); return; }
