@@ -338,7 +338,7 @@ const KEY_MAIN = 'kunafa:main:v1:'+FACTORY;     // items + recipes + settings
 const KEY_TX   = 'kunafa:tx:v1:'+FACTORY;       // moves + counts
 const KEY_HIST = 'kunafa:history:v1:'+FACTORY;  // closed periods
  
-let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boConv:{}, boDone:{}, inboxMap:{}, restrictDispatchTo:'', dispatchOnlyMode:false };
+let S = { items:[], recipes:[], period:'', closed:[], moves:[], counts:{}, locks:{}, suppliers:['المخزن الرئيسي'], branches:['الفرع الرئيسي'], boMap:{}, boConv:{}, boDone:{}, inboxMap:{}, restrictDispatchTo:'', dispatchOnlyMode:false, allowedReasons:null };
 let SESS = {};   // التبويبات المفتوحة في الجلسة الحالية (مش بتتحفظ)
 /* ================= طلبيات الفروع (جسر مع تطبيق فروع كل مصنع) ================= */
 // إعدادات منفصلة لكل مصنع عنده تطبيق فروع (زي تطبيق الفروج اليومي). أي مصنع جديد يتضاف هنا،
@@ -448,7 +448,7 @@ async function sset(k,v){
   if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
   return saved;
 }
-async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -471,7 +471,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -612,7 +612,7 @@ async function pushAll(quiet){
   }catch(e){ errors.push('إقفال الفترات: '+e.message); }
 
   try{
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null}}]});
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
   DB.busy=false;
@@ -641,7 +641,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode);
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null;
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -1758,6 +1758,13 @@ function viewCount(){
  
 /* ================= 2/3. وارد و منصرف ================= */
 const OUT_REASONS=['صرف للإنتاج','صرف للفروع','صرف لمصنع تاني','هالك / تالف','مرتجع للمورد','عينات','أخرى'];
+// الجهات المسموح بيها في المصنع ده. null = كلها متاحة (الوضع الافتراضي)
+function outReasons(){
+  const a = S.allowedReasons;
+  if(!Array.isArray(a) || !a.length) return OUT_REASONS;
+  const filtered = OUT_REASONS.filter(r=>a.includes(r));
+  return filtered.length ? filtered : OUT_REASONS;
+}
 /* ---------- شاشة الجرد لوضع المدير: بسيطة، من غير أسعار ولا تبويبات تانية ---------- */
 function viewCountManager(){
   const t=totals(), list=filtered();
@@ -1862,8 +1869,7 @@ function bulkOutPanel(){
       <button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">${t('back_normal')}</button></h2>
     <div class="pad">
       <div class="grid" style="margin-bottom:0">
-        ${S.dispatchOnlyMode && S.restrictDispatchTo?`<div style="grid-column:1/-1"><div class="hint">${LANG==='en'?'This factory only dispatches to':'\u0627\u0644\u0645\u0635\u0646\u0639 \u062f\u0647 \u0628\u064a\u0635\u0631\u0641 \u0628\u0633 \u0644\u0640'} <b>${esc((FACTORIES.find(f=>f.id===S.restrictDispatchTo)||{name:S.restrictDispatchTo}).name)}</b></div></div>`
-        :`<div><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        <div><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${outReasons().map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
         <div>${b.reason==='\u0635\u0631\u0641 \u0644\u0644\u0641\u0631\u0648\u0639'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="b-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option ${b.party===br?'selected':''}>${br}</option>`).join('')}</select>
@@ -1871,7 +1877,7 @@ function bulkOutPanel(){
           </div>`
           :b.reason==='\u0635\u0631\u0641 \u0644\u0645\u0635\u0646\u0639 \u062a\u0627\u0646\u064a'?`<label class="f">${t('receiving_factory')}</label>
             <select id="b-party" style="width:100%">${allowedDispatchFactories().map(f=>`<option value="${esc(f.id)}" ${b.party===f.id?'selected':''}>${esc(f.name)}</option>`).join('') || `<option value="">${t('no_other_factories')}</option>`}</select>`
-          :`<label class="f">${t('note')}</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>`}
+          :`<label class="f">${t('note')}</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>
         <div><label class="f">${t('date')}</label><input type="date" id="b-date" value="${b.date||today()}" style="width:100%"></div>
       </div>
     </div>
@@ -1941,8 +1947,7 @@ function viewMove(dir){
             <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
             <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
           </div></div>`
-        :S.dispatchOnlyMode && S.restrictDispatchTo?`<div style="grid-column:span 2"><div class="hint">${LANG==='en'?'This factory only dispatches to':'المصنع ده بيصرف بس لـ'} <b>${esc((FACTORIES.find(f=>f.id===S.restrictDispatchTo)||{name:S.restrictDispatchTo}).name)}</b> — ${t('notify_hint')}</div></div>`
-        :`<div><label class="f">${t('dispense_to')}</label><select id="m-reason" style="width:100%">${OUT_REASONS.map(r=>`<option value="${esc(r)}" ${ui.moveReason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        :`<div><label class="f">${t('dispense_to')}</label><select id="m-reason" style="width:100%">${outReasons().map(r=>`<option value="${esc(r)}" ${ui.moveReason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
         <div>${ui.moveReason==='صرف للفروع'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="m-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option>${esc(br)}</option>`).join('')}</select>
@@ -2026,7 +2031,10 @@ function viewMove(dir){
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
         ${isIn?`<td>${ui.mvEdit?`<input type="date" value="${m.expDate||''}" data-mvexp="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.expDate?`<span class="n">${m.expDate}</span>`:'<span class="hint">—</span>')}</td>`:''}
         ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
-              :`<td><span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span></td><td>${esc(m.party||'—')}</td>`}
+              :`<td>${ui.mvEdit?`<select data-mvreason="${m.id}" style="padding:4px 6px;font-size:12px;min-width:130px">
+                    ${[...new Set([...outReasons(), m.reason].filter(Boolean))].map(r=>`<option value="${esc(r)}" ${m.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}
+                  </select>`:`<span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span>`}</td>
+                <td>${ui.mvEdit?`<input type="text" value="${esc(m.party||'')}" data-mvparty="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:120px">`:esc(m.party||'—')}</td>`}
         <td style="white-space:nowrap">${m.invoice?`<button class="btn sm" data-act="inv-view" data-id="${m.id}" title="عرض صورة الفاتورة">📎</button> `:''}<button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> <button class="btn sm danger" data-del="${m.id}">${t('delete')}</button></td></tr>`;}).join('')
         ||`<tr><td colspan="${(ui.mvEdit?10:9)+(isIn?1:0)}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
       </tbody>
@@ -2395,6 +2403,23 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
         <button class="btn g" data-act="add-fac" ${DB.on?'':'disabled'}>+ إضافة مصنع</button>
       </div>
       ${!DB.on?`<div class="hint" style="margin-top:6px">لازم تكون متصل بالقاعدة عشان تضيف مصنع جديد.</div>`:''}
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>جهات الصرف المتاحة في المصنع ده</h2>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">شيل علامة الصح عن أي جهة صرف مش بتستخدمها، وهتختفي من قايمة "جهة الصرف" في الوارد والمنصرف — عشان المستخدم مايختارش حاجة غلط. لازم تسيب جهة واحدة على الأقل.</div>
+      <div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">
+        ${OUT_REASONS.map((r,i)=>{
+          const on = !Array.isArray(S.allowedReasons) || !S.allowedReasons.length || S.allowedReasons.includes(r);
+          return `<label style="display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;${i?'border-top:1px solid var(--line);':''}${on?'':'opacity:.5;'}">
+            <input type="checkbox" data-reasonon="${esc(r)}" ${on?'checked':''} style="width:16px;height:16px">
+            <span style="font-weight:${on?'600':'400'}">${esc(r)}</span>
+          </label>`;
+        }).join('')}
+      </div>
+      <div class="hint" style="margin-top:8px">المتاح حاليًا: <b>${outReasons().join(' · ')}</b></div>
     </div>
   </div>
 
@@ -2882,6 +2907,22 @@ function bind(){
     BO.matrixQ=e.target.value; const p=e.target.selectionStart; render();
     const n2el=$('#bo-matrix-q'); if(n2el){ n2el.focus(); n2el.setSelectionRange(p,p); }
   };
+  root.querySelectorAll('[data-reasonon]').forEach(cb=>cb.onchange=async e=>{
+    const r=e.target.dataset.reasonon, on=e.target.checked;
+    let cur = Array.isArray(S.allowedReasons) && S.allowedReasons.length ? S.allowedReasons.slice() : OUT_REASONS.slice();
+    if(on){ if(!cur.includes(r)) cur.push(r); }
+    else {
+      cur = cur.filter(x=>x!==r);
+      if(!cur.length){ toast('لازم تسيب جهة صرف واحدة على الأقل',1); return render(); }
+    }
+    S.allowedReasons = cur.length===OUT_REASONS.length ? null : cur; // null = كلها متاحة
+    // لو الجهة المختارة حاليًا اتشالت، نرجّع لأول جهة متاحة عشان الشاشة ماتبقاش على قيمة ملغية
+    if(!outReasons().includes(ui.moveReason)) ui.moveReason = outReasons()[0];
+    if(!outReasons().includes(ui.bulk.reason)) ui.bulk.reason = outReasons()[0];
+    await saveMain();
+    toast(on?`اتفعّلت "${r}"`:`اتشالت "${r}"`);
+    render();
+  });
   root.querySelectorAll('[data-inboxmap]').forEach(sel=>sel.onchange=async e=>{
     const name=e.target.dataset.inboxmap, v=e.target.value;
     if(!S.inboxMap) S.inboxMap={};
@@ -2918,6 +2959,14 @@ function bind(){
   root.querySelectorAll('[data-mvprod]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvprod); if(!m) return;
     m.prodDate=e.target.value; await saveTx(); toast('اتحفظ تاريخ الإنتاج');
+  });
+  root.querySelectorAll('[data-mvreason]').forEach(sel=>sel.onchange=async e=>{
+    const m=S.moves.find(x=>x.id===e.target.dataset.mvreason); if(!m) return;
+    m.reason=e.target.value; await saveTx(); toast('اتعدلت جهة الصرف'); render();
+  });
+  root.querySelectorAll('[data-mvparty]').forEach(inp=>inp.onchange=async e=>{
+    const m=S.moves.find(x=>x.id===e.target.dataset.mvparty); if(!m) return;
+    m.party=e.target.value.trim(); await saveTx(); toast('اتعدلت الجهة'); render();
   });
   root.querySelectorAll('[data-mvexp]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvexp); if(!m) return;
