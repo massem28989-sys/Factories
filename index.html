@@ -2099,7 +2099,7 @@ function viewMove(dir){
         ${ui.mvEdit?`<th style="width:30px"><input type="checkbox" data-act="mv-sel-all" ${shownMoves.length&&mvSel.size===shownMoves.length?'checked':''}></th>`:''}
         <th>${t('th_date')}</th><th>${t('th_item')}</th><th class="n">${t('th_qty')}</th>
         <th>${t('th_proddate')}</th><th class="n">${t('th_temp')}</th>${isIn?'<th>الصلاحية</th>':''}
-        ${isIn?`<th class="n">${t('th_unitprice')}</th><th class="n">${t('th_total')}</th><th>${t('th_supplier')}</th>`:`<th>${t('th_dispense_to')}</th><th>${t('th_branch_note')}</th>`}
+        ${isIn?`<th class="n">${t('th_unitprice')}</th><th class="n">${t('th_total')}</th><th>${t('th_supplier')}</th>`:`<th class="n">سعر الوحدة</th><th>${t('th_dispense_to')}</th><th>${t('th_branch_note')}</th>`}
         <th></th></tr></thead>
       <tbody>${shownMoves.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
         return `<tr>
@@ -2111,20 +2111,21 @@ function viewMove(dir){
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
         ${isIn?`<td>${ui.mvEdit?`<input type="date" value="${m.expDate||''}" data-mvexp="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.expDate?`<span class="n">${m.expDate}</span>`:'<span class="hint">—</span>')}</td>`:''}
         ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
-              :`<td>${ui.mvEdit?`<select data-mvreason="${m.id}" style="padding:4px 6px;font-size:12px;min-width:130px">
+              :`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:(m.price>0?money(m.price):'<span class="hint">—</span>')}</td>
+                <td>${ui.mvEdit?`<select data-mvreason="${m.id}" style="padding:4px 6px;font-size:12px;min-width:130px">
                     ${[...new Set([...outReasons(), m.reason].filter(Boolean))].map(r=>`<option value="${esc(r)}" ${m.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}
                   </select>`:`<span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span>`}${
                     m.reason==='صرف لمصنع تاني' ? (m.notifyId?' <span class="chip g" title="اتبعت إشعار للمصنع المستلم">🔔</span>':' <span class="chip r" title="مفيش إشعار اتبعت — المصنع التاني مش شايفها">بدون إشعار</span>') : ''
                   }</td>
                 <td>${ui.mvEdit?`<input type="text" value="${esc(m.party||'')}" data-mvparty="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:120px">`:esc(m.party||'—')}</td>`}
         <td style="white-space:nowrap">${(m.reason==='صرف لمصنع تاني' && !m.notifyId)?`<button class="btn sm p" data-act="mv-notify" data-id="${m.id}" title="ابعت إشعار للمصنع المستلم">🔔 ابعت</button> `:''}${m.invoice?`<button class="btn sm" data-act="inv-view" data-id="${m.id}" title="عرض صورة الفاتورة">📎</button> `:''}<button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> <button class="btn sm danger" data-del="${m.id}">${t('delete')}</button></td></tr>`;}).join('')
-        ||`<tr><td colspan="${(ui.mvEdit?10:9)+(isIn?1:0)}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
+        ||`<tr><td colspan="${(ui.mvEdit?10:9)+(isIn?1:0)+(isIn?0:1)}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
       </tbody>
       ${shownMoves.length?`<tfoot><tr style="font-weight:700">
         <td colspan="${ui.mvEdit?3:2}">${t('total')}</td>
         <td class="n">${fmt(shownMoves.reduce((s,m)=>s+ +m.qty,0))}</td>
         <td colspan="2"></td>${isIn?'<td></td>':''}
-        ${isIn?`<td></td><td class="n hl">${money(shownMoves.reduce((s,m)=>s+m.qty*(m.price||0),0))}</td><td></td>`:'<td colspan="2"></td>'}
+        ${isIn?`<td></td><td class="n hl">${money(shownMoves.reduce((s,m)=>s+m.qty*(m.price||0),0))}</td><td></td>`:'<td colspan="3"></td>'}
         <td></td></tr></tfoot>`:''}
     </table></div>
   </div>`;
