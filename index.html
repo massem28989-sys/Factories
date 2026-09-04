@@ -408,7 +408,7 @@ const TAB_GROUPS_OWNER = [
   { name:'الإعدادات',tabs:[['fac','المصانع'],['sec','الصلاحيات والأقفال']] },
 ];
 const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
-const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
+const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const TAB_GROUPS = ROLE==='manager'? null : TAB_GROUPS_OWNER;
 function groupOfTab(k){ return TAB_GROUPS ? (TAB_GROUPS.find(g=>g.tabs.some(t=>t[0]===k))||{}).name : null; }
