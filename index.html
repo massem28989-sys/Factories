@@ -2238,15 +2238,70 @@ function viewProd(){
       ${(()=>{ const n=S.recipes.filter(r=>{const o=item(r.outItemId); if(!o||!r.outQty) return false; const uc=recipeCost(r)/r.outQty; return uc>0 && Math.abs(uc-(+o.price||0))>0.005; }).length;
         return n?`<button class="btn sm" data-act="sync-prices" style="margin-inline-start:auto">مزامنة أسعار ${n} منتج</button><button class="btn sm" data-act="import-recipes">استيراد من إكسل</button><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`
                 :`<button class="btn sm" data-act="import-recipes" style="margin-inline-start:auto">استيراد من إكسل</button><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`; })()}</h2>
-    ${S.recipes.length? `<div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>الوصفة</th><th>الناتج</th><th>مكونات</th><th class="n">تكلفة التشغيلة</th><th class="n">تكلفة الوحدة</th><th class="n">سعره في الكارت</th><th></th></tr></thead>
-      <tbody>${S.recipes.map(r=>{const out=item(r.outItemId); const c=recipeCost(r);
+    ${S.recipes.length?(()=>{
+      // نجهّز بيانات كل وصفة مرة واحدة (تصنيف المنتج، التكلفة، إلخ) عشان الفلترة والترتيب والتجميع
+      const enriched = S.recipes.map(r=>{
+        const out = item(r.outItemId);
+        const c = recipeCost(r);
+        const unitCost = r.outQty? c/r.outQty : 0;
+        const cat = out ? (out.cat||'بدون تصنيف') : 'بدون تصنيف';
+        return { r, out, cost:c, unitCost, cat };
+      });
+
+      const recCats = ['الكل', ...new Set(enriched.map(e=>e.cat))].sort((a,b)=> a==='الكل'?-1 : b==='الكل'?1 : a.localeCompare(b,'ar'));
+      const catCounts = {}; enriched.forEach(e=>catCounts[e.cat]=(catCounts[e.cat]||0)+1);
+
+      const q = recQ.trim().toLowerCase();
+      let shown = enriched.filter(e=>{
+        if(recCat!=='الكل' && e.cat!==recCat) return false;
+        if(q){
+          const inName = e.r.name.toLowerCase().includes(q);
+          const inOut = e.out && e.out.name.toLowerCase().includes(q);
+          const inMat = e.r.lines.some(l=>{ const it=item(l.itemId); return it && it.name.toLowerCase().includes(q); });
+          if(!inName && !inOut && !inMat) return false;
+        }
+        return true;
+      });
+
+      shown.sort((a,b)=>{
+        let v=0;
+        if(recSort.by==='name') v = a.r.name.localeCompare(b.r.name,'ar');
+        else if(recSort.by==='cost') v = a.cost-b.cost;
+        else if(recSort.by==='unitcost') v = a.unitCost-b.unitCost;
+        else if(recSort.by==='cat') v = a.cat.localeCompare(b.cat,'ar') || a.r.name.localeCompare(b.r.name,'ar');
+        return v*recSort.dir;
+      });
+
+      const arrow = k => recSort.by===k ? (recSort.dir===1?' ▲':' ▼') : '';
+      const groupByCat = recSort.by==='cat';
+
+      return `
+      <div class="pad">
+        <div class="bar">
+          <input type="text" class="grow" id="rec-q" placeholder="دور باسم الوصفة أو المنتج أو أي خامة فيها…" value="${esc(recQ)}">
+        </div>
+      </div>
+      <div class="cattabs">
+        ${recCats.map(c=>`<button class="cattab ${recCat===c?'on':''}" data-reccat="${esc(c)}">${esc(c)}${c!=='الكل'?` <span class="ct-n">${catCounts[c]||0}</span>`:''}</button>`).join('')}
+      </div>
+      <div class="tblwrap"><table class="gridcols">
+      <thead><tr>
+        <th style="cursor:pointer" data-recsort="name">الوصفة${arrow('name')}</th>
+        <th style="cursor:pointer" data-recsort="cat">التصنيف${arrow('cat')}</th>
+        <th>الناتج</th><th>مكونات</th>
+        <th class="n" style="cursor:pointer" data-recsort="cost">تكلفة التشغيلة${arrow('cost')}</th>
+        <th class="n" style="cursor:pointer" data-recsort="unitcost">تكلفة الوحدة${arrow('unitcost')}</th>
+        <th class="n">سعره في الكارت</th><th></th>
+      </tr></thead>
+      <tbody>${(()=>{ let lastCat=null; return shown.map(e=>{
+        const {r,out,cost:c,unitCost,cat}=e;
         const missingPrice = r.lines.some(l=>{ const it=item(l.itemId); return !it || !(it.price>0); });
-        const unitCost = r.outQty ? c/r.outQty : 0;
         const cardPrice = out ? (+out.price||0) : 0;
         const diff = unitCost>0 ? Math.abs(unitCost-cardPrice) : 0;
         const stale = unitCost>0 && diff>0.005;
-        return `<tr><td class="iname">${esc(r.name)}${missingPrice?' <span class="chip a">خامة من غير سعر</span>':''}</td>
+        const hdr = (groupByCat && cat!==lastCat) ? (lastCat=cat, `<tr class="catrow"><td colspan="8">${esc(cat)}</td></tr>`) : '';
+        return hdr+`<tr><td class="iname">${esc(r.name)}${missingPrice?' <span class="chip a">خامة من غير سعر</span>':''}</td>
+          <td><span class="chip">${esc(cat)}</span></td>
           <td class="n">${fmt(r.outQty)} <span class="chip">${esc(out?out.unit:'')}</span> ${esc(out?out.name:'—')}</td>
           <td>${r.lines.map(l=>`<span class="chip">${esc((item(l.itemId)||{}).name||'?')} · ${fmt(l.qty)}</span>`).join(' ')}</td>
           <td class="n"><b>${money(c)}</b></td>
@@ -2255,8 +2310,10 @@ function viewProd(){
           <td style="white-space:nowrap">
             <button class="btn sm g" data-run="${r.id}">تشغيل</button>
             <button class="btn sm" data-act="edit-recipe" data-id="${r.id}">تعديل</button>
-            <button class="btn sm danger" data-delr="${r.id}">حذف</button></td></tr>`;}).join('')}
-      </tbody></table></div>`
+            <button class="btn sm danger" data-delr="${r.id}">حذف</button></td></tr>`;
+      }).join('');})() || `<tr><td colspan="8" class="empty">مفيش وصفات مطابقة للبحث</td></tr>`}</tbody>
+      </table></div>`;
+    })()
       : `<div class="empty">لسه مفيش وصفات. اعمل وصفة لكل منتج (كنافة، مبرومة، كوكيز…) عشان الخامات تتخصم لوحدها وتعرف تكلفة الحبة.</div>`}
   </div>
   </div>
@@ -2272,6 +2329,13 @@ function viewProd(){
 /* ================= 5. كارت الأصناف ================= */
 let itSort = { by:'name', dir:1 };
 let itSel = new Set(); // الأصناف المحددة للنقل الجماعي بين التصنيفات
+let recQ = '';
+let recCat = 'الكل';
+let recSort = { by:'name', dir:1 };
+function recToggleSort(by){
+  if(recSort.by===by) recSort.dir*=-1; else { recSort.by=by; recSort.dir=1; }
+  render();
+}
 function itToggleSort(by){
   if(itSort.by===by) itSort.dir*=-1; else { itSort.by=by; itSort.dir=1; }
   render();
@@ -3181,6 +3245,12 @@ function bind(){
   });
   root.querySelectorAll('[data-itsort]').forEach(th=>th.onclick=()=>itToggleSort(th.dataset.itsort));
   root.querySelectorAll('[data-exponly]').forEach(b=>b.onclick=()=>{ ui.expOnly=b.dataset.exponly; render(); });
+  const recQEl=$('#rec-q'); if(recQEl) recQEl.oninput=e=>{
+    recQ=e.target.value; const p=e.target.selectionStart; render();
+    const n=$('#rec-q'); if(n){ n.focus(); n.setSelectionRange(p,p); }
+  };
+  root.querySelectorAll('[data-reccat]').forEach(b=>b.onclick=()=>{ recCat=b.dataset.reccat; render(); });
+  root.querySelectorAll('[data-recsort]').forEach(th=>th.onclick=()=>recToggleSort(th.dataset.recsort));
   root.querySelectorAll('[data-itonly]').forEach(b=>b.onclick=()=>{ ui.itOnly=b.dataset.itonly; render(); });
   root.querySelectorAll('[data-dssort]').forEach(th=>th.onclick=()=>dsToggleSort(th.dataset.dssort));
   root.querySelectorAll('[data-cattab]').forEach(b=>b.onclick=()=>{
