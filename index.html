@@ -1378,6 +1378,7 @@ function categoryTabs(scope){
  
 /* ================= 0. الجرد اليومي (رصيد لحظي، مش جرد يدوي) ================= */
 let dsSort = { by:'name', dir:1 };
+let ARCHIVE_SIZES = {}; // period -> عدد الحركات المحسوب (لأرشفة الشهور القديمة)
 let dsOnly = 'all'; // all | alert | ok
 let mvSel = new Set(); // الحركات المحددة لتغيير تاريخهم دفعة واحدة
 
@@ -2573,7 +2574,31 @@ function viewRep(){
     </div>
     ${S.closed.length?`<div style="margin-top:14px"><div class="hint" style="margin-bottom:6px">الشهور المقفولة</div>
       ${S.closed.slice().reverse().map(p=>`<span class="chip b" style="margin-inline-end:6px">${periodLabel(p.period)} · ${money(p.value)} د.إ</span>`).join('')}</div>`:''}
-  </div></div>`;
+  </div></div>
+
+  ${S.closed.length?`<div class="panel"><h2>أرشفة الحركات التفصيلية القديمة</h2><div class="pad">
+    <div class="hint" style="margin-bottom:10px">
+      إقفال الشهر بيصفّي الشاشة عندك بس — <b>الحركات التفصيلية (كل عملية وارد ومنصرف) بتفضل متراكمة في قاعدة البيانات للأبد</b> حتى بعد الإقفال، وده اللي بيحمّل عليك بمرور الوقت.
+      قيمة المخزون النهائية لكل شهر مقفول <b>محفوظة دايمًا</b> في الأرشيف فوق مهما حذفت — مش هتضيع.
+    </div>
+    <div class="warnbar" style="margin-bottom:12px">
+      ⚠️ الحذف نهائي ومش هيترجع. لو حذفت حركات شهر، مش هتقدر تشوف تفاصيلها بعد كده ولا تعمل "تراجع عن الإقفال" ليه — بس رصيده النهائي هيفضل في الأرشيف زي ما هو.
+      متحذفش غير الشهور القديمة اللي متأكد إنك مش محتاج ترجعلها.
+    </div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الشهر</th><th>القيمة النهائية</th><th class="n">عدد الحركات</th><th></th></tr></thead>
+      <tbody>${S.closed.slice().reverse().map(p=>{
+        const sizeInfo = ARCHIVE_SIZES[p.period];
+        return `<tr>
+          <td><div class="iname">${periodLabel(p.period)}</div></td>
+          <td class="n">${money(p.value)}</td>
+          <td class="n">${sizeInfo!==undefined?`${sizeInfo} حركة`:`<button class="btn sm" data-act="archive-size" data-period="${esc(p.period)}">احسب العدد</button>`}</td>
+          <td>${sizeInfo?`<button class="btn sm danger" data-act="archive-delete" data-period="${esc(p.period)}">احذف حركات الشهر ده</button>`:(sizeInfo===0?'<span class="hint">مفيش حركات</span>':'')}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+  </div></div>`:''}
+  `;
 }
  
 /* ================= 7. قاعدة البيانات ================= */
@@ -4508,6 +4533,33 @@ async function act(a,d){
     S.period=`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
     await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed});
     toast('الشهر اتقفل — بدأنا '+periodLabel(S.period)); return render();
+  }
+  if(a==='archive-size'){
+    if(!DB.on) return toast('لازم تكون متصل بالقاعدة الأول',1);
+    const period = d.period;
+    try{
+      const mv = await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=id',{prefer:'return=representation'}) || [];
+      ARCHIVE_SIZES[period] = mv.length;
+      render();
+    }catch(e){ toast('تعذر الحساب: '+e.message,1); }
+    return;
+  }
+  if(a==='archive-delete'){
+    if(!DB.on) return toast('لازم تكون متصل بالقاعدة الأول',1);
+    const period = d.period;
+    const n = ARCHIVE_SIZES[period];
+    const label = periodLabel(period);
+    if(!confirm(`هيتم حذف ${n} حركة تفصيلية من شهر ${label} نهائيًا من قاعدة البيانات.\n\nقيمة المخزون النهائية للشهر ده هتفضل محفوظة في الأرشيف، بس مش هتقدر تشوف تفاصيل الحركات ولا تعمل "تراجع عن الإقفال" ليه بعد كده.\n\nمتأكد؟`)) return;
+    const typed = prompt(`للتأكيد النهائي، اكتب اسم الشهر بالظبط زي ما هو ظاهر:\n\n${label}`);
+    if(typed !== label){ toast('الاسم مطابقش، اتلغت العملية',1); return; }
+    try{
+      await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period),{method:'DELETE'});
+      await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period),{method:'DELETE'});
+      delete ARCHIVE_SIZES[period];
+      toast(`اتحذفت حركات شهر ${label}`);
+      render();
+    }catch(e){ toast('حصل خطأ أثناء الحذف: '+e.message,1); }
+    return;
   }
   if(a==='undo-close'){
     if(!S.closed.length) return;
