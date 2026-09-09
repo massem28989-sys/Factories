@@ -1511,7 +1511,7 @@ function faroojDateRange(from, to){
   return dates;
 }
 
-let BO = { from:'', to:'', loading:false, err:'', totals:{}, orders:[], ordersCount:0, branchesCount:0, view:'totals', openOrder:null, changes:[], changesCount:0, matrixQ:'' };
+let BO = { from:'', to:'', loading:false, err:'', totals:{}, orders:[], ordersCount:0, branchesCount:0, view:'totals', openOrder:null, changes:[], changesCount:0, shortages:[], shortagesCount:0, matrixQ:'' };
 
 async function fetchBranchOrders(){
   BO.loading=true; BO.err=''; render();
@@ -1535,6 +1535,7 @@ async function fetchBranchOrders(){
     BO.totals=totals; BO.orders=orders; BO.ordersCount=ordersCount; BO.branchesCount=branches.size;
   }catch(e){ BO.err=e.message; }
   await fetchFactoryChangeRequests();
+  await fetchFactoryShortageReports();
   BO.loading=false; render();
 }
 
@@ -1551,6 +1552,41 @@ async function fetchFactoryChangeRequests(){
     });
     BO.changesCount = BO.changes.filter(r=>r.status==='pending').length;
   }catch(e){ BO.changes=[]; BO.changesCount=0; }
+}
+
+// بلاغات نواقص الاستلام: الفرع بيبلّغ لما صنف من الفاتورة يوصله ناقص أو مايوصلوش خالص
+async function fetchFactoryShortageReports(){
+  try{
+    const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:index`);
+    const index = idxVal ? JSON.parse(idxVal) : [];
+    const sorted = index.slice().sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
+    const details = await Promise.all(sorted.map(r=>faroojGet(`${BRANCH_APP.keyPrefix}_shortage:${r.id}`).catch(()=>null)));
+    BO.shortages = sorted.map((r,i)=>{
+      let items=[];
+      try{ if(details[i]) items = JSON.parse(details[i]).items || []; }catch(e){}
+      return {...r, items};
+    });
+    BO.shortagesCount = BO.shortages.filter(r=>r.status==='pending').length;
+  }catch(e){ BO.shortages=[]; BO.shortagesCount=0; }
+}
+
+async function decideFactoryShortageReport(id, decision){
+  try{
+    const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:index`);
+    let index = idxVal ? JSON.parse(idxVal) : [];
+    const idx = index.findIndex(r=>r.id===id);
+    if(idx===-1) return;
+    index[idx].status = decision;
+    const ok = await faroojSet(`${BRANCH_APP.keyPrefix}_shortage:index`, JSON.stringify(index));
+    if(!ok) throw new Error();
+    try{
+      const fullVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:${id}`);
+      if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`${BRANCH_APP.keyPrefix}_shortage:${id}`, JSON.stringify(obj)); }
+    }catch(e){}
+    toast(decision==='resolved' ? 'اتعلّم البلاغ إنه اتحل' : 'اترفض البلاغ');
+    await fetchFactoryShortageReports();
+    render();
+  }catch(e){ toast('حصل خطأ أثناء تحديث الحالة، حاول تاني',1); }
 }
 
 async function decideFactoryChangeRequest(id, decision){
@@ -1655,6 +1691,7 @@ function viewBranchOrders(){
       ${NADER_SAUCES.length?`<button class="btn sm ${BO.view==='nader'?'p':''}" data-boview="nader">صوصات نادر</button>`:''}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
+      <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات النواقص${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
   </div></div>`:''}
@@ -1712,6 +1749,29 @@ function viewBranchOrders(){
             <button class="btn sm danger" data-act="fc-decide" data-fcid="${r.id}" data-fcdecision="rejected">رفض</button>`:''}</td>
         </tr>`;
       }).join('') : `<tr><td colspan="7" class="empty">مفيش طلبات تعديل من الفروع</td></tr>`}</tbody>
+    </table></div>
+  </div>` : ''}
+  ${BO.view==='shortages' ? `<div class="panel">
+    <h2>بلاغات نواقص الاستلام من الفروع <em>${BO.shortages.length} بلاغ</em></h2>
+    <p class="hint" style="margin-top:-6px">لما فرع يشيّك على فاتورة استلام ويلاقي صنف ناقص أو مجاش، البلاغ بيوصلك هنا بالكميات بالظبط. راجع الفرق، وبعدين علّم البلاغ إنه اتحل.</p>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الفرع</th><th>التاريخ</th><th>الأصناف الناقصة</th><th>بواسطة</th><th>الوقت</th><th>الحالة</th><th></th></tr></thead>
+      <tbody>${BO.shortages.length? BO.shortages.map(r=>{
+        const labels = { pending:'محتاج مراجعة', resolved:'اتحل', rejected:'مرفوض' };
+        const cls = r.status==='resolved' ? 'g' : (r.status==='rejected' ? 'r' : 'a');
+        const itemsList = (r.items||[]).map(it=>`${esc(it.name)}: أرسل ${fmt(it.sentQty)}، استلم ${fmt(it.receivedQty)} <span class="chip r">ناقص ${fmt(it.missingQty)} ${esc(it.unit||'')}</span>`).join('<br>');
+        return `<tr>
+          <td><div class="iname">${esc(r.branch)}</div></td>
+          <td>${esc(r.date)}</td>
+          <td style="max-width:340px;white-space:normal;font-size:12.5px">${itemsList||'—'}</td>
+          <td>${esc(r.reportedBy||'-')}</td>
+          <td style="font-size:12px">${r.createdAt?new Date(r.createdAt).toLocaleString('ar-EG'):'-'}</td>
+          <td><span class="chip ${cls}">${labels[r.status]||r.status}</span></td>
+          <td style="white-space:nowrap">${r.status==='pending'?`
+            <button class="btn sm g" data-act="fs-decide" data-fsid="${r.id}" data-fsdecision="resolved">اتحل</button>
+            <button class="btn sm danger" data-act="fs-decide" data-fsid="${r.id}" data-fsdecision="rejected">رفض</button>`:''}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="7" class="empty">مفيش بلاغات نواقص من الفروع</td></tr>`}</tbody>
     </table></div>
   </div>` : ''}
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
@@ -4053,6 +4113,9 @@ async function act(a,d){
   }
   if(a==='fc-decide'){
     return decideFactoryChangeRequest(+d.fcid, d.fcdecision);
+  }
+  if(a==='fs-decide'){
+    return decideFactoryShortageReport(+d.fsid, d.fsdecision);
   }
   if(a==='bo-matrix-clear'){ BO.matrixQ=''; return render(); }
   if(a==='bo-fetch'){
