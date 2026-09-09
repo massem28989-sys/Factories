@@ -402,7 +402,7 @@ const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 // التبويبات مجمّعة في مجموعات عشان تفضل ظاهرة كلها ومتتقطعش لما يزيد عددها
 const TAB_GROUPS_OWNER = [
   { name:'المخزن',   tabs:[['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['items','كارت الأصناف'],['expiry','الصلاحيات']] },
-  { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع']] },
+  { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع']] },
   { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
   { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['rep','التقارير والإقفال']] },
   { name:'الإعدادات',tabs:[['fac','المصانع'],['sec','الصلاحيات والأقفال']] },
@@ -511,6 +511,17 @@ async function sb(path,opts={}){
     body:opts.body?JSON.stringify(opts.body):undefined});
   if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,180)||('HTTP '+r.status)); }
   const t=await r.text(); return t?JSON.parse(t):null;
+}
+// بيرجّع العدد الحقيقي لصفوف جدول من غير ما ينزّل البيانات نفسها (بيستخدم هيدر Content-Range من Supabase)
+async function sbCount(table){
+  const base=DB.url.replace(/\/+$/,'');
+  const r=await fetch(base+'/rest/v1/'+table+'?select=id',{
+    method:'GET',
+    headers:{apikey:DB.key,Authorization:'Bearer '+DB.key,Prefer:'count=exact',Range:'0-0'}});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const range=r.headers.get('content-range')||'';
+  const m=range.match(/\/(\d+)$/);
+  return m? +m[1] : 0;
 }
 const UPSERT={method:'POST',prefer:'resolution=merge-duplicates,return=minimal'};
 let PENDING_SYNCS = 0;
@@ -1061,6 +1072,67 @@ async function deleteInvoiceImage(path){
   }catch(e){ return false; }
 }
 
+/* ================= أرشيف الفواتير ================= */
+let invQ = '';
+let invOnly = 'all'; // all | has | missing
+
+function viewInvoices(){
+  const inMoves = S.moves.filter(m=>m.dir==='in');
+  const withInv = inMoves.filter(m=>m.invoice);
+  const noInv = inMoves.filter(m=>!m.invoice);
+
+  const q = invQ.trim().toLowerCase();
+  let shown = inMoves.filter(m=>{
+    if(invOnly==='has' && !m.invoice) return false;
+    if(invOnly==='missing' && m.invoice) return false;
+    if(q){
+      const it = item(m.itemId);
+      const inName = it && it.name.toLowerCase().includes(q);
+      const inParty = String(m.party||'').toLowerCase().includes(q);
+      if(!inName && !inParty) return false;
+    }
+    return true;
+  }).sort((a,b)=> String(b.date).localeCompare(String(a.date)));
+
+  const chip=(k,l,n)=>`<button class="btn sm ${invOnly===k?'p':''}" data-invonly="${k}">${l} ${n}</button>`;
+
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">إجمالي حركات الوارد</div><div class="v">${inMoves.length}</div><div class="s">في الفترة الحالية</div></div>
+    <div class="card"><div class="k">عندها صورة فاتورة</div><div class="v" style="color:var(--green)">${withInv.length}</div><div class="s">مؤرشفة ومتاحة</div></div>
+    <div class="card"><div class="k">من غير صورة</div><div class="v" style="color:${noInv.length?'var(--red)':'var(--green)'}">${noInv.length}</div><div class="s">${noInv.length?'محتاجة متابعة مع المسؤول':'كله مؤرشف تمام'}</div></div>
+  </div></div></div>
+
+  <div class="panel"><div class="pad">
+    <div class="hint">الأرشيف ده بيغطي حركات "وارد" بس (فيها فاتورة استلام). لو صنف اتسجل من غير صورة، ابعت للمسؤول اللي سجّله يرفعها من نفس الحركة في تبويب "وارد".</div>
+    <div class="bar" style="margin-top:10px">
+      <input type="text" class="grow" id="inv-q" placeholder="دور باسم الصنف أو المورد…" value="${esc(invQ)}">
+      ${chip('all','الكل',inMoves.length)}
+      ${chip('has','عندها صورة',withInv.length)}
+      ${chip('missing','من غير صورة',noInv.length)}
+    </div>
+  </div></div>
+
+  <div class="panel">
+    <h2>${invOnly==='has'?'حركات عندها صورة فاتورة':invOnly==='missing'?'حركات من غير صورة فاتورة':'كل حركات الوارد'} <em>${shown.length}</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>الفاتورة</th></tr></thead>
+      <tbody>${shown.length? shown.map(m=>{
+        const it=item(m.itemId)||{name:'—',unit:''};
+        return `<tr class="${m.invoice?'':'lowrow'}">
+          <td class="n">${esc(m.date)}</td>
+          <td><div class="iname">${esc(it.name)}</div></td>
+          <td class="n">${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span></td>
+          <td>${esc(m.party||'—')}</td>
+          <td>${m.invoice
+              ? `<button class="btn sm g" data-act="inv-view" data-id="${m.id}">📎 عرض الصورة</button>`
+              : `<span class="chip r">مفيش صورة</span>`}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="5" class="empty">مفيش حركات مطابقة</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
 function invoiceViewModal(moveId){
   const m = S.moves.find(x=>x.id===moveId);
   if(!m || !m.invoice) return '';
@@ -1321,7 +1393,7 @@ function render(){
       })():''}
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -1379,6 +1451,8 @@ function categoryTabs(scope){
 /* ================= 0. الجرد اليومي (رصيد لحظي، مش جرد يدوي) ================= */
 let dsSort = { by:'name', dir:1 };
 let ARCHIVE_SIZES = {}; // period -> عدد الحركات المحسوب (لأرشفة الشهور القديمة)
+let DB_SIZE_INFO = null;
+let DB_SIZE_CHECKING = false;
 let dsOnly = 'all'; // all | alert | ok
 let mvSel = new Set(); // الحركات المحددة لتغيير تاريخهم دفعة واحدة
 
@@ -2622,6 +2696,28 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
         </div>`}
     </div>
   </div>
+
+  ${DB.on?`<div class="panel">
+    <h2>حجم البيانات <em>${DB_SIZE_INFO ? 'آخر فحص: '+DB_SIZE_INFO.checkedAt : 'لسه ما اتفحصش'}</em>
+      <button class="btn sm p" data-act="check-db-size" style="margin-inline-start:auto" ${DB_SIZE_CHECKING?'disabled':''}>${DB_SIZE_CHECKING?'بيفحص…':'افحص حجم البيانات دلوقتي'}</button></h2>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">بيحسب عدد الصفوف الفعلي في كل جدول عبر كل المصانع، عشان تعرف قد إيه بياناتك وهل قربت من أي حد لخطة Supabase.</div>
+      ${DB_SIZE_INFO?`
+        <div class="cards" style="margin-bottom:14px">
+          <div class="card"><div class="k">إجمالي الصفوف</div><div class="v">${DB_SIZE_INFO.total.toLocaleString('en-US')}</div><div class="s">عبر كل الجداول والمصانع</div></div>
+          <div class="card"><div class="k">أكبر جدول</div><div class="v" style="font-size:16px">${DB_SIZE_INFO.biggest.name}</div><div class="s">${DB_SIZE_INFO.biggest.count.toLocaleString('en-US')} صف</div></div>
+        </div>
+        <div class="tblwrap"><table class="gridcols">
+          <thead><tr><th>الجدول</th><th class="n">عدد الصفوف</th></tr></thead>
+          <tbody>${DB_SIZE_INFO.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="n hl">${r.failed?'<span class="hint">تعذر الحساب</span>':r.count.toLocaleString('en-US')}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <div class="hint" style="margin-top:10px">
+          <b>للمرجعية:</b> خطة Supabase المجانية بتدّيك حتى 500 ميجا مساحة تخزين — مش عدد صفوف محدد. صف الحركة الواحد (stock_moves) وزنه صغير جدًا (أقل من 1 كيلوبايت عادة)،
+          يعني ممكن يتجمع عندك <b>مئات الآلاف من الصفوف</b> قبل ما تقرّب من الحد. لو حابب رقم دقيق بالميجابايت، شوفه من لوحة Supabase نفسها تحت <b>Project Settings ← Usage</b>.
+        </div>
+      `:''}
+    </div>
+  </div>`:''}
  
   <div class="panel">
     <h2>المصانع <em>${FACTORIES.length} مصنع</em></h2>
@@ -3329,6 +3425,11 @@ function bind(){
     render();
   });
   root.querySelectorAll('[data-itsort]').forEach(th=>th.onclick=()=>itToggleSort(th.dataset.itsort));
+  const invQEl=$('#inv-q'); if(invQEl) invQEl.oninput=e=>{
+    invQ=e.target.value; const p=e.target.selectionStart; render();
+    const n=$('#inv-q'); if(n){ n.focus(); n.setSelectionRange(p,p); }
+  };
+  root.querySelectorAll('[data-invonly]').forEach(b=>b.onclick=()=>{ invOnly=b.dataset.invonly; render(); });
   root.querySelectorAll('[data-exponly]').forEach(b=>b.onclick=()=>{ ui.expOnly=b.dataset.exponly; render(); });
   const recQEl=$('#rec-q'); if(recQEl) recQEl.oninput=e=>{
     recQ=e.target.value; const p=e.target.selectionStart; render();
@@ -4597,6 +4698,23 @@ async function act(a,d){
       toast('اترجعنا لـ '+periodLabel(S.period)+' — راجع الأرقام قبل ما تقفل تاني');
     }catch(e){ DB.busy=false; toast('التراجع فشل: '+e.message,1); }
     return render();
+  }
+  if(a==='check-db-size'){
+    if(!DB.on || DB_SIZE_CHECKING) return;
+    DB_SIZE_CHECKING=true; render();
+    const tables = [
+      ['stock_items','الأصناف'],['stock_moves','الحركات (وارد/منصرف)'],['stock_counts','سطور الجرد'],
+      ['stock_recipes','الوصفات'],['stock_runs','تشغيلات الإنتاج'],['stock_periods','الشهور المقفولة'],['stock_settings','الإعدادات والإشعارات']
+    ];
+    try{
+      const counts = await Promise.all(tables.map(([t])=>sbCount(t).catch(()=>null)));
+      const rows = tables.map(([t,label],i)=>({name:label, count: counts[i]==null? 0 : counts[i], failed: counts[i]==null}));
+      const total = rows.reduce((s,r)=>s+r.count,0);
+      const biggest = rows.slice().sort((a,b)=>b.count-a.count)[0] || {name:'—',count:0};
+      DB_SIZE_INFO = { rows, total, biggest, checkedAt: new Date().toLocaleString('ar-EG') };
+    }catch(e){ toast('حصل خطأ أثناء الفحص: '+e.message,1); }
+    DB_SIZE_CHECKING=false; render();
+    return;
   }
   if(a==='db-retry'){
     DB.busy=true; render();
