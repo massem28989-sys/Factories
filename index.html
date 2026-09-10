@@ -1075,6 +1075,7 @@ async function deleteInvoiceImage(path){
 /* ================= أرشيف الفواتير ================= */
 let invQ = '';
 let invOnly = 'all'; // all | has | missing
+let INV_SEL = new Set(); // الحركات المحددة لربطهم بنفس صورة الفاتورة
 
 function viewInvoices(){
   const inMoves = S.moves.filter(m=>m.dir==='in');
@@ -1104,22 +1105,29 @@ function viewInvoices(){
   </div></div></div>
 
   <div class="panel"><div class="pad">
-    <div class="hint">الأرشيف ده بيغطي حركات "وارد" بس (فيها فاتورة استلام). لو صنف اتسجل من غير صورة، ابعت للمسؤول اللي سجّله يرفعها من نفس الحركة في تبويب "وارد".</div>
+    <div class="hint">حدد كذا صنف من نفس الفاتورة (لو الفاتورة فيها أكتر من منتج)، وارفع صورة واحدة بس — هتتربط بكل الحركات المحددة مرة واحدة. ده بيشتغل مع الحركات القديمة كمان.</div>
     <div class="bar" style="margin-top:10px">
       <input type="text" class="grow" id="inv-q" placeholder="دور باسم الصنف أو المورد…" value="${esc(invQ)}">
       ${chip('all','الكل',inMoves.length)}
       ${chip('has','عندها صورة',withInv.length)}
       ${chip('missing','من غير صورة',noInv.length)}
     </div>
+    ${INV_SEL.size?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--amberbg);border-radius:10px;padding:10px 12px;margin-top:10px">
+      <b style="font-size:13px">${INV_SEL.size} حركة محددة</b>
+      <input type="file" id="inv-bulk-file" accept="image/*" capture="environment" style="font-size:12.5px">
+      <button class="btn sm p" data-act="inv-bulk-upload">ارفع واربطها بالكل</button>
+      <button class="btn sm" data-act="inv-clear-sel">إلغاء التحديد</button>
+    </div>`:''}
   </div></div>
 
   <div class="panel">
     <h2>${invOnly==='has'?'حركات عندها صورة فاتورة':invOnly==='missing'?'حركات من غير صورة فاتورة':'كل حركات الوارد'} <em>${shown.length}</em></h2>
     <div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>الفاتورة</th></tr></thead>
+      <thead><tr><th style="width:30px"><input type="checkbox" data-act="inv-sel-all" ${shown.length&&shown.every(m=>INV_SEL.has(m.id))?'checked':''}></th><th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>الفاتورة</th></tr></thead>
       <tbody>${shown.length? shown.map(m=>{
         const it=item(m.itemId)||{name:'—',unit:''};
         return `<tr class="${m.invoice?'':'lowrow'}">
+          <td><input type="checkbox" data-invsel="${m.id}" ${INV_SEL.has(m.id)?'checked':''}></td>
           <td class="n">${esc(m.date)}</td>
           <td><div class="iname">${esc(it.name)}</div></td>
           <td class="n">${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span></td>
@@ -1128,7 +1136,7 @@ function viewInvoices(){
               ? `<button class="btn sm g" data-act="inv-view" data-id="${m.id}">📎 عرض الصورة</button>`
               : `<span class="chip r">مفيش صورة</span>`}</td>
         </tr>`;
-      }).join('') : `<tr><td colspan="5" class="empty">مفيش حركات مطابقة</td></tr>`}</tbody>
+      }).join('') : `<tr><td colspan="6" class="empty">مفيش حركات مطابقة</td></tr>`}</tbody>
     </table></div>
   </div>`;
 }
@@ -3425,6 +3433,11 @@ function bind(){
     render();
   });
   root.querySelectorAll('[data-itsort]').forEach(th=>th.onclick=()=>itToggleSort(th.dataset.itsort));
+  root.querySelectorAll('[data-invsel]').forEach(cb=>cb.onchange=e=>{
+    const id=e.target.dataset.invsel;
+    if(e.target.checked) INV_SEL.add(id); else INV_SEL.delete(id);
+    render();
+  });
   const invQEl=$('#inv-q'); if(invQEl) invQEl.oninput=e=>{
     invQ=e.target.value; const p=e.target.selectionStart; render();
     const n=$('#inv-q'); if(n){ n.focus(); n.setSelectionRange(p,p); }
@@ -4147,6 +4160,38 @@ async function act(a,d){
     return render();
   }
   if(a==='inv-view'){ ui.modal = invoiceViewModal(d.id); return render(); }
+  if(a==='inv-clear-sel'){ INV_SEL.clear(); return render(); }
+  if(a==='inv-sel-all'){
+    const q=invQ.trim().toLowerCase();
+    const shownIds = S.moves.filter(m=>{
+      if(m.dir!=='in') return false;
+      if(invOnly==='has' && !m.invoice) return false;
+      if(invOnly==='missing' && m.invoice) return false;
+      if(q){ const it=item(m.itemId); const inName=it&&it.name.toLowerCase().includes(q); const inParty=String(m.party||'').toLowerCase().includes(q); if(!inName&&!inParty) return false; }
+      return true;
+    }).map(m=>m.id);
+    if(shownIds.every(id=>INV_SEL.has(id))) shownIds.forEach(id=>INV_SEL.delete(id));
+    else shownIds.forEach(id=>INV_SEL.add(id));
+    return render();
+  }
+  if(a==='inv-bulk-upload'){
+    const fileEl = $('#inv-bulk-file');
+    if(!fileEl || !fileEl.files || !fileEl.files[0]) return toast('اختار صورة الفاتورة الأول',1);
+    if(!INV_SEL.size) return toast('محددش أي حركة',1);
+    const file = fileEl.files[0];
+    const ids = [...INV_SEL];
+    toast(`بيرفع الصورة ويربطها بـ${ids.length} حركة…`);
+    try{
+      // بنرفع الصورة مرة واحدة بس، وبعدين كل الحركات المحددة بتشاور على نفس الملف —
+      // كده الفاتورة اللي فيها أكتر من صنف مش محتاجة ترفعها أكتر من مرة
+      const path = await uploadInvoiceImage(file, ids[0]);
+      ids.forEach(id=>{ const m=S.moves.find(x=>x.id===id); if(m) m.invoice=path; });
+      await saveTx();
+      INV_SEL.clear();
+      toast(`اترفعت الصورة واترربطت بـ${ids.length} حركة`);
+    }catch(e){ toast('حصل خطأ أثناء الرفع: '+e.message,1); }
+    return render();
+  }
   if(a==='inv-del'){
     const m=S.moves.find(x=>x.id===d.id); if(!m||!m.invoice) return;
     if(!confirm('حذف صورة الفاتورة دي؟ الحركة نفسها هتفضل زي ما هي.')) return;
