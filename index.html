@@ -3402,7 +3402,25 @@ function bind(){
     }
     m.qty = n2(v);
     await saveTx();
-    toast('اتحفظت الكمية');
+    // لو الحركة دي "صرف لمصنع تاني" وليها إشعار موصول، لازم نحدّث الكمية في الإشعار نفسه
+    // عشان المصنع التاني ميستلمش رقم قديم لو لسه معلّق، أو يعرف إن الرقم اتغيّر لو كان استلم بالفعل
+    if(m.reason==='صرف لمصنع تاني' && m.notifyId && m.notifyFactory){
+      try{
+        const list = await fetchFactoryInbox(m.notifyFactory);
+        const n = list.find(x=>x.id===m.notifyId);
+        if(n){
+          if(n.status==='pending'){
+            n.qty = m.qty;
+            await saveFactoryInbox(m.notifyFactory, list);
+            toast('اتحفظت الكمية واتحدّث الإشعار عند المصنع التاني');
+          } else {
+            toast('اتحفظت الكمية عندك، بس المصنع التاني كان استلم الإشعار بالرقم القديم خلاص — لازم تكلّمه يدوي يعدّل مخزنه',1);
+          }
+        } else { toast('اتحفظت الكمية'); }
+      }catch(e){ toast('اتحفظت الكمية عندك، بس تحديث الإشعار فشل: '+e.message,1); }
+    } else {
+      toast('اتحفظت الكمية');
+    }
     render();
   });
   root.querySelectorAll('[data-mvprice]').forEach(inp=>inp.onchange=async e=>{
