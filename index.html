@@ -3618,12 +3618,11 @@ function bind(){
     };
   });
   root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{
-    // العمليتين دول ممكن ياخدوا كذا ثانية مع شيتات كبيرة، فبنوري "جاري المعالجة" الأول
-    // ونأجل التنفيذ الفعلي شوية عشان المتصفح يرسم الرسالة قبل ما يشتغل
+    // العمليتين دول ممكن ياخدوا وقت مع شيتات كبيرة، فبنوري "جاري المعالجة" الأول
+    // ونأجل التنفيذ الفعلي شوية عشان المتصفح يرسم الرسالة قبل ما يشتغل، وبنحدّث نسبة تقدم حقيقية أثناء المعالجة
     if(b.dataset.act==='ai-preview' || b.dataset.act==='ai-apply'){
-      const orig = b.textContent;
-      b.disabled = true; b.textContent = 'جاري المعالجة… ممكن ياخد كذا ثانية مع شيتات كبيرة';
-      setTimeout(()=>{ act(b.dataset.act,b.dataset); }, 30);
+      b.disabled = true; b.textContent = 'جاري المعالجة… 0%';
+      setTimeout(()=>{ act(b.dataset.act, {...b.dataset, progressEl:b}); }, 30);
       return;
     }
     act(b.dataset.act,b.dataset);
@@ -3919,6 +3918,81 @@ function detectColumnMap(headerCells){
   return (map.name!==undefined && map.qty!==undefined) ? map : null;
 }
 
+// نسخة async بتعالج على دفعات صغيرة (بدل حلقة واحدة طويلة) عشان المتصفح يفضل مستجيب مهما كان حجم البيانات،
+// وبتنادي onProgress كل دفعة عشان نعرض تقدّم حقيقي بدل رسالة ثابتة
+async function parseActualDispenseSheetAsync(text, onProgress){
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(!lines.length) return {byBranchItem:{}, byDateBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[], errors:['الشيت فاضي']};
+  const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
+  const firstCells = splitRow(lines[0]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+
+  // وقف أمان: لو الشيت فيه صفوف أكتر بكتير من المعقول (زي بقايا تنسيق قديمة في ملفات إكسل)، نحذّر بدل ما نعالج آلاف الصفوف الفاضية
+  if(lines.length > 100000){
+    return {byBranchItem:{}, byDateBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[],
+      errors:[`الشيت فيه ${lines.length.toLocaleString('en-US')} سطر — ده أكتر من المتوقع بكتير وممكن يبقى فيه بيانات فاضية زيادة من الملف. راجع الملف الأول.`]};
+  }
+
+  let colMap = detectColumnMap(firstCells);
+  let start = colMap ? 1 : 0;
+  if(!colMap){
+    const hasBranch = firstCells.length>=5 && !parseDateFlexible(firstCells[0]) && parseDateFlexible(firstCells[1])!=='';
+    colMap = hasBranch ? {branch:0,date:1,name:2,unit:3,qty:4} : {date:0,name:1,unit:2,qty:3};
+    start = parseDateFlexible(firstCells[colMap.date]) ? 0 : 1;
+  }
+
+  const hasBranch = colMap.branch!==undefined;
+  const byBranchItem = {};
+  const byDateBranchItem = {};
+  const branchesSet = new Set();
+  const errors = [];
+  let dateFrom='', dateTo='';
+  let rowsCount=0;
+
+  const CHUNK = 500; // نعالج 500 سطر ونوقف نلحق نفَس للمتصفح، بدل ما نكمل مليون سطر مرة واحدة
+  const t0 = Date.now();
+  const HARD_LIMIT_MS = 30000; // لو المعالجة عدت 30 ثانية، نوقف بدل ما نسيب المتصفح معلّق للأبد
+
+  for(let i=start;i<lines.length;i++){
+    const cells = splitRow(lines[i]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+    const branch = hasBranch ? (cells[colMap.branch]||'—') : '—';
+    const rawDate = colMap.date!==undefined ? cells[colMap.date] : '';
+    const name    = cells[colMap.name];
+    const unit    = colMap.unit!==undefined ? cells[colMap.unit] : '';
+    const qty     = cells[colMap.qty];
+    if(name){
+      const date = parseDateFlexible(rawDate);
+      const q = +qty;
+      if(!(q>0)){ if(errors.length<20) errors.push(`سطر ${i+1}: كمية غير صحيحة (${qty})`); }
+      else{
+        branchesSet.add(branch);
+        if(!byBranchItem[branch]) byBranchItem[branch]={};
+        if(!byBranchItem[branch][name]) byBranchItem[branch][name] = { name, unit: unit||'', qty:0, rows:0 };
+        byBranchItem[branch][name].qty = n2(byBranchItem[branch][name].qty + q);
+        byBranchItem[branch][name].rows++;
+        rowsCount++;
+        if(date){
+          if(!byDateBranchItem[date]) byDateBranchItem[date]={};
+          if(!byDateBranchItem[date][branch]) byDateBranchItem[date][branch]={};
+          if(!byDateBranchItem[date][branch][name]) byDateBranchItem[date][branch][name]={name,unit:unit||'',qty:0};
+          byDateBranchItem[date][branch][name].qty = n2(byDateBranchItem[date][branch][name].qty + q);
+          if(!dateFrom || date<dateFrom) dateFrom=date; if(!dateTo || date>dateTo) dateTo=date;
+        }
+      }
+    }
+
+    if(i % CHUNK === 0){
+      if(Date.now()-t0 > HARD_LIMIT_MS){
+        errors.push(`⚠️ المعالجة وقفت بعد 30 ثانية عشان ماتجمّدش المتصفح — اتعالج ${i} من ${lines.length} سطر بس. الشيت كبير جدًا، جرّب تقسمه لأجزاء أصغر.`);
+        break;
+      }
+      if(onProgress) onProgress(Math.round((i/lines.length)*100));
+      await new Promise(r=>setTimeout(r,0)); // نسيب نفَس للمتصفح يرسم ويستجيب قبل ما نكمل الدفعة اللي بعدها
+    }
+  }
+  if(onProgress) onProgress(100);
+  return {byBranchItem, byDateBranchItem, hasBranch, branches:[...branchesSet].sort((a,b)=>a.localeCompare(b,'ar')), dateFrom, dateTo, rowsCount, errors};
+}
+// النسخة القديمة المتزامنة لسه موجودة لأي استخدام تاني في النظام محتاجها بشكل مباشر
 function parseActualDispenseSheet(text){
   const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   if(!lines.length) return {byBranchItem:{}, byDateBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[], errors:['الشيت فاضي']};
@@ -4038,12 +4112,16 @@ function dispenseImportModal(){
   </div></div>`;
 }
 
-function renderDispenseImportPreview(){
+async function renderDispenseImportPreview(progressEl){
   const text = ($('#ai-text')||{value:''}).value;
   const wrap = $('#ai-preview'); if(!wrap) return;
-  if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; return; }
+  if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; if(progressEl){ progressEl.disabled=false; progressEl.textContent='فحص البيانات'; } return; }
 
-  ACTUAL_PARSED = parseActualDispenseSheet(text);
+  ACTUAL_PARSED = await parseActualDispenseSheetAsync(text, pct=>{
+    if(progressEl) progressEl.textContent = `جاري المعالجة… ${pct}%`;
+  });
+  // خلصنا المعالجة — نرجّع الزرار اللي بدأ العملية لحالته الطبيعية (مش بننادي render() كامل عشان مانمسحش المعاينة اللي هنبنيها دلوقتي)
+  if(progressEl){ progressEl.disabled=false; progressEl.textContent='فحص البيانات'; }
   const {byBranchItem, hasBranch, branches, dateFrom, dateTo, rowsCount, errors} = ACTUAL_PARSED;
   const itemNames = new Set(); let rowN=0;
   Object.values(byBranchItem).forEach(items=>{ Object.keys(items).forEach(n=>itemNames.add(n)); rowN+=Object.keys(items).length; });
@@ -4341,7 +4419,7 @@ async function act(a,d){
     ui.modal=null; toast('اتحذفت صورة الفاتورة'); return render();
   }
   if(a==='import-dispense-compare'){ ACTUAL_PARSED=null; ui.modal=dispenseImportModal(); return render(); }
-  if(a==='ai-preview'){ renderDispenseImportPreview(); return; }
+  if(a==='ai-preview'){ await renderDispenseImportPreview(d.progressEl); return; }
   if(a==='ai-apply'){
     if(!ACTUAL_PARSED) return toast('فحص البيانات الأول',1);
     ui.modal=null; BO.view='compare'; return render();
