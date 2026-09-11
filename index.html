@@ -3870,7 +3870,7 @@ function detectColumnMap(headerCells){
 
 function parseActualDispenseSheet(text){
   const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-  if(!lines.length) return {byBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[], errors:['الشيت فاضي']};
+  if(!lines.length) return {byBranchItem:{}, byDateBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[], errors:['الشيت فاضي']};
   const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
   const firstCells = splitRow(lines[0]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
 
@@ -3888,6 +3888,7 @@ function parseActualDispenseSheet(text){
 
   const hasBranch = colMap.branch!==undefined;
   const byBranchItem = {}; // branch -> { itemName -> {name,unit,qty,rows} }
+  const byDateBranchItem = {}; // date -> branch -> itemName -> {name,unit,qty}
   const branchesSet = new Set();
   const errors = [];
   let dateFrom='', dateTo='';
@@ -3910,9 +3911,16 @@ function parseActualDispenseSheet(text){
     byBranchItem[branch][name].qty = n2(byBranchItem[branch][name].qty + q);
     byBranchItem[branch][name].rows++;
     rowsCount++;
+    // بنحافظ على تفاصيل كل يوم لوحده كمان (مش بس الإجمالي)، عشان عملية "الاستبدال الكامل" تقدر تسجّل كل يوم بتاريخه الحقيقي
+    if(date){
+      if(!byDateBranchItem[date]) byDateBranchItem[date]={};
+      if(!byDateBranchItem[date][branch]) byDateBranchItem[date][branch]={};
+      if(!byDateBranchItem[date][branch][name]) byDateBranchItem[date][branch][name]={name,unit:unit||'',qty:0};
+      byDateBranchItem[date][branch][name].qty = n2(byDateBranchItem[date][branch][name].qty + q);
+    }
     if(date){ if(!dateFrom || date<dateFrom) dateFrom=date; if(!dateTo || date>dateTo) dateTo=date; }
   }
-  return {byBranchItem, hasBranch, branches:[...branchesSet].sort((a,b)=>a.localeCompare(b,'ar')), dateFrom, dateTo, rowsCount, errors};
+  return {byBranchItem, byDateBranchItem, hasBranch, branches:[...branchesSet].sort((a,b)=>a.localeCompare(b,'ar')), dateFrom, dateTo, rowsCount, errors};
 }
 
 function buildDispenseComparison(){
@@ -4053,6 +4061,17 @@ function viewDispenseComparison(){
         <td>${r.recorded<=0?'<span class="chip r">مش مسجل خالص</span>':'<span class="chip a">فرق في الكمية</span>'}</td>
       </tr>`).join('')}</tbody>
     </table></div>
+  </div>`:''}
+
+  ${hasBranch?`<div class="panel" style="border:2px solid var(--red)">
+    <h2 style="color:var(--red)">⚠️ استبدال كامل — امسح المسجل وسجّل الشيت من الأول</h2>
+    <div class="pad">
+      <div class="warnbar">
+        ده خيار مختلف تمامًا عن "سجّل الفروق" فوق. العملية دي هتمسح <b>كل</b> حركات "صرف للفروع" المسجلة عندك من ${dateFrom} لـ${dateTo} نهائيًا،
+        وتسجّل بدالها اللي في الشيت بالظبط، كل يوم بتاريخه الحقيقي. استخدمها بس لما تكون متأكد 100% إن الشيت ده هو الصح الكامل، مش تصحيح جزئي.
+      </div>
+      <button class="btn danger" style="width:100%;margin-top:10px;padding:12px" data-act="ai-full-replace">امسح المسجل من ${dateFrom} لـ${dateTo} وسجّل الشيت من الأول</button>
+    </div>
   </div>`:''}
 
   ${matched.length?`<div class="panel">
@@ -4277,6 +4296,56 @@ async function act(a,d){
     ui.modal=null; BO.view='compare'; return render();
   }
   if(a==='cmp-clear'){ CMP_Q=''; return render(); }
+  if(a==='ai-full-replace'){
+    if(!ACTUAL_PARSED || !ACTUAL_PARSED.dateFrom) return toast('فحص البيانات الأول',1);
+    const {byDateBranchItem, dateFrom, dateTo, hasBranch} = ACTUAL_PARSED;
+    if(!hasBranch) return toast('الشيت لازم يكون فيه عمود فرع عشان الاستبدال يشتغل صح',1);
+
+    // نجهّز كل الصفوف الجاهزة للتسجيل (اتطابقت مع صنف عندك)، ونجمّع اللي مالوش تطابق عشان نبلّغ عنهم
+    const newRows = []; // {date, branch, itemId, itemName, qty, unit}
+    const unmatched = new Set();
+    Object.entries(byDateBranchItem).forEach(([date,branches])=>{
+      Object.entries(branches).forEach(([branch,items])=>{
+        Object.values(items).forEach(entry=>{
+          const match = findMatchingLocalItem(entry.name);
+          if(!match){ unmatched.add(entry.name); return; }
+          if(entry.qty>0) newRows.push({date, branch, itemId:match.id, itemName:match.name, qty:n2(entry.qty), unit:entry.unit});
+        });
+      });
+    });
+
+    // اللي هيتمسح: كل حركات "صرف للفروع" المسجلة عندك حاليًا في نفس مدى التواريخ
+    const toDelete = S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.date>=dateFrom && m.date<=dateTo);
+    const deleteValue = n2(toDelete.reduce((s,m)=>{ const it=item(m.itemId); return s+(+m.qty||0)*(it?(it.price||0):0); },0));
+    const newValue = n2(newRows.reduce((s,r)=>{ const it=item(r.itemId); return s+r.qty*(it?(it.price||0):0); },0));
+
+    const msg = `⚠️ عملية استبدال كامل ونهائية — هتمسح وتسجّل من الأول:\n\n`
+      + `هيتمسح: ${toDelete.length} حركة صرف للفروع مسجلة حاليًا من ${dateFrom} لـ${dateTo} (قيمتها تقريبًا ${money(deleteValue)})\n`
+      + `هيتسجل بدالها: ${newRows.length} حركة من الشيت، بتواريخها الحقيقية يوم بيوم (قيمتها تقريبًا ${money(newValue)})\n`
+      + (unmatched.size ? `\n⚠️ ${unmatched.size} صنف في الشيت مالوش تطابق عندك، هيتخطى: ${[...unmatched].slice(0,5).join('، ')}${unmatched.size>5?'…':''}\n` : '')
+      + `\nالعملية دي مش هترجع. متأكد تكمل؟`;
+    if(!confirm(msg)) return;
+
+    const typed = prompt(`للتأكيد النهائي، اكتب "استبدال" بالظبط:`);
+    if(typed !== 'استبدال'){ toast('الكلمة مطابقتش، اتلغت العملية',1); return; }
+
+    // 1) نمسح الموجود في الفترة دي
+    S.moves = S.moves.filter(m=>!(m.dir==='out' && m.reason==='صرف للفروع' && m.date>=dateFrom && m.date<=dateTo));
+
+    // 2) نسجّل من الشيت من الأول، كل يوم بتاريخه الحقيقي — مع احترام الوصفات ورصيد المخزون زي أي صرف عادي
+    let done=0; const blocked=[];
+    for(const r of newRows){
+      const res = dispenseOut(r.itemId, r.qty, r.date, r.branch, 'صرف للفروع');
+      if(res.error){ blocked.push(`${r.itemName} (${r.branch}, ${r.date}): ${res.error}`); continue; }
+      done++;
+    }
+    await saveTx();
+    ACTUAL_PARSED = null; INV_SEL && INV_SEL.clear && INV_SEL.clear();
+    toast(`تم الاستبدال: اتمسح ${toDelete.length} حركة، واتسجّل ${done} حركة جديدة من الشيت${blocked.length?` — ${blocked.length} اتخطوا لعدم كفاية الرصيد`:''}`);
+    if(blocked.length) alert('الحركات دي ما اتسجلتش لعدم كفاية الرصيد وتحتاج مراجعة يدوية:\n\n'+blocked.slice(0,30).join('\n')+(blocked.length>30?`\n… و${blocked.length-30} كمان`:''));
+    if(unmatched.size) alert('الأصناف دي في الشيت مالهاش تطابق في مخزنك، اتخطت خالص ومحتاجة تتراجع يدوي:\n\n'+[...unmatched].join('\n'));
+    return render();
+  }
   if(a==='ai-record-diffs'){
     const cmp = buildDispenseComparison();
     if(!cmp) return;
