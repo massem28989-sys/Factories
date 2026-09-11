@@ -1695,7 +1695,18 @@ async function decideFactoryChangeRequest(id, decision){
 function findMatchingLocalItem(faroojName){
   if(S.boMap && S.boMap[faroojName]) { const m=item(S.boMap[faroojName]); if(m) return m; }
   const norm = s => String(s||'').trim().toLowerCase();
-  return S.items.find(i=>norm(i.name)===norm(faroojName)) || null;
+  const exact = S.items.find(i=>norm(i.name)===norm(faroojName));
+  if(exact) return exact;
+  // مفيش تطابق حرفي: نقترح أقرب صنف تلقائي لحد ما المستخدم يثبّته بنفسه
+  const best = suggestItemsFor(faroojName, 1)[0];
+  return (best && best.score>=0.5) ? best.item : null;
+}
+// هل الصنف الحالي مقترح تلقائي (مش مثبّت من المستخدم ولا تطابق حرفي)؟
+function boMatchIsSuggested(faroojName){
+  if(S.boMap && S.boMap[faroojName]) return false;
+  const norm = s => String(s||'').trim().toLowerCase();
+  if(S.items.some(i=>norm(i.name)===norm(faroojName))) return false;
+  return !!findMatchingLocalItem(faroojName);
 }
 // تطبيع أسماء الوحدات: نفس الوحدة بتتكتب بأشكال مختلفة (حبه/حبة، باكت/باكيت، كرتونه/كرتون)
 function normUnit(u){
@@ -1875,10 +1886,13 @@ function viewBranchOrders(){
       <input type="text" class="grow" id="bo-matrix-q" placeholder="دور باسم الصنف…" value="${esc(BO.matrixQ||'')}">
       ${tq?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
     </div></div>
+    <datalist id="bo-items-list">${S.items.map(i=>`<option value="${esc(i.name)}">${esc(i.cat)} · ${esc(i.unit)}</option>`).join('')}</datalist>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الصنف (من الفروج)</th><th class="n">طلب الفروع</th><th class="n">فروع</th><th>الصنف المطابق في المخزن</th><th>التحويل</th><th class="n">هيتخصم من مخزنك</th><th>الحالة</th><th></th></tr></thead>
       <tbody>${shownRows.length? shownRows.map(r=>{
         const match = findMatchingLocalItem(r.name);
+        const suggested = boMatchIsSuggested(r.name);
+        const sugg = (!match||suggested) ? suggestItemsFor(r.name, 5) : [];
         const done = boIsDone(r.name);
         const brN = BO.orders.filter(o=>(o.items||[]).some(x=>x.name===r.name && +x.qty>0)).length;
         const bu = String(r.unit||'').trim();
@@ -1887,14 +1901,19 @@ function viewBranchOrders(){
         const f = match ? convFactorOf(r.name) : null;
         const finalQty = (f!==null) ? n2(r.qty*f) : null;
         const needsConv = match && f===null;
-        return `<tr${done?' style="opacity:.55"':(needsConv?' class="lowrow"':'')}>
+        return `<tr${done?' style="opacity:.55"':(needsConv?' class="lowrow"':(suggested?' style="background:var(--amberbg)"':''))}>
           <td><div class="iname">${esc(r.name)}</div></td>
           <td class="n">${fmt(r.qty)} <span class="chip">${esc(bu)}</span></td>
           <td class="n">${brN}</td>
-          <td><select data-bomap="${esc(r.name)}" style="min-width:180px">
-              <option value="">— اختار الصنف المطابق —</option>
-              ${S.items.map(i=>`<option value="${i.id}" ${match&&match.id===i.id?'selected':''}>${esc(i.name)} (${esc(i.unit)})</option>`).join('')}
-            </select></td>
+          <td>
+            <input type="text" list="bo-items-list" data-bosearch="${esc(r.name)}" value="${match?esc(match.name):''}" placeholder="اكتب اسم الصنف للبحث…" style="width:100%;min-width:180px;padding:5px 7px;font-size:12.5px">
+            <div style="margin-top:3px">
+              ${match?(suggested?'<span class="chip a">مقترح تلقائي — راجعه</span>':'<span class="chip g">مطابق</span>'):'<span class="chip r">محتاج مطابقة</span>'}
+            </div>
+            ${(!match||suggested)&&sugg.length?`<div class="hint" style="margin-top:4px">أقرب الأصناف:
+              ${sugg.map(s=>`<button class="btn sm" data-bopick="${esc(r.name)}|${s.item.id}" style="padding:2px 7px;font-size:11px;margin:2px 2px 0 0">${esc(s.item.name)}</button>`).join('')}
+            </div>`:''}
+          </td>
           <td>${!match?'<span class="hint">—</span>'
               : sameUnit?'<span class="chip g">نفس الوحدة</span>'
               : `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap">
@@ -3339,15 +3358,26 @@ function bind(){
     toast(v && +v>0 ? 'اتحفظ معامل التحويل' : 'اتشال معامل التحويل');
     render();
   });
-  root.querySelectorAll('[data-bomap]').forEach(sel=>{
-    sel.onchange=async e=>{
-      const name=e.target.dataset.bomap, v=e.target.value;
-      if(!S.boMap) S.boMap={};
-      if(v) S.boMap[name]=v; else delete S.boMap[name];
-      await saveMain();
-      toast(v?'اتحفظت المطابقة — هيفتكرها المرات الجاية':'اتشالت المطابقة');
-      render();
-    };
+  root.querySelectorAll('[data-bosearch]').forEach(inp=>inp.onchange=async e=>{
+    const name=e.target.dataset.bosearch, v=e.target.value.trim();
+    const norm=s=>String(s||'').trim().toLowerCase();
+    if(!S.boMap) S.boMap={};
+    if(!v){ delete S.boMap[name]; await saveMain(); toast('اتشالت المطابقة'); return render(); }
+    const hit=S.items.find(i=>norm(i.name)===norm(v));
+    if(!hit){ toast('مفيش صنف بالاسم ده — اختار من الاقتراحات',1); return render(); }
+    S.boMap[name]=hit.id;
+    await saveMain();
+    toast(`اتثبتت المطابقة: ${hit.name}`);
+    render();
+  });
+  root.querySelectorAll('[data-bopick]').forEach(b=>b.onclick=async ()=>{
+    const [name,itemId]=b.dataset.bopick.split('|');
+    if(!S.boMap) S.boMap={};
+    S.boMap[name]=itemId;
+    await saveMain();
+    const it=item(itemId);
+    toast(`اتثبتت المطابقة: ${it?it.name:''}`);
+    render();
   });
   const boFrom=$('#bo-from'); if(boFrom) boFrom.onchange=e=>{BO.from=e.target.value;};
   const boTo=$('#bo-to'); if(boTo) boTo.onchange=e=>{BO.to=e.target.value;};
