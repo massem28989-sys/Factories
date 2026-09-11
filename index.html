@@ -7,6 +7,7 @@
   <div class="boot">جاري تحميل بيانات المخزن…</div>
 </div>
  
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#E8ECEE; --surface:#fff; --ink:#14181C; --brand:#14181C; --brand-bg:#EEF1F3; --muted:#69747E; --line:#CFD8DD;
@@ -3096,9 +3097,29 @@ function bind(){
   };
   const aiFile=$('#ai-file'); if(aiFile) aiFile.onchange=e=>{
     const f=e.target.files&&e.target.files[0]; if(!f) return;
-    const rd=new FileReader();
-    rd.onload=()=>{ const ta=$('#ai-text'); if(ta){ ta.value=String(rd.result||''); renderDispenseImportPreview(); } };
-    rd.readAsText(f,'utf-8');
+    const name = (f.name||'').toLowerCase();
+    const isExcel = /\.(xlsx?|xlsm)$/.test(name);
+    const ta=$('#ai-text');
+    if(isExcel){
+      // ملفات إكسل الحقيقية (.xls القديمة أو .xlsx) ملفات ثنائية، مينفعش تتقرا كنص عادي —
+      // لازم تتحلل بمكتبة SheetJS الأول وبعدين تتحول لجدول نصي يقدر المحلل يفهمه
+      if(typeof XLSX==='undefined'){ toast('مكتبة قراءة إكسل ما اتحمّلتش، جرب تاني أو الصق البيانات يدوي',1); return; }
+      const rd=new FileReader();
+      rd.onload=()=>{
+        try{
+          const wb = XLSX.read(rd.result, {type:'array', cellDates:true});
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          // dateNF بيخلي أي خانة تاريخ تتحول لصيغة موحدة زي 2026-09-10 بدل رقم إكسل الداخلي
+          const csv = XLSX.utils.sheet_to_csv(sheet, {FS:'\t', dateNF:'yyyy-mm-dd'});
+          if(ta){ ta.value=csv; renderDispenseImportPreview(); }
+        }catch(err){ toast('تعذرت قراءة ملف الإكسل: '+err.message,1); }
+      };
+      rd.readAsArrayBuffer(f);
+    } else {
+      const rd=new FileReader();
+      rd.onload=()=>{ if(ta){ ta.value=String(rd.result||''); renderDispenseImportPreview(); } };
+      rd.readAsText(f,'utf-8');
+    }
   };
   const aiText=$('#ai-text'); if(aiText) aiText.onblur=()=>renderDispenseImportPreview();
   const cmpQ=$('#cmp-q'); if(cmpQ) cmpQ.oninput=e=>{
@@ -3815,26 +3836,57 @@ let CMP_Q = ''; // بحث في شاشة المقارنة
 
 function parseDateFlexible(s){
   s = String(s||'').trim();
+  s = s.split(/[T ]/)[0]; // نشيل أي وقت ملحق بالتاريخ (زي "9/10/2026 0:00:00" أو "2026-09-10 00:00:00")
   let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // M/D/YYYY
   if(m) return `${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); // YYYY-M-D
   if(m) return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  m = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/); // D-M-YYYY
+  if(m) return `${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
   return '';
+}
+
+// كلمات مفتاحية للتعرف على كل عمود من اسمه، بغض النظر عن ترتيبه في الشيت
+const COL_KEYWORDS = {
+  branch: ['فرع','account','branch'],
+  date:   ['تاريخ','date','issue'],
+  name:   ['صنف','منتج','item','name','product'],
+  unit:   ['وحده','وحدة','unit'],
+  qty:    ['كميه','كمية','qty','quantity'],
+};
+function detectColumnMap(headerCells){
+  const map = {};
+  headerCells.forEach((cell,i)=>{
+    const norm = String(cell||'').trim().toLowerCase();
+    if(!norm) return;
+    for(const [field,keywords] of Object.entries(COL_KEYWORDS)){
+      if(map[field]!==undefined) continue; // أول عمود يطابق الكلمة المفتاحية بس اللي بياخده
+      if(keywords.some(k=>norm.includes(k))){ map[field]=i; break; }
+    }
+  });
+  // لازم نلاقي على الأقل صنف وكمية عشان نعتبره صف عناوين حقيقي
+  return (map.name!==undefined && map.qty!==undefined) ? map : null;
 }
 
 function parseActualDispenseSheet(text){
   const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   if(!lines.length) return {byBranchItem:{}, hasBranch:false, dateFrom:'', dateTo:'', rowsCount:0, branches:[], errors:['الشيت فاضي']};
   const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
-
-  // نحدد شكل الأعمدة تلقائي: 5 أعمدة (فرع، تاريخ، صنف، وحدة، كمية) أو 4 (تاريخ، صنف، وحدة، كمية)
   const firstCells = splitRow(lines[0]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
-  const hasBranch = firstCells.length>=5 && !parseDateFlexible(firstCells[0]) && parseDateFlexible(firstCells[1])!=='';
-  // لو أول سطر مش تاريخ في الخانة المتوقعة، يبقى صف عناوين ونتجاهله
-  const dateColIdx = hasBranch ? 1 : 0;
-  let start = 0;
-  if(!parseDateFlexible(firstCells[dateColIdx])) start = 1;
 
+  // أولوية أولى: نحاول نتعرف على الأعمدة من عناوينها (بيشتغل مهما كان ترتيب الأعمدة في الشيت)
+  let colMap = detectColumnMap(firstCells);
+  let start = colMap ? 1 : 0;
+
+  // لو مفيش صف عناوين واضح، نرجع للتخمين بالترتيب القديم كحل بديل (توافق مع شيتات قديمة)
+  if(!colMap){
+    const hasBranch = firstCells.length>=5 && !parseDateFlexible(firstCells[0]) && parseDateFlexible(firstCells[1])!=='';
+    colMap = hasBranch ? {branch:0,date:1,name:2,unit:3,qty:4} : {date:0,name:1,unit:2,qty:3};
+    const dateColIdx = colMap.date;
+    start = parseDateFlexible(firstCells[dateColIdx]) ? 0 : 1;
+  }
+
+  const hasBranch = colMap.branch!==undefined;
   const byBranchItem = {}; // branch -> { itemName -> {name,unit,qty,rows} }
   const branchesSet = new Set();
   const errors = [];
@@ -3843,11 +3895,11 @@ function parseActualDispenseSheet(text){
 
   for(let i=start;i<lines.length;i++){
     const cells = splitRow(lines[i]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
-    const branch = hasBranch ? (cells[0]||'—') : '—';
-    const rawDate = hasBranch ? cells[1] : cells[0];
-    const name    = hasBranch ? cells[2] : cells[1];
-    const unit    = hasBranch ? cells[3] : cells[2];
-    const qty     = hasBranch ? cells[4] : cells[3];
+    const branch = hasBranch ? (cells[colMap.branch]||'—') : '—';
+    const rawDate = colMap.date!==undefined ? cells[colMap.date] : '';
+    const name    = cells[colMap.name];
+    const unit    = colMap.unit!==undefined ? cells[colMap.unit] : '';
+    const qty     = cells[colMap.qty];
     if(!name) continue;
     const date = parseDateFlexible(rawDate);
     const q = +qty;
@@ -3914,7 +3966,7 @@ function dispenseImportModal(){
         النظام هيجمع كل الأسطر لكل صنف، ويقارنها بالمسجل عندك فعليًا في "منصرف".
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <input type="file" id="ai-file" accept=".csv,text/csv" style="font-size:12.5px">
+        <input type="file" id="ai-file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="font-size:12.5px">
         <span class="hint">أو الصق في الخانة تحت</span>
       </div>
       <textarea id="ai-text" rows="9" placeholder="الصق هنا..." style="width:100%;padding:10px;font-family:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;direction:ltr;text-align:left"></textarea>
