@@ -462,7 +462,7 @@ async function sset(k,v){
   if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
   return saved;
 }
-async function saveMain(){ BK.dirty++; const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1692,14 +1692,25 @@ async function decideFactoryChangeRequest(id, decision){
   }catch(e){ toast('حصل خطأ أثناء تحديث الحالة، حاول تاني',1); }
 }
 
+// كاش بسيط عشان مش نكرر حساب أقرب تطابق لنفس اسم الصنف كذا مرة (زي لما نفس الصنف يتكرر في 24 فرع)
+// بيتصفّر تلقائي لو كارت الأصناف اتغيّر (بنقارن طوله كإشارة سريعة للتغيير)
+let _matchCache = new Map();
+let _matchCacheItemsLen = -1;
 function findMatchingLocalItem(faroojName){
-  if(S.boMap && S.boMap[faroojName]) { const m=item(S.boMap[faroojName]); if(m) return m; }
+  if(_matchCacheItemsLen !== S.items.length){ _matchCache = new Map(); _matchCacheItemsLen = S.items.length; }
+  if(_matchCache.has(faroojName)) return _matchCache.get(faroojName);
+  if(S.boMap && S.boMap[faroojName]) {
+    const m=item(S.boMap[faroojName]);
+    if(m){ _matchCache.set(faroojName, m); return m; }
+  }
   const norm = s => String(s||'').trim().toLowerCase();
   const exact = S.items.find(i=>norm(i.name)===norm(faroojName));
-  if(exact) return exact;
+  if(exact){ _matchCache.set(faroojName, exact); return exact; }
   // مفيش تطابق حرفي: نقترح أقرب صنف تلقائي لحد ما المستخدم يثبّته بنفسه
   const best = suggestItemsFor(faroojName, 1)[0];
-  return (best && best.score>=0.5) ? best.item : null;
+  const result = (best && best.score>=0.5) ? best.item : null;
+  _matchCache.set(faroojName, result);
+  return result;
 }
 // هل الصنف الحالي مقترح تلقائي (مش مثبّت من المستخدم ولا تطابق حرفي)؟
 function boMatchIsSuggested(faroojName){
@@ -3606,7 +3617,17 @@ function bind(){
       }
     };
   });
-  root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
+  root.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{
+    // العمليتين دول ممكن ياخدوا كذا ثانية مع شيتات كبيرة، فبنوري "جاري المعالجة" الأول
+    // ونأجل التنفيذ الفعلي شوية عشان المتصفح يرسم الرسالة قبل ما يشتغل
+    if(b.dataset.act==='ai-preview' || b.dataset.act==='ai-apply'){
+      const orig = b.textContent;
+      b.disabled = true; b.textContent = 'جاري المعالجة… ممكن ياخد كذا ثانية مع شيتات كبيرة';
+      setTimeout(()=>{ act(b.dataset.act,b.dataset); }, 30);
+      return;
+    }
+    act(b.dataset.act,b.dataset);
+  });
   const rf=$('#restore');
   if(rf) rf.onchange=e=>{
     const f=e.target.files[0]; if(!f) return;
