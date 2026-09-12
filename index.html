@@ -4138,6 +4138,8 @@ async function renderDispenseImportPreview(progressEl){
     html += `<button class="btn p" data-act="ai-apply" style="width:100%;margin-top:12px">اعرض المقارنة الكاملة</button>`;
   }
   wrap.innerHTML = html;
+  // بنربط أحداث الضغط للأزرار اللي جوه المعاينة يدوي هنا، لأنها بتتحقن مباشرة من غير ما تمر على bind() الرئيسية
+  wrap.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
 }
 
 function viewDispenseComparison(){
@@ -4419,7 +4421,13 @@ async function act(a,d){
     ui.modal=null; toast('اتحذفت صورة الفاتورة'); return render();
   }
   if(a==='import-dispense-compare'){ ACTUAL_PARSED=null; ui.modal=dispenseImportModal(); return render(); }
-  if(a==='ai-preview'){ await renderDispenseImportPreview(d.progressEl); return; }
+  if(a==='ai-preview'){
+    await renderDispenseImportPreview(d.progressEl);
+    // الزرار اللي بيظهر جوه المعاينة (زي "اعرض المقارنة الكاملة") بيتحقن مباشرة من غير ما يمر على bind() الرئيسية،
+    // فلازم نربط أحداث الضغط بتاعته يدوي هنا وإلا الضغط عليه ميعملش حاجة
+    document.querySelectorAll('#ai-preview [data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
+    return;
+  }
   if(a==='ai-apply'){
     if(!ACTUAL_PARSED) return toast('فحص البيانات الأول',1);
     ui.modal=null; BO.view='compare'; return render();
