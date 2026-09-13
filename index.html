@@ -1033,6 +1033,7 @@ function renderRecipeImportPreview(){
       <button class="btn p" data-act="ri-apply" style="width:100%;margin-top:12px">استيراد ${ok.length} وصفة</button>`;
   }
   wrap.innerHTML = html;
+  wrap.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
 }
 
 let RI_PARSED = [];
@@ -1367,6 +1368,7 @@ function renderItemCatalogImportPreview(){
       <button class="btn p" data-act="ici-apply" style="width:100%;margin-top:12px">استيراد ${rows.length} صنف</button>`;
   }
   wrap.innerHTML = html;
+  wrap.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
 }
 
 let ICI_PARSED = [];
