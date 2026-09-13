@@ -1263,6 +1263,114 @@ function viewExpiry(){
   </div>`;
 }
 
+/* ================= استيراد كارت الأصناف بالجملة ================= */
+// الصيغة المتوقعة: الصنف | الوصف (اختياري) | القسم | الوحدة | الشدّ | الوحده البديله | سعر الوحدة
+// عمود "الشدّ" ليه صيغتين: "اسم=رقم" (زي طبق=30) أو "رقم اسم_الوحدة_الأساسية" (زي 25 كيلو) —
+// في الحالة التانية اسم الوحدة البديلة بييجي من عمود "الوحده البديله" لوحده
+function parseShadField(shad, altUnitCol){
+  shad = String(shad||'').trim();
+  altUnitCol = String(altUnitCol||'').trim();
+  if(!shad) return { packUnit: altUnitCol||'', packSize: 0 };
+  let m = shad.match(/^(.+?)\s*=\s*([\d.]+)$/);
+  if(m) return { packUnit: m[1].trim(), packSize: +m[2] };
+  m = shad.match(/([\d.]+)/);
+  if(m) return { packUnit: altUnitCol||'', packSize: +m[1] };
+  return { packUnit: altUnitCol||'', packSize: 0 };
+}
+
+function itemCatalogImportModal(){
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:680px">
+    <h3>استيراد كارت الأصناف بالجملة</h3>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">
+        انسخ الأعمدة من الإكسل والصقها هنا مباشرة، أو ارفع ملف. الصنف اللي اسمه موجود عندك بالفعل <b>هيتحدّث</b> (الوحدة، الشدّ، السعر، التصنيف)،
+        والصنف الجديد <b>هيتضاف</b>. أول سطر المفروض يكون عناوين الأعمدة.
+      </div>
+      <div style="background:var(--lightbg);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;overflow-x:auto">
+        <b>ترتيب الأعمدة:</b><br>
+        <code style="direction:ltr;display:inline-block;margin-top:4px">الصنف | الوصف | القسم | الوحدة | الشدّ | الوحده البديله | سعر الوحدة</code>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input type="file" id="ici-file" accept=".csv,.xls,.xlsx,.xlsm,text/csv" style="font-size:12.5px">
+        <span class="hint">أو الصق في الخانة تحت</span>
+      </div>
+      <textarea id="ici-text" rows="9" placeholder="الصق هنا..." style="width:100%;padding:10px;font-family:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;direction:ltr;text-align:left"></textarea>
+      <div id="ici-preview" style="margin-top:12px"></div>
+    </div>
+    <div class="foot">
+      <button class="btn p" data-act="ici-preview">فحص البيانات</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
+function parseItemCatalogImport(text){
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(!lines.length) return {rows:[], errors:['الشيت فاضي']};
+  const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
+  const firstCells = splitRow(lines[0]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+  // نتجاهل صف العناوين لو أول خانة فيه نص زي "الصنف" أو مطابق لاسم عمود معروف
+  const looksLikeHeader = /صنف|item|name/i.test(firstCells[0]||'');
+  const start = looksLikeHeader ? 1 : 0;
+
+  const rows = [];
+  const errors = [];
+  const norm = s => String(s||'').trim().toLowerCase();
+  const seen = new Set();
+
+  for(let i=start;i<lines.length;i++){
+    const c = splitRow(lines[i]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+    const [name, , cat, unit, shad, altUnit, price] = c;
+    if(!name) continue;
+    if(seen.has(norm(name))){ errors.push(`سطر ${i+1}: الصنف "${name}" مكرر في الشيت، اتاخد آخر سطر بيه`); }
+    seen.add(norm(name));
+    const pack = parseShadField(shad, altUnit);
+    const match = S.items.find(it=>norm(it.name)===norm(name));
+    rows.push({
+      name, cat: cat||'خامات', unit: unit||'', packUnit: pack.packUnit, packSize: pack.packSize,
+      price: price!==undefined && price!=='' ? +price : null,
+      existing: match||null
+    });
+  }
+  return {rows, errors};
+}
+
+function renderItemCatalogImportPreview(){
+  const text = ($('#ici-text')||{value:''}).value;
+  const wrap = $('#ici-preview'); if(!wrap) return;
+  if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; return; }
+
+  const {rows, errors} = parseItemCatalogImport(text);
+  ICI_PARSED = rows;
+  const willUpdate = rows.filter(r=>r.existing).length;
+  const willCreate = rows.length - willUpdate;
+  const withPack = rows.filter(r=>r.packUnit && r.packSize>0).length;
+
+  let html = `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+    <div class="card"><div class="k">إجمالي الأصناف</div><div class="v">${rows.length}</div><div class="s">في الشيت</div></div>
+    <div class="card"><div class="k">هيتحدّث</div><div class="v" style="color:var(--blue)">${willUpdate}</div><div class="s">موجود بالفعل بنفس الاسم</div></div>
+    <div class="card"><div class="k">هيتضاف جديد</div><div class="v" style="color:var(--green)">${willCreate}</div><div class="s">مش موجود عندك</div></div>
+    <div class="card"><div class="k">عنده وحدة بديلة</div><div class="v">${withPack}</div><div class="s">شدّ محدد</div></div>
+  </div>`;
+  if(errors.length) html += `<div class="warnbar" style="margin-top:10px">${errors.slice(0,8).map(esc).join('<br>')}${errors.length>8?`<br>… و${errors.length-8} كمان`:''}</div>`;
+  if(rows.length){
+    html += `<div class="tblwrap" style="margin-top:10px;max-height:280px"><table class="gridcols">
+      <thead><tr><th>الصنف</th><th>القسم</th><th>الوحدة</th><th>الشدّ</th><th class="n">السعر</th><th>الحالة</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td><div class="iname">${esc(r.name)}</div></td>
+        <td>${esc(r.cat)}</td>
+        <td><span class="chip">${esc(r.unit)}</span></td>
+        <td>${r.packUnit&&r.packSize?`<span class="chip b">${esc(r.packUnit)} = ${fmt(r.packSize)}</span>`:'<span class="hint">—</span>'}</td>
+        <td class="n">${r.price!=null?money(r.price):'<span class="hint">—</span>'}</td>
+        <td>${r.existing?'<span class="chip b">تحديث</span>':'<span class="chip g">جديد</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>
+      <button class="btn p" data-act="ici-apply" style="width:100%;margin-top:12px">استيراد ${rows.length} صنف</button>`;
+  }
+  wrap.innerHTML = html;
+}
+
+let ICI_PARSED = [];
+
 function viewInbox(){
   const pending = MY_INBOX.filter(n=>n.status==='pending');
   const processing = MY_INBOX.filter(n=>n.status==='processing');
@@ -1747,6 +1855,9 @@ function convFactorOf(faroojName){
   if(!m) return null;
   const bu = normUnit(branchUnitOf(faroojName)), fu = normUnit(m.unit);
   if(bu && fu && bu === fu) return 1;
+  // لو وحدة الفرع مطابقة للوحدة البديلة (الشدّ) المسجلة على الصنف نفسه، نحسب المعامل تلقائي من غير ما نطلب إدخال يدوي —
+  // نفس الوحدة البديلة دي بتستخدم في الجرد كمان، عشان تبقى موحّدة في النظام كله
+  if(bu && m.packUnit && m.packSize>0 && normUnit(m.packUnit)===bu) return m.packSize;
   const saved = S.boConv ? S.boConv[faroojName] : undefined;
   return (saved!==undefined && saved!=='' && +saved>0) ? +saved : null; // null = محتاج تحديد
 }
@@ -1909,6 +2020,7 @@ function viewBranchOrders(){
         const bu = String(r.unit||'').trim();
         const fu = match ? String(match.unit||'').trim() : '';
         const sameUnit = match && bu && fu && normUnit(bu)===normUnit(fu);
+        const autoPack = match && bu && match.packUnit && match.packSize>0 && normUnit(match.packUnit)===normUnit(bu);
         const f = match ? convFactorOf(r.name) : null;
         const finalQty = (f!==null) ? n2(r.qty*f) : null;
         const needsConv = match && f===null;
@@ -1927,6 +2039,7 @@ function viewBranchOrders(){
           </td>
           <td>${!match?'<span class="hint">—</span>'
               : sameUnit?'<span class="chip g">نفس الوحدة</span>'
+              : autoPack?`<span class="chip g">1 ${esc(bu)} = ${fmt(match.packSize)} ${esc(fu)}</span> <span class="hint">(وحدة بديلة)</span>`
               : `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap">
                    <span class="hint">1 ${esc(bu)} =</span>
                    <input type="number" step="any" min="0" value="${S.boConv&&S.boConv[r.name]!==undefined?S.boConv[r.name]:''}" data-boconv="${esc(r.name)}" placeholder="؟" style="width:64px;padding:4px 6px;font-size:12px;text-align:center">
@@ -2564,6 +2677,7 @@ function viewItems(){
   <div class="panel">
     <h2>كارت الأصناف <em>${list.length} من ${S.items.length}</em>
       <button class="btn sm g" data-act="items-export" style="margin-inline-start:auto">تصدير CSV</button>
+      <button class="btn sm" data-act="import-item-catalog">استيراد بالجملة</button>
       <button class="btn sm p" data-act="new-item">صنف جديد</button></h2>
     ${categoryTabs()}
     <div class="pad">
@@ -3163,6 +3277,30 @@ function bind(){
     rd.readAsText(f,'utf-8');
   };
   const riText=$('#ri-text'); if(riText) riText.onblur=()=>renderRecipeImportPreview();
+  const iciFile=$('#ici-file'); if(iciFile) iciFile.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const name=(f.name||'').toLowerCase();
+    const isExcel = /\.(xlsx?|xlsm)$/.test(name);
+    const ta=$('#ici-text');
+    if(isExcel){
+      if(typeof XLSX==='undefined'){ toast('مكتبة قراءة إكسل ما اتحمّلتش، جرب تاني أو الصق البيانات يدوي',1); return; }
+      const rd=new FileReader();
+      rd.onload=()=>{
+        try{
+          const wb = XLSX.read(rd.result, {type:'array', cellDates:true});
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const csv = XLSX.utils.sheet_to_csv(sheet, {FS:'\t'});
+          if(ta){ ta.value=csv; renderItemCatalogImportPreview(); }
+        }catch(err){ toast('تعذرت قراءة ملف الإكسل: '+err.message,1); }
+      };
+      rd.readAsArrayBuffer(f);
+    } else {
+      const rd=new FileReader();
+      rd.onload=()=>{ if(ta){ ta.value=String(rd.result||''); renderItemCatalogImportPreview(); } };
+      rd.readAsText(f,'utf-8');
+    }
+  };
+  const iciText=$('#ici-text'); if(iciText) iciText.onblur=()=>renderItemCatalogImportPreview();
   const langSel=$('#lang-select'); if(langSel) langSel.onchange=e=>{ setLang(e.target.value); };
   const dom=$('#dispatch-only-mode'); if(dom) dom.onchange=async e=>{
     S.dispatchOnlyMode=e.target.checked;
@@ -3676,17 +3814,20 @@ function readBulkInHeader(){
   const dt=$('#bi-date'); if(dt) ui.bulkIn.date=dt.value;
 }
  
-function dispenseOut(itemId, qty, date, party, reason){
-  // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة. لو الرصيد مش كفاية (للصنف نفسه أو لأي خامة في وصفته)، بيرفض ومايسجّلش أي حاجة خالص.
+function dispenseOut(itemId, qty, date, party, reason, force=false){
+  // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة. لو الرصيد مش كفاية (للصنف نفسه أو لأي خامة في وصفته)، بيرفض ومايسجّلش أي حاجة خالص —
+  // إلا لو force=true (بتُستخدم في أدوات المطابقة مع الصرف الفعلي، لأن الشيت بيمثل حقيقة مؤكدة حصلت فعلاً حتى لو الخامات عندنا رصيدها ناقص)
   const r=S.recipes.find(x=>x.outItemId===itemId);
   if(r && r.outQty>0){
     const b = qty / r.outQty;
+    const shortages=[];
     for(const l of r.lines){
       const need = n2(l.qty*b);
       const li = item(l.itemId);
       const bal = li ? calc(li).book : 0;
       if(need > bal){
-        return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${li?li.name:'غير معروفة'}" (متاح ${fmt(bal)}، مطلوب ${fmt(need)})`};
+        if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${li?li.name:'غير معروفة'}" (متاح ${fmt(bal)}، مطلوب ${fmt(need)})`};
+        shortages.push({name: li?li.name:'غير معروفة', need, bal});
       }
     }
     const runId=uid('run');
@@ -3696,16 +3837,16 @@ function dispenseOut(itemId, qty, date, party, reason){
     S.runs=S.runs||[]; S.runs.push({id:runId,date,name:r.name,batches:n2(b),outQty,cost,auto:true});
     const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
     S.moves.push(m);
-    return {move:m, auto:true};
+    return {move:m, auto:true, shortages: shortages.length?shortages:undefined};
   }
   const it=item(itemId);
   const bal = it ? calc(it).book : 0;
   if(qty > bal){
-    return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`};
+    if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`};
   }
   const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
   S.moves.push(m);
-  return {move:m, auto:false};
+  return {move:m, auto:false, shortages: (qty>bal && force)?[{name:it?it.name:'غير معروف', need:qty, bal}]:undefined};
 }
 async function boSaveOrder(order){
   if(!order || !order._key) { toast('تعذر تحديد الطلبية',1); return false; }
@@ -4460,7 +4601,8 @@ async function act(a,d){
       + `هيتمسح: ${toDelete.length} حركة صرف للفروع مسجلة حاليًا من ${dateFrom} لـ${dateTo} (قيمتها تقريبًا ${money(deleteValue)})\n`
       + `هيتسجل بدالها: ${newRows.length} حركة من الشيت، بتواريخها الحقيقية يوم بيوم (قيمتها تقريبًا ${money(newValue)})\n`
       + (unmatched.size ? `\n⚠️ ${unmatched.size} صنف في الشيت مالوش تطابق عندك، هيتخطى: ${[...unmatched].slice(0,5).join('، ')}${unmatched.size>5?'…':''}\n` : '')
-      + `\nالعملية دي مش هترجع. متأكد تكمل؟`;
+      + `\nملحوظة: لو أي خامة في وصفة منتج رصيدها مش كفاية، هيتسجل برضه (لأن الشيت بيمثل صرف حقيقي حصل فعلاً)، وهيبقى رصيدها بالسالب لحد ما تصحّحه بوارد منفصل.`
+      + `\n\nالعملية دي مش هترجع. متأكد تكمل؟`;
     if(!confirm(msg)) return;
 
     const typed = prompt(`للتأكيد النهائي، اكتب "استبدال" بالظبط:`);
@@ -4469,18 +4611,23 @@ async function act(a,d){
     // 1) نمسح الموجود في الفترة دي
     S.moves = S.moves.filter(m=>!(m.dir==='out' && m.reason==='صرف للفروع' && m.date>=dateFrom && m.date<=dateTo));
 
-    // 2) نسجّل من الشيت من الأول، كل يوم بتاريخه الحقيقي — مع احترام الوصفات ورصيد المخزون زي أي صرف عادي
-    let done=0; const blocked=[];
+    // 2) نسجّل من الشيت من الأول، كل يوم بتاريخه الحقيقي — مع احترام الوصفات، بس من غير ما نوقف التسجيل لو خامة رصيدها ناقص
+    let done=0; const blocked=[]; const shortageReport=[];
     for(const r of newRows){
-      const res = dispenseOut(r.itemId, r.qty, r.date, r.branch, 'صرف للفروع');
+      const res = dispenseOut(r.itemId, r.qty, r.date, r.branch, 'صرف للفروع', true);
       if(res.error){ blocked.push(`${r.itemName} (${r.branch}, ${r.date}): ${res.error}`); continue; }
+      if(res.shortages) res.shortages.forEach(s=>shortageReport.push(`${s.name}`));
       done++;
     }
     await saveTx();
     ACTUAL_PARSED = null; INV_SEL && INV_SEL.clear && INV_SEL.clear();
-    toast(`تم الاستبدال: اتمسح ${toDelete.length} حركة، واتسجّل ${done} حركة جديدة من الشيت${blocked.length?` — ${blocked.length} اتخطوا لعدم كفاية الرصيد`:''}`);
-    if(blocked.length) alert('الحركات دي ما اتسجلتش لعدم كفاية الرصيد وتحتاج مراجعة يدوية:\n\n'+blocked.slice(0,30).join('\n')+(blocked.length>30?`\n… و${blocked.length-30} كمان`:''));
+    toast(`تم الاستبدال: اتمسح ${toDelete.length} حركة، واتسجّل ${done} حركة جديدة من الشيت${blocked.length?` — ${blocked.length} اتخطوا`:''}`);
+    if(blocked.length) alert('الحركات دي ما اتسجلتش:\n\n'+blocked.slice(0,30).join('\n')+(blocked.length>30?`\n… و${blocked.length-30} كمان`:''));
     if(unmatched.size) alert('الأصناف دي في الشيت مالهاش تطابق في مخزنك، اتخطت خالص ومحتاجة تتراجع يدوي:\n\n'+[...unmatched].join('\n'));
+    if(shortageReport.length){
+      const uniqueShortages = [...new Set(shortageReport)];
+      alert(`⚠️ ${uniqueShortages.length} خامة رصيدها بقى بالسالب بعد الاستبدال (تسجّلت الحركات برضه لأنها حصلت فعلاً، بس محتاجة تصحيح وارد):\n\n`+uniqueShortages.slice(0,30).join('\n')+(uniqueShortages.length>30?`\n… و${uniqueShortages.length-30} كمان`:''));
+    }
     return render();
   }
   if(a==='ai-record-diffs'){
@@ -4491,20 +4638,51 @@ async function act(a,d){
       .filter(r=>r.match && Math.abs(r.diff)>0.01);
     if(!rows.length) return toast('مفيش فروق تتسجل',1);
     const preview = rows.slice(0,12).map(r=>`• ${r.match.name}${cmp.hasBranch?` (${r.branch})`:''}: ${r.diff>0?'+':''}${fmt(r.diff)} ${r.unit}`).join('\n');
-    if(!confirm(`هيتم تسجيل ${rows.length} حركة تصحيح كـ"صرف للفروع" بتاريخ النهاردة:\n\n${preview}${rows.length>12?`\n… و${rows.length-12} كمان`:''}\n\nملحوظة: بيتسجل الفرق بس (زيادة أو نقص)، ولو الصنف ليه وصفة هيخصم خاماتها تلقائي. تكمل؟`)) return;
+    if(!confirm(`هيتم تسجيل ${rows.length} حركة تصحيح كـ"صرف للفروع" بتاريخ النهاردة:\n\n${preview}${rows.length>12?`\n… و${rows.length-12} كمان`:''}\n\nملحوظة: بيتسجل الفرق بس (زيادة أو نقص)، ولو الصنف ليه وصفة هيخصم خاماتها تلقائي. لو خامة رصيدها مش كفاية، هيتسجل برضه لأن الشيت بيمثل صرف حقيقي حصل فعلاً — بس هيبقى رصيدها بالسالب وهتقدر تصلحه بعدين. تكمل؟`)) return;
 
-    let done=0, blocked=[];
+    let done=0, blocked=[]; const shortageReport=[];
     for(const r of rows){
       if(r.diff<=0) continue; // بنسجل بس اللي محتاج "زيادة صرف" — النقص (لو الفعلي أقل من المسجل) محتاج مراجعة يدوية مش تسجيل تلقائي
       const party = cmp.hasBranch ? r.branch : 'الفروع';
-      const res = dispenseOut(r.match.id, r.diff, today(), party, 'صرف للفروع');
+      const res = dispenseOut(r.match.id, r.diff, today(), party, 'صرف للفروع', true);
       if(res.error){ blocked.push(`${r.match.name}${cmp.hasBranch?` (${r.branch})`:''}: ${res.error}`); continue; }
+      if(res.shortages) res.shortages.forEach(s=>shortageReport.push(`${s.name}: كان متاح ${fmt(s.bal)}، اتخصم منه ${fmt(s.need)}`));
       done++;
     }
     await saveTx();
-    toast(`اتسجّل ${done} حركة تصحيح${blocked.length?` — ${blocked.length} اتخطت لعدم كفاية الرصيد`:''}`);
-    if(blocked.length) alert('الحركات دي ما اتسجلتش لعدم كفاية الرصيد:\n\n'+blocked.join('\n'));
+    toast(`اتسجّل ${done} حركة تصحيح${blocked.length?` — ${blocked.length} اتخطت`:''}`);
+    if(blocked.length) alert('الحركات دي ما اتسجلتش:\n\n'+blocked.join('\n'));
+    if(shortageReport.length) alert(`⚠️ ${shortageReport.length} خامة رصيدها بقى بالسالب بعد التسجيل (محتاجة تصحيح وارد منفصل):\n\n`+[...new Set(shortageReport)].slice(0,30).join('\n'));
     return render();
+  }
+  if(a==='import-item-catalog'){ ICI_PARSED=[]; ui.modal=itemCatalogImportModal(); return render(); }
+  if(a==='ici-preview'){ renderItemCatalogImportPreview(); return; }
+  if(a==='ici-apply'){
+    if(!ICI_PARSED.length) return toast('مفيش بيانات للاستيراد',1);
+    const willUpdate = ICI_PARSED.filter(r=>r.existing).length;
+    const willCreate = ICI_PARSED.length - willUpdate;
+    if(!confirm(`هيتم تحديث ${willUpdate} صنف وإضافة ${willCreate} صنف جديد. تكمل؟`)) return;
+    let updated=0, created=0;
+    ICI_PARSED.forEach(r=>{
+      if(r.existing){
+        const it = r.existing;
+        it.cat = r.cat; it.unit = r.unit||it.unit;
+        if(r.packUnit) it.packUnit = r.packUnit;
+        if(r.packSize>0) it.packSize = r.packSize;
+        if(r.price!=null) it.price = r.price;
+        updated++;
+      } else {
+        S.items.push({ id:uid('i'), name:r.name, desc:'', unit:r.unit||'', cat:r.cat,
+          opening:0, price:r.price||0, min:0, packUnit:r.packUnit||'', packSize:r.packSize||0, note:'' });
+        created++;
+      }
+    });
+    saveMain().then(()=>{
+      ui.modal=null; ICI_PARSED=[];
+      toast(`تم الاستيراد: اتحدّث ${updated} صنف وانضاف ${created} صنف جديد`);
+      render();
+    });
+    return;
   }
   if(a==='import-recipes'){ RI_PARSED=[]; ui.modal=recipeImportModal(); return render(); }
   if(a==='ri-preview'){ renderRecipeImportPreview(); return; }
