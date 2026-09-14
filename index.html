@@ -569,6 +569,18 @@ async function pushAll(quiet){
 
   // كل قسم مستقل تمامًا عن الباقي: فشل قسم واحد (زي الحركات لو أعمدة جديدة لسه ما اتضافتش) مايوقفش حفظ باقي الأقسام خالص
   try{
+    // حماية أساسية: لو نسختنا المحلية فاضية من الأصناف بس السيرفر عنده أصناف فعلاً، ده مش حالة "مسح كل الأصناف" حقيقية —
+    // غالبًا التحميل لسه ما خلصش عندنا أو حصلت مشكلة، فبنوقف من غير ما نمسح حاجة بدل ما نخاطر نمسح كل كارت الأصناف من غير بديل
+    let itemsSafe = true;
+    if(!S.items.length){
+      try{
+        const existing = await sb('stock_items?'+fEq()+'&select=id&limit=1',{prefer:'return=representation'});
+        if(existing && existing.length) itemsSafe = false;
+      }catch(e){ itemsSafe = false; } // لو مقدرناش نتأكد، الأولى نوقف بدل ما نخاطر
+    }
+    if(!itemsSafe){
+      errors.push('الأصناف: اتأجّل الحفظ عشان كارت الأصناف عندك فاضي محليًا بس فيه أصناف مسجلة على السيرفر — يمكن التحميل لسه ما خلصش. اعمل ريفريش للصفحة وحاول تاني.');
+    } else {
     // نمسح كل أصناف المصنع ده الأول ثم نعيد إدراج الموجود بس حاليًا، عشان أي صنف اتحذف محليًا يتشال فعليًا من القاعدة (بدل ما يفضل موجود وبيرجع تاني)
     await sb('stock_items?'+fEq(),{method:'DELETE'});
     if(S.items.length){
@@ -583,12 +595,15 @@ async function pushAll(quiet){
         errors.push('تنبيه: عمود "متابعة يومية" لسه مش مضاف في القاعدة — الأصناف اتحفظت من غيره. شغّل أمر SQL اللي بعتهولك عشان يتفعّل.');
       }
     }
+    }
   }catch(e){ errors.push('الأصناف: '+e.message); }
 
   try{
-    // قبل أي حذف أو كتابة: نسحب آخر نسخة موجودة فعليًا على السيرفر للفترة دي، ونضمّها لنسختنا المحلية —
-    // عشان لو جهاز تاني (زي المدير) كان سجّل حركة جديدة قبلنا بلحظات ولسه ما سحبناهاش، متتمسحش من غير قصد
-    // لما إحنا نرفع تعديل تاني مالوش علاقة بيها. أي حركة اتحذفت فعلاً عندنا (في DELETED_MOVE_IDS) بتتستبعد من الدمج.
+    // قبل أي حذف أو كتابة: لازم نسحب آخر نسخة موجودة فعليًا على السيرفر للفترة دي الأول، ونضمّها لنسختنا المحلية —
+    // عشان لو جهاز تاني (زي المدير) كان سجّل حركة جديدة قبلنا بلحظات ولسه ما سحبناهاش، متتمسحش من غير قصد.
+    // **مهم جدًا**: لو السحب ده فشل لأي سبب (مشكلة نت مثلاً)، لازم نوقف تمامًا وما نلمسش حركات السيرفر خالص —
+    // لأننا لو كملنا بنسختنا المحلية وهي فاضية أو ناقصة، ممكن نمسح حركات حقيقية من غير أي بديل يتسجل مكانها.
+    let fetchOk = false;
     let mergedMoves = S.moves;
     try{
       const serverMoves = await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=*',{prefer:'return=representation'}) || [];
@@ -598,11 +613,16 @@ async function pushAll(quiet){
         .map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,
           runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,
           notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
-      if(extra.length){ mergedMoves = [...S.moves, ...extra]; S.moves = mergedMoves; }
-    }catch(e){ /* لو السحب فشل لأي سبب، نكمل بنسختنا المحلية زي ما هي بدل ما نوقف الحفظ كله */ }
+      mergedMoves = extra.length ? [...S.moves, ...extra] : S.moves;
+      if(extra.length) S.moves = mergedMoves;
+      fetchOk = true;
+    }catch(e){ fetchOk = false; }
 
-    await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
-    if(mergedMoves.length){
+    if(!fetchOk){
+      errors.push('الحركات: اتأجّل الحفظ عشان محتاج نتأكد من آخر نسخة موجودة على السيرفر الأول (مشكلة اتصال مؤقتة) — هيتحفظ تلقائي أول ما الاتصال يرجع، وحركاتك الحالية آمنة عندك.');
+    } else {
+      await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
+      if(mergedMoves.length){
       const fullBody = mergedMoves.map(m=>({
         id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
         party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
@@ -618,6 +638,8 @@ async function pushAll(quiet){
         await sb('stock_moves',{method:'POST',body:basicBody});
         errors.push('تنبيه: أعمدة تاريخ الإنتاج/الحرارة/الإشعارات لسه مش مضافة في القاعدة — الحركات اتحفظت من غيرها. شغّل أوامر SQL اللي بعتهالك عشان تتفعّل.');
       }
+      }
+      DELETED_MOVE_IDS.clear();
     }
     DELETED_MOVE_IDS.clear();
   }catch(e){ errors.push('الحركات: '+e.message); }
@@ -625,30 +647,52 @@ async function pushAll(quiet){
   try{
     // خطر حقيقي: الحذف الكامل هنا كان بيمسح أي جرد اتسجل من جهاز تاني (المدير مثلاً) لسه ما وصلش لنسختنا.
     // الحل: نقرأ اللي في القاعدة الأول، ندمجه مع اللي عندنا، وبعدين نكتب المجموع — من غير ما نفقد أي رقم.
-    let remote = {};
+    // **مهم**: لو القراءة فشلت، لازم نوقف تمامًا وما نمسحش حاجة، عشان ميحصلش نفس اللي حصل مع الحركات.
+    let remote = {}; let countsFetchOk = false;
     try{
       const cur = await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=item_id,qty',{prefer:'return=representation'})||[];
       cur.forEach(r=>{ remote[r.item_id]=+r.qty||0; });
-    }catch(e){ /* لو القراءة فشلت، نكمل باللي عندنا بس */ }
+      countsFetchOk = true;
+    }catch(e){ countsFetchOk = false; }
 
-    const merged = {...remote, ...S.counts};   // اللي عندنا له الأولوية، والباقي بيتحافظ عليه
-    S.counts = merged;                          // نحدّث نسختنا المحلية كمان عشان الشاشة تبان صح
+    if(!countsFetchOk){
+      errors.push('الجرد: اتأجّل الحفظ عشان محتاج نتأكد من آخر نسخة على السيرفر الأول (مشكلة اتصال مؤقتة) — هيتحفظ تلقائي أول ما الاتصال يرجع.');
+    } else {
+      const merged = {...remote, ...S.counts};   // اللي عندنا له الأولوية، والباقي بيتحافظ عليه
+      S.counts = merged;                          // نحدّث نسختنا المحلية كمان عشان الشاشة تبان صح
 
-    await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
-    const cs=Object.entries(merged).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
-    if(cs.length) await sb('stock_counts',{method:'POST',body:cs});
+      await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
+      const cs=Object.entries(merged).map(([k,v])=>({factory:F,period:P,item_id:k,qty:+v||0}));
+      if(cs.length) await sb('stock_counts',{method:'POST',body:cs});
+    }
   }catch(e){ errors.push('الجرد: '+e.message); }
 
   try{
-    await sb('stock_recipes?'+fEq(),{method:'DELETE'});
-    if(S.recipes.length) await sb('stock_recipes',{method:'POST',body:S.recipes.map(r=>({
-      id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}))});
+    let recipesSafe = true;
+    if(!S.recipes.length){
+      try{ const existing = await sb('stock_recipes?'+fEq()+'&select=id&limit=1',{prefer:'return=representation'}); if(existing && existing.length) recipesSafe = false; }
+      catch(e){ recipesSafe = false; }
+    }
+    if(!recipesSafe){ errors.push('الوصفات: اتأجّل الحفظ لنفس سبب الأصناف — كارت الوصفات فاضي محليًا بس فيه وصفات على السيرفر.'); }
+    else {
+      await sb('stock_recipes?'+fEq(),{method:'DELETE'});
+      if(S.recipes.length) await sb('stock_recipes',{method:'POST',body:S.recipes.map(r=>({
+        id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}))});
+    }
   }catch(e){ errors.push('الوصفات: '+e.message); }
 
   try{
-    await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
-    if((S.runs||[]).length) await sb('stock_runs',{method:'POST',body:S.runs.map((r,i)=>({
-      id:r.id||(F+'-'+P+'-'+i),factory:F,period:P,run_date:r.date,name:r.name,batches:+r.batches||0,out_qty:+r.outQty||0,cost:+r.cost||0}))});
+    let runsSafe = true;
+    if(!(S.runs||[]).length){
+      try{ const existing = await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=id&limit=1',{prefer:'return=representation'}); if(existing && existing.length) runsSafe = false; }
+      catch(e){ runsSafe = false; }
+    }
+    if(!runsSafe){ errors.push('التشغيلات: اتأجّل الحفظ لنفس السبب — راجع الاتصال وحاول تاني.'); }
+    else {
+      await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
+      if((S.runs||[]).length) await sb('stock_runs',{method:'POST',body:S.runs.map((r,i)=>({
+        id:r.id||(F+'-'+P+'-'+i),factory:F,period:P,run_date:r.date,name:r.name,batches:+r.batches||0,out_qty:+r.outQty||0,cost:+r.cost||0}))});
+    }
   }catch(e){ errors.push('التشغيلات: '+e.message); }
 
   try{
@@ -2398,6 +2442,7 @@ function viewMove(dir){
   <div class="panel">
     <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
       ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:''}
+      ${isIn&&ROLE==='owner'?`<button class="btn sm" data-act="in-recovery-open">استيراد وارد بالجملة</button>`:''}
       ${ROLE==='owner'&&DB.on?`<button class="btn sm" data-act="db-pull-quiet" ${isIn?'style="margin-inline-start:auto"':''} title="اسحب أحدث حركات مسجّلة من القاعدة">${DB.busy?'بيحدّث…':'🔄 تحديث دلوقتي'}</button>`:''}
       <button class="btn sm g" data-act="mv-export" data-dir="${dir}" ${(isIn&&!(ROLE==='owner'&&DB.on))?'style="margin-inline-start:auto"':''}>${t('export_csv')}</button></h2>
     <div class="pad">
@@ -3324,6 +3369,94 @@ function viewPurchaseRequests(){
   </div>`;
 }
 
+/* ================= استعادة/استيراد وارد بالجملة (لاسترجاع الفواتير المفقودة) ================= */
+// الصيغة: التاريخ | الصنف | الكمية | السعر | المورد (اختياري)
+function inRecoveryImportModal(){
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:680px">
+    <h3>استيراد وارد بالجملة</h3>
+    <div class="pad">
+      <div class="hint" style="margin-bottom:10px">
+        لاسترجاع فواتير وارد كتير مرة واحدة. الصق الأعمدة من الإكسل أو ارفع ملف. أول سطر المفروض يكون عناوين.
+      </div>
+      <div style="background:var(--lightbg);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;overflow-x:auto">
+        <b>ترتيب الأعمدة:</b><br>
+        <code style="direction:ltr;display:inline-block;margin-top:4px">التاريخ | الصنف | الكمية | السعر | المورد</code><br>
+        <span class="hint">مثال: 2026-09-03 | بيض - EGG | 24 | 0.46 | مورد الفروج</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input type="file" id="iri-file" accept=".csv,.xls,.xlsx,.xlsm,text/csv" style="font-size:12.5px">
+        <span class="hint">أو الصق في الخانة تحت</span>
+      </div>
+      <textarea id="iri-text" rows="9" placeholder="الصق هنا..." style="width:100%;padding:10px;font-family:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;direction:ltr;text-align:left"></textarea>
+      <div id="iri-preview" style="margin-top:12px"></div>
+    </div>
+    <div class="foot">
+      <button class="btn p" data-act="iri-preview">فحص البيانات</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
+function parseInRecoverySheet(text){
+  const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(!lines.length) return {rows:[], errors:['الشيت فاضي']};
+  const splitRow = l => l.includes('\t') ? l.split('\t') : l.split(',');
+  const firstCells = splitRow(lines[0]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+  const looksLikeHeader = /تاريخ|صنف|date|item/i.test(firstCells.join(' '));
+  const start = looksLikeHeader ? 1 : 0;
+
+  const norm = s => String(s||'').trim().toLowerCase();
+  const rows = []; const errors = [];
+  for(let i=start;i<lines.length;i++){
+    const c = splitRow(lines[i]).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
+    const [rawDate, name, qty, price, party] = c;
+    if(!name) continue;
+    const date = parseDateFlexible(rawDate);
+    if(!date){ errors.push(`سطر ${i+1}: تاريخ غير مفهوم (${rawDate})`); continue; }
+    const q = +qty;
+    if(!(q>0)){ errors.push(`سطر ${i+1}: كمية غير صحيحة (${qty})`); continue; }
+    const match = S.items.find(it=>norm(it.name)===norm(name));
+    rows.push({ date, name, qty:q, price:+price||0, party:party||'', match });
+  }
+  return {rows, errors};
+}
+
+function renderInRecoveryPreview(){
+  const text = ($('#iri-text')||{value:''}).value;
+  const wrap = $('#iri-preview'); if(!wrap) return;
+  if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; return; }
+
+  const {rows, errors} = parseInRecoverySheet(text);
+  IRI_PARSED = rows;
+  const matched = rows.filter(r=>r.match).length;
+  const unmatched = rows.length - matched;
+  const totalValue = n2(rows.reduce((s,r)=>s+r.qty*r.price,0));
+
+  let html = `<div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">
+    <div class="card"><div class="k">صفوف اتقرت</div><div class="v">${rows.length}</div><div class="s">إجمالي القيمة ${money(totalValue)}</div></div>
+    <div class="card"><div class="k">متطابقة</div><div class="v" style="color:var(--green)">${matched}</div></div>
+    ${unmatched?`<div class="card"><div class="k">مالهاش تطابق</div><div class="v" style="color:var(--red)">${unmatched}</div><div class="s">هتتخطى</div></div>`:''}
+  </div>`;
+  if(errors.length) html += `<div class="warnbar" style="margin-top:10px">${errors.slice(0,8).map(esc).join('<br>')}${errors.length>8?`<br>… و${errors.length-8} كمان`:''}</div>`;
+  if(rows.length){
+    html += `<div class="tblwrap" style="margin-top:10px;max-height:280px"><table class="gridcols">
+      <thead><tr><th>التاريخ</th><th>الصنف</th><th class="n">الكمية</th><th class="n">السعر</th><th>المورد</th><th>الحالة</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr class="${r.match?'':'lowrow'}">
+        <td class="n">${esc(r.date)}</td>
+        <td><div class="iname">${esc(r.name)}</div></td>
+        <td class="n">${fmt(r.qty)} ${r.match?esc(r.match.unit):''}</td>
+        <td class="n">${money(r.price)}</td>
+        <td>${esc(r.party||'—')}</td>
+        <td>${r.match?'<span class="chip g">متطابق</span>':'<span class="chip r">مالوش تطابق</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>
+      <button class="btn p" data-act="iri-apply" style="width:100%;margin-top:12px" ${!matched?'disabled':''}>استيراد ${matched} حركة وارد</button>`;
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset));
+}
+
+let IRI_PARSED = [];
+
 function receiptModal(m){
   const it = item(m.itemId) || {name:'—',unit:''};
   const isIn = m.dir==='in';
@@ -3470,6 +3603,30 @@ function bind(){
     rd.readAsText(f,'utf-8');
   };
   const riText=$('#ri-text'); if(riText) riText.onblur=()=>renderRecipeImportPreview();
+  const iriFile=$('#iri-file'); if(iriFile) iriFile.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const name=(f.name||'').toLowerCase();
+    const isExcel = /\.(xlsx?|xlsm)$/.test(name);
+    const ta=$('#iri-text');
+    if(isExcel){
+      if(typeof XLSX==='undefined'){ toast('مكتبة قراءة إكسل ما اتحمّلتش، جرب تاني أو الصق البيانات يدوي',1); return; }
+      const rd=new FileReader();
+      rd.onload=()=>{
+        try{
+          const wb = XLSX.read(rd.result, {type:'array', cellDates:true});
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const csv = XLSX.utils.sheet_to_csv(sheet, {FS:'\t', dateNF:'yyyy-mm-dd'});
+          if(ta){ ta.value=csv; renderInRecoveryPreview(); }
+        }catch(err){ toast('تعذرت قراءة ملف الإكسل: '+err.message,1); }
+      };
+      rd.readAsArrayBuffer(f);
+    } else {
+      const rd=new FileReader();
+      rd.onload=()=>{ if(ta){ ta.value=String(rd.result||''); renderInRecoveryPreview(); } };
+      rd.readAsText(f,'utf-8');
+    }
+  };
+  const iriText=$('#iri-text'); if(iriText) iriText.onblur=()=>renderInRecoveryPreview();
   const iciFile=$('#ici-file'); if(iciFile) iciFile.onchange=e=>{
     const f=e.target.files&&e.target.files[0]; if(!f) return;
     const name=(f.name||'').toLowerCase();
@@ -4716,6 +4873,22 @@ async function act(a,d){
     return render();
   }
   if(a==='inv-view'){ ui.modal = invoiceViewModal(d.id); return render(); }
+  if(a==='in-recovery-open'){ IRI_PARSED=[]; ui.modal=inRecoveryImportModal(); return render(); }
+  if(a==='iri-preview'){ renderInRecoveryPreview(); return; }
+  if(a==='iri-apply'){
+    const rows = IRI_PARSED.filter(r=>r.match);
+    if(!rows.length) return toast('مفيش صفوف متطابقة تتسجل',1);
+    if(!confirm(`هيتم تسجيل ${rows.length} حركة وارد بتواريخها الحقيقية. تكمل؟`)) return;
+    rows.forEach(r=>{
+      S.moves.push({ id:uid('m'), dir:'in', itemId:r.match.id, qty:n2(r.qty), date:r.date,
+        price:n2(r.price), party:r.party||'', reason:'' });
+      if(r.price>0) r.match.price = n2(r.price);
+    });
+    await saveMain(); await saveTx();
+    ui.modal=null; IRI_PARSED=[];
+    toast(`اتسجّل ${rows.length} حركة وارد`);
+    return render();
+  }
   if(a==='pur-create'){
     const nameEl=$('#pr-item'), qtyEl=$('#pr-qty'), noteEl=$('#pr-note');
     const name = nameEl? nameEl.value.trim() : '';
