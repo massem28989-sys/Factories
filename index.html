@@ -2362,7 +2362,8 @@ function viewMove(dir){
 
   <div class="panel">
     <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
-      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" style="margin-inline-start:auto">${t('export_csv')}</button></h2>
+      ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:''}
+      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" ${isIn?'style="margin-inline-start:auto"':''}>${t('export_csv')}</button></h2>
     <div class="pad">
       <div class="bar">
         <input type="text" class="grow" id="mv-q" placeholder="${t('search_item_party')}" value="${esc(ui.mvQ||'')}">
@@ -3133,6 +3134,68 @@ function bulkReceiptModal(moves, date, party, reason){
     <div class="foot"><button class="btn p" data-act="do-print">${t('r_print')}</button><button class="btn" data-close="1">${t('r_close')}</button></div>
   </div></div>`;
 }
+/* ================= فاتورة مجمّعة لفرع (كل الأصناف في مستند واحد) ================= */
+function consolidatedInvoicePickerModal(){
+  const branches = [...new Set(S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع').map(m=>m.party).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:420px">
+    <h3>طباعة فاتورة مجمّعة لفرع</h3>
+    <div class="pad">
+      <label class="f">الفرع</label>
+      <select id="ci-branch" style="width:100%">
+        <option value="">— اختار الفرع —</option>
+        ${branches.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}
+      </select>
+      <label class="f" style="margin-top:10px">التاريخ</label>
+      <input type="date" id="ci-date" value="${esc(today())}" style="width:100%">
+      <div class="hint" style="margin-top:6px">هيجمع كل الأصناف اللي اتصرفت للفرع ده في اليوم ده في فاتورة واحدة قابلة للطباعة.</div>
+    </div>
+    <div class="foot">
+      <button class="btn p" data-act="print-consolidated-go">اعرض الفاتورة</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
+function consolidatedInvoiceModal(branch, date){
+  const moves = S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.party===branch && m.date===date);
+  if(!moves.length) return `<div class="modal" data-close="1"><div class="box" style="max-width:380px">
+    <h3>مفيش حركات</h3><div class="pad">مفيش صرف مسجّل لـ"${esc(branch)}" في يوم ${esc(date)}.</div>
+    <div class="foot"><button class="btn" data-close="1">إغلاق</button></div>
+  </div></div>`;
+
+  const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
+  const num = 'INV-'+String(Date.now()).slice(-6);
+  const rows = moves.map(m=>{ const it=item(m.itemId)||{name:'—',unit:''}; return {name:it.name, unit:it.unit, qty:m.qty}; })
+    .sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:480px">
+    <h3>فاتورة صرف مجمّعة <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
+    <div class="pad receipt">
+      <div style="text-align:center;margin-bottom:10px">
+        ${FACTORY_LOGOS[FACTORY]?`<img src="${FACTORY_LOGOS[FACTORY]}" style="width:44px;height:44px;object-fit:contain">`:''}
+        <div style="font-weight:700;font-size:15px;margin-top:4px">${facName}</div>
+        <div class="hint">صرف للفرع: <b>${esc(branch)}</b> — ${esc(date)}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-top:8px">
+        <thead><tr style="border-bottom:1px solid var(--line)">
+          <th style="text-align:start;padding:5px 0;color:var(--muted);font-weight:600">الصنف</th>
+          <th style="text-align:end;padding:5px 0;color:var(--muted);font-weight:600">الكمية</th>
+        </tr></thead>
+        <tbody>${rows.map(r=>`<tr style="border-bottom:1px dotted var(--line)">
+          <td style="padding:5px 0">${esc(r.name)}</td>
+          <td class="n" style="padding:5px 0">${fmt(r.qty)} ${esc(r.unit)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div style="margin-top:8px;font-weight:700">إجمالي الأصناف: ${rows.length}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:26px;padding-top:14px;border-top:1px dashed var(--line)">
+        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">المُسلِّم</div></div>
+        <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">المُستلِم</div></div>
+      </div>
+    </div>
+    <div class="foot"><button class="btn p" data-act="do-print">طباعة</button><button class="btn" data-close="1">إغلاق</button></div>
+  </div></div>`;
+}
+
 function receiptModal(m){
   const it = item(m.itemId) || {name:'—',unit:''};
   const isIn = m.dir==='in';
@@ -4594,24 +4657,40 @@ async function act(a,d){
       });
     });
 
-    // اللي هيتمسح: كل حركات "صرف للفروع" المسجلة عندك حاليًا في نفس مدى التواريخ
-    const toDelete = S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.date>=dateFrom && m.date<=dateTo);
+    // اللي هيتمسح: بس حركات "صرف للفروع" في **الأيام اللي فعلاً موجودة في الشيت**، مش الفترة كلها من أول لآخر تاريخ —
+    // عشان لو يوم ناقص من الشيت (اترفع بالغلط أو الملف ناقص)، الحركات القديمة بتاعته تفضل زي ما هي ومتتمسحش من غير بديل
+    const datesInSheet = new Set(Object.keys(byDateBranchItem));
+    const toDelete = S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date));
     const deleteValue = n2(toDelete.reduce((s,m)=>{ const it=item(m.itemId); return s+(+m.qty||0)*(it?(it.price||0):0); },0));
     const newValue = n2(newRows.reduce((s,r)=>{ const it=item(r.itemId); return s+r.qty*(it?(it.price||0):0); },0));
+    const sortedDates = [...datesInSheet].sort();
+    // نتأكد مفيش فجوة في الأيام جوه مدى الشيت نفسه (زي يوم ناقص وسط 10 أيام)، ونحذّر لو فيه عشان المستخدم يراجع قبل ما يكمل
+    const gapDays = [];
+    if(sortedDates.length>1){
+      let d = new Date(dateFrom+'T00:00:00'); const end = new Date(dateTo+'T00:00:00');
+      while(d<=end){
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if(!datesInSheet.has(ds)) gapDays.push(ds);
+        d.setDate(d.getDate()+1);
+      }
+    }
 
     const msg = `⚠️ عملية استبدال كامل ونهائية — هتمسح وتسجّل من الأول:\n\n`
-      + `هيتمسح: ${toDelete.length} حركة صرف للفروع مسجلة حاليًا من ${dateFrom} لـ${dateTo} (قيمتها تقريبًا ${money(deleteValue)})\n`
+      + `الأيام اللي هتتصلّح (موجودة في الشيت): ${sortedDates.join('، ')}\n`
+      + (gapDays.length ? `\n🔴 تنبيه مهم: الأيام دي جوه مدى الشيت (${dateFrom} - ${dateTo}) بس مش موجودة فيه: ${gapDays.join('، ')}\nلو الأيام دي المفروض تتصلّح كمان، يبقى الشيت ناقص — وقّف وارفع نسخة كاملة، وإلا الأيام دي هتفضل زي ما هي عندك من غير تصحيح.\n` : '')
+      + `\nهيتمسح: ${toDelete.length} حركة صرف للفروع مسجلة حاليًا في الأيام دي (قيمتها تقريبًا ${money(deleteValue)})\n`
       + `هيتسجل بدالها: ${newRows.length} حركة من الشيت، بتواريخها الحقيقية يوم بيوم (قيمتها تقريبًا ${money(newValue)})\n`
       + (unmatched.size ? `\n⚠️ ${unmatched.size} صنف في الشيت مالوش تطابق عندك، هيتخطى: ${[...unmatched].slice(0,5).join('، ')}${unmatched.size>5?'…':''}\n` : '')
-      + `\nملحوظة: لو أي خامة في وصفة منتج رصيدها مش كفاية، هيتسجل برضه (لأن الشيت بيمثل صرف حقيقي حصل فعلاً)، وهيبقى رصيدها بالسالب لحد ما تصحّحه بوارد منفصل.`
+      + `\nملحوظة: أي يوم مش موجود في الشيت هيفضل زي ما هو من غير أي تغيير — التصحيح بيقتصر بس على الأيام الظاهرة فوق.`
+      + `\nملحوظة تانية: لو أي خامة في وصفة منتج رصيدها مش كفاية، هيتسجل برضه (لأن الشيت بيمثل صرف حقيقي حصل فعلاً)، وهيبقى رصيدها بالسالب لحد ما تصحّحه بوارد منفصل.`
       + `\n\nالعملية دي مش هترجع. متأكد تكمل؟`;
     if(!confirm(msg)) return;
 
     const typed = prompt(`للتأكيد النهائي، اكتب "استبدال" بالظبط:`);
     if(typed !== 'استبدال'){ toast('الكلمة مطابقتش، اتلغت العملية',1); return; }
 
-    // 1) نمسح الموجود في الفترة دي
-    S.moves = S.moves.filter(m=>!(m.dir==='out' && m.reason==='صرف للفروع' && m.date>=dateFrom && m.date<=dateTo));
+    // 1) نمسح بس حركات الأيام الموجودة فعليًا في الشيت
+    S.moves = S.moves.filter(m=>!(m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)));
 
     // 2) نسجّل من الشيت من الأول، كل يوم بتاريخه الحقيقي — مع احترام الوصفات، بس من غير ما نوقف التسجيل لو خامة رصيدها ناقص
     let done=0; const blocked=[]; const shortageReport=[];
@@ -5050,6 +5129,15 @@ async function act(a,d){
     if(skipped.length) alert('الأصناف دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+skipped.join('\n'));
     ui.bulk.qty={};
     ui.modal = bulkReceiptModal(moves, date, party, reason);
+    return render();
+  }
+  if(a==='print-consolidated-open'){ ui.modal = consolidatedInvoicePickerModal(); return render(); }
+  if(a==='print-consolidated-go'){
+    const branch = ($('#ci-branch')||{value:''}).value;
+    const date = ($('#ci-date')||{value:''}).value;
+    if(!branch) return toast('اختار الفرع الأول',1);
+    if(!date) return toast('اختار التاريخ الأول',1);
+    ui.modal = consolidatedInvoiceModal(branch, date);
     return render();
   }
   if(a==='print-move'){
