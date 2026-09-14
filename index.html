@@ -403,13 +403,13 @@ const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 // التبويبات مجمّعة في مجموعات عشان تفضل ظاهرة كلها ومتتقطعش لما يزيد عددها
 const TAB_GROUPS_OWNER = [
   { name:'المخزن',   tabs:[['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['items','كارت الأصناف'],['expiry','الصلاحيات']] },
-  { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع']] },
+  { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء']] },
   { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
   { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['rep','التقارير والإقفال']] },
   { name:'الإعدادات',tabs:[['fac','المصانع'],['sec','الصلاحيات والأقفال']] },
 ];
 const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
-const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
+const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const TAB_GROUPS = ROLE==='manager'? null : TAB_GROUPS_OWNER;
 function groupOfTab(k){ return TAB_GROUPS ? (TAB_GROUPS.find(g=>g.tabs.some(t=>t[0]===k))||{}).name : null; }
@@ -471,6 +471,7 @@ async function load(){
     if(ok){
       await loadFactories();
       const gotData = await pullAll(true);
+      await fetchPurchaseRequests();
       if(gotData && ROLE!=='manager' && !S.items.length && FACTORY==='kunafa'){
         // أول مرة يشتغل فيها النظام على القاعدة — نزرع بيانات جرد شهر ٧ الأصلية
         S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
@@ -526,6 +527,9 @@ async function sbCount(table){
 }
 const UPSERT={method:'POST',prefer:'resolution=merge-duplicates,return=minimal'};
 let PENDING_SYNCS = 0;
+// بنتتبع أي حركة اتحذفت محليًا عشان لما نرفع للقاعدة نقدر ندمج مع أحدث نسخة من السيرفر
+// من غير ما نرجّع حركات اتحذفت فعلاً، ومن غير ما نمسح حركات جاية من جهاز تاني (زي المدير) لسه ما سحبناهاش عندنا
+let DELETED_MOVE_IDS = new Set();
 async function syncOneCount(itemId, qty){
   if(!DB.on) return false;
   PENDING_SYNCS++;
@@ -582,9 +586,24 @@ async function pushAll(quiet){
   }catch(e){ errors.push('الأصناف: '+e.message); }
 
   try{
+    // قبل أي حذف أو كتابة: نسحب آخر نسخة موجودة فعليًا على السيرفر للفترة دي، ونضمّها لنسختنا المحلية —
+    // عشان لو جهاز تاني (زي المدير) كان سجّل حركة جديدة قبلنا بلحظات ولسه ما سحبناهاش، متتمسحش من غير قصد
+    // لما إحنا نرفع تعديل تاني مالوش علاقة بيها. أي حركة اتحذفت فعلاً عندنا (في DELETED_MOVE_IDS) بتتستبعد من الدمج.
+    let mergedMoves = S.moves;
+    try{
+      const serverMoves = await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=*',{prefer:'return=representation'}) || [];
+      const localIds = new Set(S.moves.map(m=>m.id));
+      const extra = serverMoves
+        .filter(m=>!localIds.has(m.id) && !DELETED_MOVE_IDS.has(m.id))
+        .map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,
+          runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,
+          notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
+      if(extra.length){ mergedMoves = [...S.moves, ...extra]; S.moves = mergedMoves; }
+    }catch(e){ /* لو السحب فشل لأي سبب، نكمل بنسختنا المحلية زي ما هي بدل ما نوقف الحفظ كله */ }
+
     await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P),{method:'DELETE'});
-    if(S.moves.length){
-      const fullBody = S.moves.map(m=>({
+    if(mergedMoves.length){
+      const fullBody = mergedMoves.map(m=>({
         id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
         party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
         prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
@@ -593,13 +612,14 @@ async function pushAll(quiet){
         await sb('stock_moves',{method:'POST',body:fullBody});
       }catch(e){
         // لو فشل بسبب أعمدة جديدة (تاريخ الإنتاج/الحرارة/الإشعارات) لسه ما اتضافتش في القاعدة، نرجع نحفظ بالأعمدة الأساسية بس عشان الحفظ مايتوقفش خالص
-        const basicBody = S.moves.map(m=>({
+        const basicBody = mergedMoves.map(m=>({
           id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
           party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null}));
         await sb('stock_moves',{method:'POST',body:basicBody});
         errors.push('تنبيه: أعمدة تاريخ الإنتاج/الحرارة/الإشعارات لسه مش مضافة في القاعدة — الحركات اتحفظت من غيرها. شغّل أوامر SQL اللي بعتهالك عشان تتفعّل.');
       }
     }
+    DELETED_MOVE_IDS.clear();
   }catch(e){ errors.push('الحركات: '+e.message); }
 
   try{
@@ -637,7 +657,7 @@ async function pushAll(quiet){
   }catch(e){ errors.push('إقفال الفترات: '+e.message); }
 
   try{
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{}}}]});
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
   DB.busy=false;
@@ -666,7 +686,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null;
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -837,7 +857,7 @@ function supplierAccounts(){
     if(!party) return;
     const it = item(m.itemId); if(!it) return;
     const val = n2((+m.qty||0) * (+m.price||0));
-    if(m.dir==='in' && !String(m.party||'').startsWith('إنتاج تلقائي')){
+    if(m.dir==='in' && !String(m.party||'').startsWith('إنتاج تلقائي') && !String(m.party||'').startsWith('تسوية جرد')){
       const a=ensure(party); a.buys=n2(a.buys+val); a.buyN++; a.moves.push({...m, kind:'buy', val, itemName:it.name, unit:it.unit});
     } else if(m.dir==='out' && m.reason==='مرتجع للمورد'){
       const a=ensure(party); a.returns=n2(a.returns+val); a.retN++; a.moves.push({...m, kind:'ret', val, itemName:it.name, unit:it.unit});
@@ -1500,19 +1520,19 @@ function render(){
         ${TAB_GROUPS
           ? TAB_GROUPS.map(g=>{
               const active = g.tabs.some(t=>t[0]===tab);
-              const n = g.tabs.reduce((s,t)=> s + (t[0]==='inbox'?pendingInboxCount():0), 0);
+              const n = g.tabs.reduce((s,t)=> s + (t[0]==='inbox'?pendingInboxCount():0) + (t[0]==='purchase'?pendingPurchaseCount():0), 0);
               return `<button class="${active?'on':''}" data-tabgroup="${esc(g.name)}">${esc(g.name)}${n?` <span class="chip r" style="padding:1px 6px;font-size:10px">${n}</span>`:''}</button>`;
             }).join('')
-          : TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}
+          : TABS.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}${k==='purchase'&&pendingPurchaseCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingPurchaseCount()}</span>`:''}</button>`).join('')}
         ${(!isMgr&&Object.values(SESS).some(Boolean))?`<button data-act="lock-all" style="margin-inline-start:auto;color:#F0C9C3">${t('lock_session')}</button>`:''}
       </nav>
       ${TAB_GROUPS?(()=>{
         const g = TAB_GROUPS.find(x=>x.name===(groupOfTab(tab)||TAB_GROUPS[0].name));
-        return `<nav class="subnav">${g.tabs.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}</button>`).join('')}</nav>`;
+        return `<nav class="subnav">${g.tabs.map(([k,v])=>`<button class="${tab===k?'on':''}" data-tab="${k}">${isLocked(k)?(canOpen(k)?'<span class="lk open">🔓</span>':'<span class="lk">🔒</span>'):''}${tabLabel(k,v)}${k==='inbox'&&pendingInboxCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingInboxCount()}</span>`:''}${k==='purchase'&&pendingPurchaseCount()?` <span class="chip r" style="padding:1px 6px;font-size:10px">${pendingPurchaseCount()}</span>`:''}</button>`).join('')}</nav>`;
       })():''}
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -2086,6 +2106,21 @@ function viewCount(){
     </div>
     <div class="hint" style="margin-top:9px">القيم بالدرهم. اكتب الكمية اللي عدّيتها في المخزن في عمود «الفعلي» — الفرق بيتحسب لوحده. اضغط ↓ أو Enter بعد ما تكتب الرقم عشان تنتقل للصنف اللي بعده على طول من غير ما تلمس الماوس.</div>
   </div></div>
+
+  ${(()=>{
+    const counted = S.items.filter(it=>S.counts[it.id]!==undefined);
+    const withDiff = counted.filter(it=>Math.abs(calc(it).diff)>0.001);
+    if(!counted.length) return '';
+    return `<div class="panel"><div class="pad">
+      <div class="hint">
+        <b>تسوية منتصف الشهر</b>: لو عايز تصحّح الأرقام دلوقتي من غير ما تقفل الشهر أو تغيّر الفترة — اكتب "الفعلي" لكل صنف فوق، وبعدين دوس الزرار ده.
+        النظام هيسجّل الفرق كحركة تصحيح بتاريخ النهاردة (وارد للزيادة، منصرف بسبب "تسوية جرد" للنقصان)، وسبتمبر هيكمل عادي لحد آخره.
+      </div>
+      <button class="btn p" style="margin-top:10px" data-act="settle-count-now" ${!withDiff.length?'disabled':''}>
+        ${withDiff.length?`سوّي الفرق دلوقتي (${withDiff.length} صنف)`:'مفيش فروق تتسوّى'}
+      </button>
+    </div></div>`;
+  })()}
  
   <div class="panel">
     <h2>ورقة الجرد <em>${t.counted} من ${t.total} صنف اتعدّوا</em>
@@ -2126,7 +2161,7 @@ function viewCount(){
 }
  
 /* ================= 2/3. وارد و منصرف ================= */
-const OUT_REASONS=['صرف للإنتاج','صرف للفروع','صرف لمصنع تاني','هالك / تالف','مرتجع للمورد','عينات','أخرى'];
+const OUT_REASONS=['صرف للإنتاج','صرف للفروع','صرف لمصنع تاني','هالك / تالف','مرتجع للمورد','تسوية جرد','عينات','أخرى'];
 // الجهات المسموح بيها في المصنع ده. null = كلها متاحة (الوضع الافتراضي)
 function outReasons(){
   const a = S.allowedReasons;
@@ -2363,7 +2398,8 @@ function viewMove(dir){
   <div class="panel">
     <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
       ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:''}
-      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" ${isIn?'style="margin-inline-start:auto"':''}>${t('export_csv')}</button></h2>
+      ${ROLE==='owner'&&DB.on?`<button class="btn sm" data-act="db-pull-quiet" ${isIn?'style="margin-inline-start:auto"':''} title="اسحب أحدث حركات مسجّلة من القاعدة">${DB.busy?'بيحدّث…':'🔄 تحديث دلوقتي'}</button>`:''}
+      <button class="btn sm g" data-act="mv-export" data-dir="${dir}" ${(isIn&&!(ROLE==='owner'&&DB.on))?'style="margin-inline-start:auto"':''}>${t('export_csv')}</button></h2>
     <div class="pad">
       <div class="bar">
         <input type="text" class="grow" id="mv-q" placeholder="${t('search_item_party')}" value="${esc(ui.mvQ||'')}">
@@ -3196,6 +3232,98 @@ function consolidatedInvoiceModal(branch, date){
   </div></div>`;
 }
 
+/* ================= طلبات الشراء ================= */
+let PURCHASE_REQUESTS = [];
+let purReqLoaded = false;
+
+async function fetchPurchaseRequests(){
+  if(!DB.on) return;
+  try{
+    const rows = await sb('stock_settings?'+fEq()+'&k=eq.purchase_requests&select=v',{prefer:'return=representation'});
+    PURCHASE_REQUESTS = (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
+    purReqLoaded = true;
+  }catch(e){ PURCHASE_REQUESTS = []; }
+}
+async function savePurchaseRequests(){
+  try{
+    await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'purchase_requests',v:{list:PURCHASE_REQUESTS}}]});
+    return true;
+  }catch(e){ return false; }
+}
+function pendingPurchaseCount(){ return PURCHASE_REQUESTS.filter(r=>r.status==='pending').length; }
+
+function viewPurchaseRequests(){
+  if(!purReqLoaded && DB.on) fetchPurchaseRequests().then(render);
+  const q=(ui.q||'').trim().toLowerCase();
+  const list = PURCHASE_REQUESTS.filter(r=>!q || r.itemName.toLowerCase().includes(q)).slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  const pending = list.filter(r=>r.status==='pending');
+  const others = list.filter(r=>r.status!=='pending');
+
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">محتاجة موافقة</div><div class="v" style="color:var(--amber)">${pending.length}</div><div class="s">في انتظار صاحب النظام</div></div>
+    <div class="card"><div class="k">موافق عليها ومستنية التوريد</div><div class="v" style="color:var(--blue)">${list.filter(r=>r.status==='approved').length}</div><div class="s">هتتقفل لوحدها لما تسجّل وارد</div></div>
+    <div class="card"><div class="k">اتوردت</div><div class="v" style="color:var(--green)">${list.filter(r=>r.status==='fulfilled').length}</div></div>
+  </div></div></div>
+
+  <div class="panel">
+    <h2>طلب شراء جديد</h2>
+    <div class="pad">
+      <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+        <div style="flex:2;min-width:200px">
+          <label class="f">الصنف</label>
+          <input type="text" id="pr-item" list="pr-items-list" placeholder="اكتب اسم الصنف…" style="width:100%">
+          <datalist id="pr-items-list">${S.items.map(i=>`<option value="${esc(i.name)}">${esc(i.cat)} · ${esc(i.unit)}</option>`).join('')}</datalist>
+        </div>
+        <div style="flex:1;min-width:100px">
+          <label class="f">الكمية</label>
+          <input type="number" step="any" min="0" id="pr-qty" style="width:100%">
+        </div>
+        <div style="flex:2;min-width:160px">
+          <label class="f">ملاحظة <span class="hint">(اختياري)</span></label>
+          <input type="text" id="pr-note" placeholder="مثلاً: المورد المفضّل" style="width:100%">
+        </div>
+        <button class="btn p" data-act="pur-create">إرسال الطلب</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>طلبات محتاجة موافقة <em>${pending.length}</em></h2>
+    <div class="pad"><input type="text" class="grow" id="q" placeholder="دور باسم الصنف…" value="${esc(ui.q||'')}" style="width:100%"></div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>ملاحظة</th><th>طلبها</th><th>التاريخ</th><th></th></tr></thead>
+      <tbody>${pending.length? pending.map(r=>`<tr>
+        <td><div class="iname">${esc(r.itemName)}</div></td>
+        <td class="n">${fmt(r.qty)} ${esc(r.unit||'')}</td>
+        <td>${esc(r.note||'—')}</td>
+        <td>${esc(r.requestedBy||'-')}</td>
+        <td style="font-size:12px">${r.createdAt?new Date(r.createdAt).toLocaleString('ar-EG'):'-'}</td>
+        <td style="white-space:nowrap">${ROLE==='owner'?`
+          <button class="btn sm g" data-act="pur-decide" data-id="${r.id}" data-decision="approved">موافقة</button>
+          <button class="btn sm danger" data-act="pur-decide" data-id="${r.id}" data-decision="rejected">رفض</button>`:'<span class="hint">مستني صاحب النظام</span>'}</td>
+      </tr>`).join('') : `<tr><td colspan="6" class="empty">مفيش طلبات محتاجة موافقة</td></tr>`}</tbody>
+    </table></div>
+  </div>
+
+  <div class="panel">
+    <h2>سجل الطلبات <em>${others.length}</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>طلبها</th><th>الحالة</th><th>آخر تحديث</th></tr></thead>
+      <tbody>${others.length? others.map(r=>{
+        const labels={approved:'موافق عليه — مستني التوريد',rejected:'مرفوض',fulfilled:'اتورّد ✓'};
+        const cls={approved:'b',rejected:'r',fulfilled:'g'};
+        return `<tr>
+        <td><div class="iname">${esc(r.itemName)}</div></td>
+        <td class="n">${fmt(r.qty)} ${esc(r.unit||'')}</td>
+        <td>${esc(r.requestedBy||'-')}</td>
+        <td><span class="chip ${cls[r.status]||''}">${labels[r.status]||r.status}</span></td>
+        <td style="font-size:12px">${(r.fulfilledAt||r.decidedAt||r.createdAt)?new Date(r.fulfilledAt||r.decidedAt||r.createdAt).toLocaleString('ar-EG'):'-'}</td>
+      </tr>`;}).join('') : `<tr><td colspan="5" class="empty">لسه مفيش سجل</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
 function receiptModal(m){
   const it = item(m.itemId) || {name:'—',unit:''};
   const isIn = m.dir==='in';
@@ -3781,12 +3909,14 @@ function bind(){
     if(m && m.notifyId && m.notifyFactory){
       if(!confirm('الحركة دي اتبعتلها إشعار عند مصنع تاني. حذفها هنا هيلغي الإشعار هناك لو لسه معلّق. متأكد؟')) return;
       const result = await retractFactoryNotification(m.notifyFactory, m.notifyId);
+      DELETED_MOVE_IDS.add(b.dataset.del);
       S.moves=S.moves.filter(x=>x.id!==b.dataset.del); await saveTx();
       if(result==='received') toast('اتحذفت الحركة، لكن المصنع التاني كان استلم الإشعار خلاص — لازم تكلّمه يدوي عشان يعدّل مخزنه', 1);
       else toast('اتحذفت الحركة والإشعار اتلغى عند المصنع التاني');
       render();
       return;
     }
+    DELETED_MOVE_IDS.add(b.dataset.del);
     S.moves=S.moves.filter(m=>m.id!==b.dataset.del); await saveTx(); toast('اتحذفت الحركة'); render();});
   root.querySelectorAll('[data-delr]').forEach(b=>b.onclick=async()=>{
     S.recipes=S.recipes.filter(r=>r.id!==b.dataset.delr); await saveMain(); render();});
@@ -4586,6 +4716,34 @@ async function act(a,d){
     return render();
   }
   if(a==='inv-view'){ ui.modal = invoiceViewModal(d.id); return render(); }
+  if(a==='pur-create'){
+    const nameEl=$('#pr-item'), qtyEl=$('#pr-qty'), noteEl=$('#pr-note');
+    const name = nameEl? nameEl.value.trim() : '';
+    const qty = qtyEl? +qtyEl.value : 0;
+    if(!name) return toast('اكتب اسم الصنف',1);
+    if(!(qty>0)) return toast('اكتب كمية صحيحة',1);
+    const norm=s=>String(s||'').trim().toLowerCase();
+    const it = S.items.find(i=>norm(i.name)===norm(name));
+    if(!it) return toast('الصنف ده مش موجود في كارت الأصناف — ضيفه الأول',1);
+    const req = { id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(qty),
+      note: noteEl?noteEl.value.trim():'', status:'pending',
+      requestedBy: ROLE==='owner'?'صاحب النظام':'مدير المصنع', createdAt:new Date().toISOString() };
+    PURCHASE_REQUESTS.push(req);
+    const ok = await savePurchaseRequests();
+    if(!ok) return toast('حصل خطأ أثناء الإرسال، حاول تاني',1);
+    toast('اتبعت طلب الشراء');
+    if(nameEl) nameEl.value=''; if(qtyEl) qtyEl.value=''; if(noteEl) noteEl.value='';
+    return render();
+  }
+  if(a==='pur-decide'){
+    if(ROLE!=='owner') return;
+    const req = PURCHASE_REQUESTS.find(r=>r.id===d.id); if(!req) return;
+    req.status = d.decision; req.decidedAt = new Date().toISOString();
+    const ok = await savePurchaseRequests();
+    if(!ok) return toast('حصل خطأ، حاول تاني',1);
+    toast(d.decision==='approved'?'اتوافق على الطلب':'اترفض الطلب');
+    return render();
+  }
   if(a==='inv-clear-sel'){ INV_SEL.clear(); return render(); }
   if(a==='inv-sel-all'){
     const q=invQ.trim().toLowerCase();
@@ -4690,6 +4848,7 @@ async function act(a,d){
     if(typed !== 'استبدال'){ toast('الكلمة مطابقتش، اتلغت العملية',1); return; }
 
     // 1) نمسح بس حركات الأيام الموجودة فعليًا في الشيت
+    S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)).forEach(m=>DELETED_MOVE_IDS.add(m.id));
     S.moves = S.moves.filter(m=>!(m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)));
 
     // 2) نسجّل من الشيت من الأول، كل يوم بتاريخه الحقيقي — مع احترام الوصفات، بس من غير ما نوقف التسجيل لو خامة رصيدها ناقص
@@ -5004,6 +5163,7 @@ async function act(a,d){
     await saveMain(); ui.modal=null; toast('اتحفظ'); return render();
   }
   if(a==='del-item'){
+    S.moves.filter(m=>m.itemId===d.id).forEach(m=>DELETED_MOVE_IDS.add(m.id));
     S.items=S.items.filter(i=>i.id!==d.id); S.moves=S.moves.filter(m=>m.itemId!==d.id); delete S.counts[d.id];
     await saveMain(); await saveTx(); ui.modal=null; toast('الصنف اتحذف'); return render();
   }
@@ -5031,6 +5191,15 @@ async function act(a,d){
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:+($('#m-price').value||0),party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
       if(m.price>0){ it.price=m.price; await saveMain(); }
+      // لو الصنف ده ليه طلب شراء موافق عليه ولسه مستني، نقفله تلقائي بربطه بالحركة دي
+      if(purReqLoaded){
+        const match = PURCHASE_REQUESTS.find(r=>r.itemId===id && r.status==='approved');
+        if(match){
+          match.status='fulfilled'; match.fulfilledAt=new Date().toISOString(); match.linkedMoveId=m.id;
+          await savePurchaseRequests();
+          autoMsg += ` + اتقفل طلب الشراء بتاعه تلقائي`;
+        }
+      }
       // رفع صورة الفاتورة لو اتحطت — الحركة بتتسجل عادي حتى لو الرفع فشل
       const invEl = $('#m-invoice');
       if(invEl && invEl.files && invEl.files[0]){
@@ -5204,6 +5373,7 @@ async function act(a,d){
   if(a==='del-run'){
     const r=(S.runs||[]).find(x=>x.id===d.id); if(!r) return;
     if(!confirm(`تراجع عن تشغيلة «${r.name}»؟ هيرجّع الخامات المستهلكة والمنتج الناتج زي ما كانوا.`)) return;
+    S.moves.filter(m=>m.runId===r.id).forEach(m=>DELETED_MOVE_IDS.add(m.id));
     S.moves = S.moves.filter(m=>m.runId!==r.id);
     S.runs = S.runs.filter(x=>x.id!==r.id);
     await saveTx(); toast('التشغيلة اتلغت والأرصدة رجعت'); return render();
@@ -5211,6 +5381,22 @@ async function act(a,d){
   if(a==='fill-book'){
     for(const it of S.items){ if(S.counts[it.id]===undefined) S.counts[it.id]=calc(it).book; }
     await saveTx(); toast('كل الأصناف الفاضية اتسجلت مطابقة'); return render();
+  }
+  if(a==='settle-count-now'){
+    const counted = S.items.filter(it=>S.counts[it.id]!==undefined);
+    const withDiff = counted.filter(it=>Math.abs(calc(it).diff)>0.001);
+    if(!withDiff.length) return toast('مفيش فروق تتسوّى',1);
+    const preview = withDiff.slice(0,10).map(it=>{ const c=calc(it); return `• ${it.name}: ${c.diff>0?'+':''}${fmt(c.diff)} ${it.unit}`; }).join('\n');
+    if(!confirm(`هيتم تسجيل ${withDiff.length} حركة تصحيح بتاريخ النهاردة عشان الرصيد الدفتري يطابق اللي عددته:\n\n${preview}${withDiff.length>10?`\n… و${withDiff.length-10} كمان`:''}\n\nالشهر مش هيتقفل ولا الفترة هتتغيّر — بس الأرقام هتتظبط من دلوقتي. تكمل؟`)) return;
+    const d = today();
+    withDiff.forEach(it=>{
+      const c = calc(it);
+      if(c.diff>0){ S.moves.push({id:uid('m'),dir:'in',itemId:it.id,qty:n2(c.diff),date:d,price:+it.price||0,party:'تسوية جرد (تلقائي)',reason:''}); }
+      else { S.moves.push({id:uid('m'),dir:'out',itemId:it.id,qty:n2(-c.diff),date:d,price:0,party:'',reason:'تسوية جرد'}); }
+    });
+    await saveTx();
+    toast(`اتسوّت ${withDiff.length} صنف — الرصيد الدفتري بقى مطابق للفعلي من دلوقتي`);
+    return render();
   }
   if(a==='close-month'){
     if(!confirm(`إقفال ${periodLabel(S.period)}؟ الجرد الفعلي هيبقى أول المدة للشهر الجاي.`)) return;
@@ -5385,7 +5571,10 @@ async function boot(){
   if(ROLE==='owner' && DB.on){
     setInterval(async ()=>{
       const typing = document.activeElement && document.activeElement.hasAttribute('data-count');
-      if(tab==='count' && !typing && !DB.busy && !ui.modal){ await pullAll(true); render(); }
+      // كان التحديث التلقائي مقصور على تبويب الجرد بس — وسّعناه لكل الشاشات اللي بتعتمد على بيانات حية
+      // (وارد، منصرف، طلبيات الفروع، استلام من مصانع) عشان صاحب النظام يشوف أي حركة يسجّلها المدير من غير ما يعمل ريفريش يدوي
+      const liveTabs = ['count','in','out','branchorders','inbox','dailystock'];
+      if(liveTabs.includes(tab) && !typing && !DB.busy && !ui.modal){ await pullAll(true); render(); }
     }, 25000);
   }
 }
