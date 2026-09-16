@@ -2389,7 +2389,7 @@ function viewMove(dir){
           </div>
           <div class="hint" id="m-conv" style="margin-top:4px"></div>
         </div>
-        ${isIn?`<div><label class="f">${t('unit_price')}</label><input type="number" step="any" id="m-price" style="width:100%"><div class="hint" id="m-price-hint" style="margin-top:4px"></div></div>
+        ${isIn?`<div><label class="f" id="m-price-label">${t('unit_price')}</label><input type="number" step="any" id="m-price" style="width:100%"><div class="hint" id="m-price-hint" style="margin-top:4px"></div></div>
         <div><label class="f">${t('supplier')}</label>
           <div style="display:flex;gap:6px">
             <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
@@ -3696,18 +3696,26 @@ function bind(){
       const pEl=$('#m-price'); if(!pEl) return; // في المنصرف مفيش خانة سعر
       const it=item(mItem.value);
       const hint=$('#m-price-hint');
+      const lbl=$('#m-price-label');
+      const mul=+($('#m-unitmode')?.value||1); // معامل التحويل الحالي: 1 لو الوحدة الأساسية، أو حجم الشدّ لو مختار الوحدة البديلة (كرتونة مثلًا)
+      const modeUnit = (it && mul>1) ? (it.packUnit||'عبوة') : (it? it.unit : '');
+      if(lbl) lbl.textContent = modeUnit ? `سعر الـ${modeUnit}` : t('unit_price');
       if(!it){ pEl.value=''; if(hint) hint.textContent=''; return; }
       const lastIn = S.moves.filter(m=>m.dir==='in' && m.itemId===it.id && +m.price>0)
                             .sort((a,b)=> String(b.date).localeCompare(String(a.date)))[0];
-      const known = (+it.price>0) ? +it.price : (lastIn? +lastIn.price : 0);
-      pEl.value = known>0 ? known : '';
+      const known = (+it.price>0) ? +it.price : (lastIn? +lastIn.price : 0); // ده دايمًا سعر الوحدة الأساسية (زي ما متسجل في كارت الأصناف)
+      const shown = n2(known*mul); // لو الوضع بالكرتونة، نوري سعر الكرتونة كاملة (سعر الوحدة × حجم الشدّ) بدل سعر الحبة
+      pEl.value = shown>0 ? shown : '';
       if(hint){
         if(known>0){
+          const base = mul>1 ? ` (سعر ${it.unit} الواحدة = ${fmt(known)})` : '';
           hint.innerHTML = lastIn && Math.abs(+lastIn.price-known)<0.005
-            ? `آخر سعر شراء: <b>${fmt(known)}</b> بتاريخ ${lastIn.date} — عدّله لو اتغيّر`
-            : `السعر المسجل في كارت الأصناف: <b>${fmt(known)}</b> — عدّله لو اتغيّر`;
+            ? `آخر سعر شراء: <b>${fmt(known)}</b> لكل ${esc(it.unit)} بتاريخ ${lastIn.date}${base?'':''} — عدّله لو اتغيّر`
+            : `السعر المسجل في كارت الأصناف: <b>${fmt(known)}</b> لكل ${esc(it.unit)}${base} — عدّله لو اتغيّر`;
         } else {
-          hint.textContent = 'الصنف ده لسه من غير سعر — اكتب سعر الوحدة وهيتسجل تلقائي في كارت الأصناف';
+          hint.textContent = mul>1
+            ? `الصنف ده لسه من غير سعر — اكتب سعر الـ${modeUnit} كامل وهيتحول لسعر ${it.unit} تلقائي`
+            : 'الصنف ده لسه من غير سعر — اكتب سعر الوحدة وهيتسجل تلقائي في كارت الأصناف';
         }
       }
     };
@@ -3739,7 +3747,7 @@ function bind(){
     syncSearchBox();
     refreshUnitMode(); refreshPrice();
     const mp=$('#m-packs'); if(mp) mp.oninput=updateConv;
-    const mu=$('#m-unitmode'); if(mu) mu.onchange=updateConv;
+    const mu=$('#m-unitmode'); if(mu) mu.onchange=()=>{ updateConv(); refreshPrice(); };
   }
   root.querySelectorAll('[data-bocell]').forEach(inp=>inp.onchange=async e=>{
     const raw=e.target.dataset.bocell;
@@ -5361,7 +5369,12 @@ async function act(a,d){
     let m, autoMsg='';
     if(isIn){
       const expDate = $('#m-expdate') ? $('#m-expdate').value : '';
-      m={id:uid('m'),dir:'in',itemId:id,qty,date,price:+($('#m-price').value||0),party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
+      // السعر المكتوب ممكن يكون سعر الوحدة البديلة كاملة (زي الكرتونة) لو المستخدم مختار وضعها —
+      // لازم نقسمه على معامل التحويل عشان نخزّن سعر الوحدة الأساسية زي ما النظام بيتوقع في كل مكان تاني
+      const unitMul = +($('#m-unitmode')?.value||1);
+      const enteredPrice = +($('#m-price').value||0);
+      const unitPrice = unitMul>1 ? n2(enteredPrice/unitMul) : enteredPrice;
+      m={id:uid('m'),dir:'in',itemId:id,qty,date,price:unitPrice,party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
       if(m.price>0){ it.price=m.price; await saveMain(); }
       // لو الصنف ده ليه طلب شراء موافق عليه ولسه مستني، نقفله تلقائي بربطه بالحركة دي
