@@ -402,6 +402,7 @@ const NADER_SAUCES = BRANCH_APP ? (BRANCH_APP.naderSauces || []) : [];
 
 // التبويبات مجمّعة في مجموعات عشان تفضل ظاهرة كلها ومتتقطعش لما يزيد عددها
 const TAB_GROUPS_OWNER = [
+  { name:'نظرة عامة', tabs:[['dashboard','لوحة التحكم الشاملة']] },
   { name:'المخزن',   tabs:[['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['items','كارت الأصناف'],['expiry','الصلاحيات']] },
   { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء']] },
   { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
@@ -544,6 +545,76 @@ async function syncOneCount(itemId, qty){
   finally{ PENDING_SYNCS--; }
 }
 const fEq = ()=>'factory=eq.'+encodeURIComponent(FACTORY);
+const fEqFor = (fid)=>'factory=eq.'+encodeURIComponent(fid);
+
+/* ================= لوحة التحكم الشاملة (كل المصانع في شاشة واحدة) ================= */
+let DASHBOARD_DATA = null;
+let dashboardLoading = false;
+
+// بيجيب ملخص خفيف لكل مصنع (مش الحساب الكامل زي calc()) عشان اللوحة تفتح بسرعة حتى مع مصانع كتير
+async function fetchFactorySummary(fid){
+  try{
+    const items = await sb('stock_items?'+fEqFor(fid)+'&select=id,opening,price')||[];
+    const approxValue = n2(items.reduce((s,i)=>s+(+i.opening||0)*(+i.price||0),0));
+    let pendingPurchases=0, pendingInbox=0;
+    try{
+      const pr = await sb('stock_settings?'+fEqFor(fid)+'&k=eq.purchase_requests&select=v',{prefer:'return=representation'});
+      const list = (pr && pr[0] && pr[0].v && pr[0].v.list) || [];
+      pendingPurchases = list.filter(r=>r.status==='pending').length;
+    }catch(e){}
+    try{
+      const ib = await sb('stock_settings?'+fEqFor(fid)+'&k=eq.incoming_notify&select=v',{prefer:'return=representation'});
+      const list = (ib && ib[0] && ib[0].v && ib[0].v.list) || [];
+      pendingInbox = list.filter(n=>n.status==='pending').length;
+    }catch(e){}
+    return { fid, itemsCount:items.length, approxValue, pendingPurchases, pendingInbox, ok:true };
+  }catch(e){ return { fid, ok:false, error:e.message }; }
+}
+
+async function loadDashboard(){
+  dashboardLoading = true; render();
+  const results = await Promise.all(FACTORIES.map(f=>fetchFactorySummary(f.id)));
+  DASHBOARD_DATA = FACTORIES.map((f,i)=>({...f, ...results[i]}));
+  dashboardLoading = false;
+  render();
+}
+
+function viewDashboard(){
+  if(!DASHBOARD_DATA && !dashboardLoading) loadDashboard();
+  const totalValue = DASHBOARD_DATA ? n2(DASHBOARD_DATA.reduce((s,f)=>s+(f.approxValue||0),0)) : 0;
+  const totalItems = DASHBOARD_DATA ? DASHBOARD_DATA.reduce((s,f)=>s+(f.itemsCount||0),0) : 0;
+  const totalPendingPur = DASHBOARD_DATA ? DASHBOARD_DATA.reduce((s,f)=>s+(f.pendingPurchases||0),0) : 0;
+  const totalPendingInbox = DASHBOARD_DATA ? DASHBOARD_DATA.reduce((s,f)=>s+(f.pendingInbox||0),0) : 0;
+
+  return `
+  <div class="panel"><div class="pad">
+    <div class="hint">نظرة سريعة على كل المصانع مع بعض. القيمة هنا <b>تقريبية</b> (بناءً على الرصيد الافتتاحي × السعر الحالي، من غير حساب الوارد والمنصرف بالتفصيل) — للرقم الدقيق لمصنع معيّن، ادخل عليه وشوف "الجرد الشهري".</div>
+  </div></div>
+
+  ${DASHBOARD_DATA?`<div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">إجمالي القيمة التقريبية</div><div class="v">${money(totalValue)}</div><div class="s">عبر ${FACTORIES.length} مصنع</div></div>
+    <div class="card"><div class="k">إجمالي الأصناف</div><div class="v">${totalItems}</div></div>
+    <div class="card"><div class="k">طلبات شراء محتاجة موافقة</div><div class="v" style="color:${totalPendingPur?'var(--amber)':'inherit'}">${totalPendingPur}</div></div>
+    <div class="card"><div class="k">إشعارات استلام معلّقة</div><div class="v" style="color:${totalPendingInbox?'var(--amber)':'inherit'}">${totalPendingInbox}</div></div>
+  </div></div></div>`:''}
+
+  <div class="panel">
+    <h2>المصانع <em>${FACTORIES.length}</em>
+      <button class="btn sm" data-act="dashboard-refresh" style="margin-inline-start:auto" ${dashboardLoading?'disabled':''}>${dashboardLoading?'جاري التحميل…':'🔄 تحديث'}</button></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>المصنع</th><th class="n">عدد الأصناف</th><th class="n">القيمة التقريبية</th><th class="n">طلبات شراء معلّقة</th><th class="n">إشعارات معلّقة</th><th></th></tr></thead>
+      <tbody>${DASHBOARD_DATA ? DASHBOARD_DATA.map(f=>`<tr>
+        <td><div class="iname">${esc(f.name)}</div></td>
+        <td class="n">${f.ok?f.itemsCount:'<span class="hint">تعذر التحميل</span>'}</td>
+        <td class="n hl">${f.ok?money(f.approxValue):'—'}</td>
+        <td class="n">${f.ok&&f.pendingPurchases?`<span class="chip a">${f.pendingPurchases}</span>`:(f.ok?'0':'—')}</td>
+        <td class="n">${f.ok&&f.pendingInbox?`<span class="chip a">${f.pendingInbox}</span>`:(f.ok?'0':'—')}</td>
+        <td><a class="btn sm" href="?factory=${encodeURIComponent(f.id)}">افتح المصنع ده</a></td>
+      </tr>`).join('') : `<tr><td colspan="6" class="empty">جاري تحميل بيانات كل المصانع...</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
  
 async function connectDB(){
   if(!DB_CONFIGURED){ DB.on=false; DB.err='لسه محتاج تحط رابط ومفتاح Supabase في الملف (تعليمات في تبويب المصانع)'; return false; }
@@ -1686,7 +1757,7 @@ function render(){
       })():''}
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dashboard:viewDashboard,dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -5111,6 +5182,7 @@ async function act(a,d){
     toast(`اتسجّل ${rows.length} حركة وارد`);
     return render();
   }
+  if(a==='dashboard-refresh'){ DASHBOARD_DATA=null; return loadDashboard(); }
   if(a==='backups-refresh'){
     backupsLoaded=false; render();
     BACKUPS_LIST = await listBackups(); backupsLoaded=true;
