@@ -406,7 +406,7 @@ const TAB_GROUPS_OWNER = [
   { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء']] },
   { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
   { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['rep','التقارير والإقفال']] },
-  { name:'الإعدادات',tabs:[['fac','المصانع'],['sec','الصلاحيات والأقفال']] },
+  { name:'الإعدادات',tabs:[['fac','المصانع'],['backups','النسخ الاحتياطية'],['sec','الصلاحيات والأقفال']] },
 ];
 const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
@@ -743,10 +743,45 @@ async function pullAll(silent){
     S.closed=pd.map(p=>({period:p.period,value:+p.value,date:p.closed_at,items:p.snapshot||[]}));
     if(ROLE!=='manager'){ await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed}); }
     DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
+    if(ROLE==='owner') maybeAutoBackup(); // بدون انتظار — بتشتغل في الخلفية ومتأثرش على سرعة التحميل
   }catch(e){ DB.err=e.message; DB.busy=false; if(!silent) render(); if(!silent) toast('فشل التحميل: '+e.message,1); return false; }
   DB.busy=false; if(!silent) render(); if(!silent) toast('البيانات اتحمّلت من القاعدة'); return true;
 }
 async function pullAll_silent(){ return pullAll(true); }
+
+/* ================= نسخ احتياطية تلقائية يومية (من غير أي جدول SQL جديد — بنستخدم stock_settings الموجود بالفعل) ================= */
+const BACKUP_KEEP_DAYS = 21; // بنحتفظ بآخر 21 يوم بس، والباقي بيتمسح تلقائي عشان القاعدة متكبرش من غير داعي
+function _backupKey(dateStr){ return 'backup_'+dateStr; }
+
+// بتتنادى بعد كل تحميل ناجح — لو النهاردة لسه ما اتعمللهاش نسخة، بتعمل واحدة في الخلفية من غير ما توقف المستخدم
+async function maybeAutoBackup(){
+  try{
+    const d = today();
+    const existing = await sb('stock_settings?'+fEq()+'&k=eq.'+_backupKey(d)+'&select=k',{prefer:'return=representation'});
+    if(existing && existing.length) return; // النهاردة أصلاً معمول لها نسخة
+    const snapshot = {
+      items:S.items, recipes:S.recipes, moves:S.moves, counts:S.counts, runs:S.runs,
+      period:S.period, takenAt:new Date().toISOString()
+    };
+    await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:_backupKey(d),v:snapshot}]});
+    // تنظيف: نمسح أي نسخة أقدم من BACKUP_KEEP_DAYS يوم
+    const all = await sb('stock_settings?'+fEq()+'&k=like.backup_*&select=k',{prefer:'return=representation'})||[];
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-BACKUP_KEEP_DAYS);
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
+    const stale = all.filter(r=>r.k.replace('backup_','') < cutoffStr).map(r=>r.k);
+    for(const k of stale){ await sb('stock_settings?'+fEq()+'&k=eq.'+encodeURIComponent(k),{method:'DELETE'}).catch(()=>{}); }
+  }catch(e){ /* النسخ الاحتياطي التلقائي ميوقفش الشغل العادي لو فشل لأي سبب */ }
+}
+
+async function listBackups(){
+  try{
+    const rows = await sb('stock_settings?'+fEq()+'&k=like.backup_*&select=k,v',{prefer:'return=representation'})||[];
+    return rows.map(r=>({date:r.k.replace('backup_',''), itemsCount:(r.v.items||[]).length, recipesCount:(r.v.recipes||[]).length,
+      movesCount:(r.v.moves||[]).length, takenAt:r.v.takenAt, period:r.v.period}))
+      .sort((a,b)=>b.date.localeCompare(a.date));
+  }catch(e){ return []; }
+}
+
  
 async function loadFactories(){
   try{
@@ -1651,7 +1686,7 @@ function render(){
       })():''}
     </div>
   </header>
-  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -3376,6 +3411,57 @@ async function savePurchaseRequests(){
 }
 function pendingPurchaseCount(){ return PURCHASE_REQUESTS.filter(r=>r.status==='pending').length; }
 
+/* ================= شاشة النسخ الاحتياطية ================= */
+let BACKUPS_LIST = [];
+let backupsLoaded = false;
+
+function viewBackups(){
+  if(!backupsLoaded && DB.on){ listBackups().then(list=>{ BACKUPS_LIST=list; backupsLoaded=true; render(); }); }
+  return `
+  <div class="panel"><div class="pad">
+    <div class="hint">
+      النظام بياخد <b>نسخة احتياطية كاملة تلقائي كل يوم</b> (أصناف، وصفات، حركات، جرد) من غير ما تحتاج تعمل أي حاجة —
+      ومحتفظ بآخر ${BACKUP_KEEP_DAYS} يوم. لو حصلت أي مشكلة في البيانات، تقدر ترجع لأي يوم من هنا مباشرة، من غير ما تحتاج تدخل قاعدة البيانات خالص.
+    </div>
+  </div></div>
+  <div class="panel">
+    <h2>النسخ المتاحة <em>${BACKUPS_LIST.length}</em>
+      <button class="btn sm" data-act="backups-refresh" style="margin-inline-start:auto">${backupsLoaded?'تحديث':'جاري التحميل…'}</button></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>التاريخ</th><th class="n">عدد الأصناف</th><th class="n">عدد الوصفات</th><th class="n">عدد الحركات</th><th>وقت النسخ</th><th></th></tr></thead>
+      <tbody>${BACKUPS_LIST.length? BACKUPS_LIST.map(b=>`<tr>
+        <td><div class="iname">${esc(b.date)}</div></td>
+        <td class="n">${b.itemsCount}</td>
+        <td class="n">${b.recipesCount}</td>
+        <td class="n">${b.movesCount}</td>
+        <td style="font-size:12px">${b.takenAt?new Date(b.takenAt).toLocaleString('ar-EG'):'-'}</td>
+        <td><button class="btn sm danger" data-act="backup-restore-open" data-date="${esc(b.date)}">استرجاع من النسخة دي</button></td>
+      </tr>`).join('') : `<tr><td colspan="6" class="empty">${backupsLoaded?'لسه مفيش نسخ — هتتكوّن أول نسخة تلقائي أول ما تفتح النظام النهاردة':'جاري التحميل...'}</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function backupRestoreModal(date){
+  const b = BACKUPS_LIST.find(x=>x.date===date);
+  if(!b) return `<div class="modal" data-close="1"><div class="box"><div class="pad">تعذر إيجاد النسخة دي</div><div class="foot"><button class="btn" data-close="1">إغلاق</button></div></div></div>`;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:460px">
+    <h3 style="color:var(--red)">⚠️ استرجاع نسخة ${esc(date)}</h3>
+    <div class="pad">
+      <div class="warnbar">
+        هيتم استبدال <b>كارت الأصناف والوصفات وكل حركات الفترة الحالية</b> بنسخة يوم ${esc(date)} بالظبط
+        (${b.itemsCount} صنف، ${b.recipesCount} وصفة، ${b.movesCount} حركة).<br><br>
+        <b>أي حاجة اتسجلت بعد التاريخ ده هتضيع.</b> العملية دي مش هترجع.
+      </div>
+      <label class="f" style="margin-top:10px">للتأكيد، اكتب "استرجاع" بالظبط</label>
+      <input type="text" id="backup-confirm-text" style="width:100%">
+    </div>
+    <div class="foot">
+      <button class="btn danger" data-act="backup-restore-go" data-date="${esc(date)}">استرجاع نهائيًا</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
 function viewPurchaseRequests(){
   if(!purReqLoaded && DB.on) fetchPurchaseRequests().then(render);
   const q=(ui.q||'').trim().toLowerCase();
@@ -5023,6 +5109,30 @@ async function act(a,d){
     await saveMain(); await saveTx();
     ui.modal=null; IRI_PARSED=[];
     toast(`اتسجّل ${rows.length} حركة وارد`);
+    return render();
+  }
+  if(a==='backups-refresh'){
+    backupsLoaded=false; render();
+    BACKUPS_LIST = await listBackups(); backupsLoaded=true;
+    return render();
+  }
+  if(a==='backup-restore-open'){ ui.modal = backupRestoreModal(d.date); return render(); }
+  if(a==='backup-restore-go'){
+    const typed = ($('#backup-confirm-text')||{value:''}).value;
+    if(typed !== 'استرجاع'){ toast('الكلمة مطابقتش، اتلغت العملية',1); return; }
+    const date = d.date;
+    toast('جاري الاسترجاع…');
+    try{
+      const rows = await sb('stock_settings?'+fEq()+'&k=eq.'+_backupKey(date)+'&select=v',{prefer:'return=representation'});
+      const snap = rows && rows[0] && rows[0].v;
+      if(!snap){ toast('تعذر إيجاد بيانات النسخة، حاول تحديث القائمة والمحاولة تاني',1); return; }
+      S.items = snap.items||[]; S.recipes = snap.recipes||[]; S.moves = snap.moves||[];
+      S.counts = snap.counts||{}; S.runs = snap.runs||[];
+      await saveMain(); await saveTx();
+      await pushAll(true);
+      ui.modal=null;
+      toast(`تم الاسترجاع من نسخة ${date} بنجاح`);
+    }catch(e){ toast('حصل خطأ أثناء الاسترجاع: '+e.message,1); }
     return render();
   }
   if(a==='pur-create'){
