@@ -802,21 +802,53 @@ async function loadMyInbox(){
 function pendingInboxCount(){ return MY_INBOX.filter(n=>n.status==='pending').length; }
 
 // مقياس تشابه بسيط بين اسمين (0 لحد 1) — بيستخدم أطول جزء مشترك بعد تنظيف النص
-function nameSimilarity(a, b){
-  const clean = s => String(s||'').toLowerCase()
+// مسافة التحرير (Levenshtein) — بنستخدمها عشان نسمح بفروق تهجية بسيطة بين كلمتين (زي "Twook" و"Tawook"، أو "chicken" و"chichen")
+function _levDist(a,b){
+  const m=a.length, n=b.length;
+  if(!m) return n; if(!n) return m;
+  const dp=Array.from({length:m+1},()=>Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++){
+    dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  }
+  return dp[m][n];
+}
+function _wordSim(a,b){
+  if(a===b) return 1;
+  // فلتر سريع ورخيص: لو الكلمتين مختلفتين في الطول بشكل كبير، مستحيل يبقوا نفس الكلمة بفرق تهجية بسيط —
+  // نتجاهلهم فورًا من غير ما نحسب مسافة التحرير المكلفة (بتوفر وقت كبير مع كروت أصناف كبيرة)
+  if(Math.abs(a.length-b.length) > 2) return 0;
+  return 1 - _levDist(a,b)/Math.max(a.length,b.length);
+}
+function _cleanTok(s){
+  return String(s||'').toLowerCase()
     .replace(/[ًٌٍَُِّْـ]/g,'')
     .replace(/[ة]/g,'ه').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي')
     .replace(/[^\p{L}\p{N}]+/gu,' ').trim();
-  const A=clean(a), B=clean(b);
+}
+function _wordSetScore(A,B){
   if(!A||!B) return 0;
   if(A===B) return 1;
   if(A.includes(B)||B.includes(A)) return 0.9;
-  // نسبة الكلمات المشتركة
-  const wa=new Set(A.split(' ').filter(w=>w.length>1));
-  const wb=new Set(B.split(' ').filter(w=>w.length>1));
-  if(!wa.size||!wb.size) return 0;
-  let common=0; wa.forEach(w=>{ if(wb.has(w)) common++; });
-  return common ? (2*common)/(wa.size+wb.size) : 0;
+  const wa=[...new Set(A.split(' ').filter(w=>w.length>1))];
+  const wb=[...new Set(B.split(' ').filter(w=>w.length>1))];
+  if(!wa.length||!wb.length) return 0;
+  // بدل ما نطلب تطابق حرفي 100% لكل كلمة، بنسمح بفروق تهجية بسيطة (بحد أقصى تقريبًا حرف واحد لكل كلمة قصيرة)
+  let score=0;
+  wa.forEach(w=>{ let best=0; wb.forEach(w2=>{ if(best>=1) return; const s=_wordSim(w,w2); if(s>best) best=s; }); if(best>=0.72) score+=best; });
+  return score ? (2*score)/(wa.length+wb.length) : 0;
+}
+function nameSimilarity(a, b){
+  const A=_cleanTok(a);
+  const B=_cleanTok(b);
+  let best = _wordSetScore(A,B);
+  if(best>=0.85) return best; // تطابق قوي أصلاً، مفيش داعي نكمل نقارن الأنصاف الفرعية ونضيّع وقت
+  // أسماء الكارت غالبًا بصيغة "عربي - إنجليزي"؛ بدل ما نقارن السلسلة الطويلة دي كلها كبقعة واحدة
+  // (وده بيقلل نسبة التطابق لو المُرسل بعت نص لغة واحدة بس)، بنقارن كل نص فرعي لوحده كمان ونختار أعلى نتيجة
+  const parts = String(b||'').split(' - ').map(_cleanTok).filter(Boolean);
+  parts.forEach(p=>{ const s=_wordSetScore(A,p); if(s>best) best=s; });
+  return best;
 }
 
 // بيرجّع أقرب الأصناف للاسم الجاي، مرتبة بالأعلى تشابهًا
@@ -837,7 +869,7 @@ function inboxMatchItem(notifName){
   if(exact) return exact;
   // مفيش تطابق حرفي: نقترح أقرب صنف تلقائي لحد ما المستخدم يغيّره بنفسه
   const best = suggestItemsFor(notifName, 1)[0];
-  return (best && best.score>=0.5) ? best.item : null;
+  return (best && best.score>=0.62) ? best.item : null;
 }
 // هل الصنف الحالي مقترح تلقائي (مش مثبّت من المستخدم ولا تطابق حرفي)؟
 function inboxIsSuggested(notifName){
@@ -851,6 +883,13 @@ async function receiveInboxNotification(notifId){
   const n = MY_INBOX.find(x=>x.id===notifId);
   if(!n || n.status!=='pending') return; // حماية من الضغط المزدوج: لو مش معلّق (يعني قيد التنفيذ أو اتم بالفعل)، منكملش
 
+  // بنقرأ الكمية اللي المستخدم كتبها فعليًا (ممكن تكون مختلفة عن اللي المصنع التاني أعلنها)
+  const qtyInput = document.querySelector(`[data-inboxqty="${notifId}"]`);
+  const actualQty = qtyInput ? parseFloat(qtyInput.value) : n.qty;
+  if(isNaN(actualQty) || actualQty<0){ toast('اكتب كمية صحيحة',1); return; }
+  const declaredQty = n.qty;
+  const hasDiscrepancy = Math.abs(actualQty - declaredQty) > 0.001;
+
   const it = inboxMatchItem(n.itemName);
   if(!it){
     toast('حدد الصنف المطابق في مخزنك الأول',1);
@@ -859,10 +898,13 @@ async function receiveInboxNotification(notifId){
   // تحذير لو الوحدة مختلفة، عشان الكمية ماتتسجلش غلط
   const norm = u => String(u||'').trim().toLowerCase();
   if(inboxIsSuggested(n.itemName)){
-    if(!confirm(`"${n.itemName}" مالوش تطابق حرفي عندك.\n\nالنظام اقترح: "${it.name}"\n\nهيتسجل ${fmt(n.qty)} ${it.unit} على الصنف ده. صح؟\n\n(لو غلط، دوس إلغاء وغيّر المطابقة من خانة البحث)`)) return;
+    if(!confirm(`"${n.itemName}" مالوش تطابق حرفي عندك.\n\nالنظام اقترح: "${it.name}"\n\nهيتسجل ${fmt(actualQty)} ${it.unit} على الصنف ده. صح؟\n\n(لو غلط، دوس إلغاء وغيّر المطابقة من خانة البحث)`)) return;
   }
   if(n.unit && it.unit && norm(n.unit)!==norm(it.unit)){
-    if(!confirm(`تنبيه: الوحدة الجاية "${n.unit}" مختلفة عن وحدة الصنف عندك "${it.unit}".\n\nهيتسجل ${fmt(n.qty)} ${it.unit} في مخزنك. متأكد؟`)) return;
+    if(!confirm(`تنبيه: الوحدة الجاية "${n.unit}" مختلفة عن وحدة الصنف عندك "${it.unit}".\n\nهيتسجل ${fmt(actualQty)} ${it.unit} في مخزنك. متأكد؟`)) return;
+  }
+  if(hasDiscrepancy){
+    if(!confirm(`المصنع المرسل أعلن ${fmt(declaredQty)} ${esc(n.unit||it.unit)}، وانت كاتب ${fmt(actualQty)}.\n\nهيتسجل الرقم اللي كتبته إنت (${fmt(actualQty)}) في مخزنك، وهيوصل إشعار بالفرق للمصنع المرسل عشان يراجعه. تكمل؟`)) return;
   }
 
   n.status='processing'; render();
@@ -873,12 +915,22 @@ async function receiveInboxNotification(notifId){
       S.inboxMap[n.itemName]=it.id;
       await saveMain();
     }
-    S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:n.qty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
+    S.moves.push({id:uid('m'), dir:'in', itemId:it.id, qty:actualQty, date:today(), price:0, party:n.fromFactory||'مصنع تاني', reason:''});
     await saveTx();
 
-    n.status='received'; n.receivedAt=new Date().toISOString(); n.matchedItemId=it.id;
+    n.status='received'; n.receivedAt=new Date().toISOString(); n.matchedItemId=it.id; n.actualQty=actualQty;
     await saveFactoryInbox(FACTORY, MY_INBOX);
-    toast(`تم استلام "${it.name}" (${fmt(n.qty)} ${it.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون`);
+
+    // لو فيه فرق بين المُعلن والفعلي، نبلّغ المصنع المرسل تلقائي عشان يراجع الفرق من عنده
+    if(hasDiscrepancy && n.fromFactoryId){
+      await notifyFactory(n.fromFactoryId, {
+        type:'discrepancy', itemName:n.itemName, unit:n.unit||it.unit,
+        declaredQty, actualQty, diff:n2(actualQty-declaredQty),
+        date:n.date||today(), fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY
+      });
+    }
+
+    toast(`تم استلام "${it.name}" (${fmt(actualQty)} ${it.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون${hasDiscrepancy?' — وبلّغنا المصنع المرسل بالفرق':''}`);
   }catch(e){
     n.status='pending'; // لو حصل خطأ، نرجّعه معلّق تاني عشان يقدر يعيد المحاولة
     toast('حصل خطأ أثناء الاستلام، حاول تاني: '+e.message, 1);
@@ -1438,13 +1490,29 @@ function renderItemCatalogImportPreview(){
 let ICI_PARSED = [];
 
 function viewInbox(){
-  const pending = MY_INBOX.filter(n=>n.status==='pending');
+  const pending = MY_INBOX.filter(n=>n.status==='pending' && n.type!=='discrepancy');
   const processing = MY_INBOX.filter(n=>n.status==='processing');
   const done = MY_INBOX.filter(n=>n.status==='received');
+  const discrepancies = MY_INBOX.filter(n=>n.type==='discrepancy' && n.status==='pending');
   return `
   <div class="panel"><div class="pad">
-    <div class="hint">لما مصنع تاني يصرفلك صنف، بيوصلك إشعار هنا عشان تستلمه — وقتها الصنف بيتضاف لمخزنك تلقائي.</div>
+    <div class="hint">لما مصنع تاني يصرفلك صنف، بيوصلك إشعار هنا عشان تستلمه — وقتها الصنف بيتضاف لمخزنك تلقائي. لو الكمية اللي وصلتك فعليًا مختلفة عن المُعلنة، عدّل الرقم قبل ما تستلم — المصنع المرسل هياخد إشعار بالفرق تلقائي.</div>
   </div></div>
+  ${discrepancies.length?`<div class="panel" style="border:2px solid var(--amber)">
+    <h2>⚠️ بلاغات فرق كمية من مصانع استلمت منك <em>${discrepancies.length}</em></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>المصنع</th><th>الصنف</th><th class="n">أعلنت</th><th class="n">استلم فعليًا</th><th class="n">الفرق</th><th>التاريخ</th><th></th></tr></thead>
+      <tbody>${discrepancies.map(n=>`<tr>
+        <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
+        <td>${esc(n.itemName)}</td>
+        <td class="n">${fmt(n.declaredQty)} ${esc(n.unit||'')}</td>
+        <td class="n">${fmt(n.actualQty)} ${esc(n.unit||'')}</td>
+        <td class="n hl" style="color:${n.diff<0?'var(--red)':'var(--green)'}">${n.diff>0?'+':''}${fmt(n.diff)}</td>
+        <td>${esc(n.date||'')}</td>
+        <td><button class="btn sm" data-act="inbox-ack-discrepancy" data-id="${n.id}">تم الاطلاع</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>`:''}
   <div class="panel">
     <h2>محتاج استلام <em>${pending.length}</em>
       <button class="btn sm g" data-act="inbox-refresh" style="margin-inline-start:auto">تحديث</button></h2>
@@ -1459,7 +1527,11 @@ function viewInbox(){
         return `<tr${mt?(suggested?' style="background:var(--amberbg)"':''):' class="lowrow"'}>
         <td><div class="iname">${esc(n.fromFactory||'-')}</div></td>
         <td>${esc(n.itemName)}</td>
-        <td class="n hl">${fmt(n.qty)} <span class="chip">${esc(n.unit||'')}</span></td>
+        <td class="n">
+          <input type="number" step="any" min="0" data-inboxqty="${n.id}" value="${n.qty}" style="width:74px;padding:4px 6px;font-size:12.5px;text-align:center">
+          <span class="chip">${esc(n.unit||'')}</span>
+          <div class="hint" style="margin-top:2px">المُرسل أعلن ${fmt(n.qty)}</div>
+        </td>
         <td>
           <input type="text" list="inbox-items-list" data-inboxsearch="${esc(n.itemName)}" value="${mt?esc(mt.name):''}" placeholder="اكتب اسم الصنف للبحث…" style="width:100%;min-width:190px;padding:5px 7px;font-size:12.5px">
           <div style="margin-top:3px">
@@ -1882,7 +1954,7 @@ function findMatchingLocalItem(faroojName){
   if(exact){ _matchCache.set(faroojName, exact); return exact; }
   // مفيش تطابق حرفي: نقترح أقرب صنف تلقائي لحد ما المستخدم يثبّته بنفسه
   const best = suggestItemsFor(faroojName, 1)[0];
-  const result = (best && best.score>=0.5) ? best.item : null;
+  const result = (best && best.score>=0.62) ? best.item : null;
   _matchCache.set(faroojName, result);
   return result;
 }
@@ -1946,7 +2018,9 @@ function viewBranchOrders(){
   const rows = Object.values(BO.totals);
   return `
   <div class="panel"><div class="pad">
-    <div class="hint" style="margin-bottom:10px">بتجيب الكمية الإجمالية المطلوبة من كل صنف من "لوحة طلبيات المصنع" في تطبيق الفروج (قراءة فقط، مفيش أي تعديل هناك). دوس "صرف" جنب أي صنف عشان يتصرف من مخزنك — لو ليه وصفة، الخامات هتتخصم تلقائي زي أي صرف عادي.</div>
+    <div class="hint" style="margin-bottom:10px">بتجيب الكمية الإجمالية المطلوبة من كل صنف من "لوحة طلبيات المصنع" في تطبيق الفروج. تقدر تعدّل الكميات مباشرة من جداول "اجمالي الفروع"/"المقبلات"، وتضيف صنف جديد لطلبية فرع من الزرار تحت. أي تعديل بيتكتب فعليًا في طلبية الفرع. دوس "صرف" جنب أي صنف عشان يتصرف من مخزنك — لو ليه وصفة، الخامات هتتخصم تلقائي زي أي صرف عادي.
+      ${rows.length?`<button class="btn sm p" data-act="bo-add-item-open" style="margin-inline-start:8px">+ إضافة صنف لطلبية فرع</button>`:''}
+    </div>
     <div class="grid">
       <div><label class="f">من تاريخ</label><input type="date" id="bo-from" value="${BO.from}" style="width:100%"></div>
       <div><label class="f">إلى تاريخ</label><input type="date" id="bo-to" value="${BO.to}" style="width:100%"></div>
@@ -1972,6 +2046,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='core'?'p':''}" data-boview="core">اجمالي الفروع</button>
       <button class="btn sm ${BO.view==='appet'?'p':''}" data-boview="appet">المقبلات والصوصات</button>
       ${NADER_SAUCES.length?`<button class="btn sm ${BO.view==='nader'?'p':''}" data-boview="nader">صوصات نادر</button>`:''}
+      ${(()=>{ const extra=extraItemsList(); return extra.length?`<button class="btn sm ${BO.view==='extra'?'p':''}" data-boview="extra">أصناف إضافية (${extra.length})</button>`:''; })()}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات النواقص${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
@@ -2060,6 +2135,7 @@ function viewBranchOrders(){
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
   ${rows.length && BO.view==='appet' ? boMatrixHtml(APPETIZER_ITEMS, 'المقبلات والصوصات') : ''}
   ${rows.length && BO.view==='nader' ? boMatrixHtml(NADER_SAUCES, 'صوصات نادر') : ''}
+  ${rows.length && BO.view==='extra' ? boMatrixHtml(extraItemsList(), 'أصناف إضافية') : ''}
   ${BO.view==='compare' ? viewDispenseComparison() : ''}
   ${rows.length && BO.view==='totals' ? (()=>{
     const needConv = rows.filter(r=>findMatchingLocalItem(r.name) && convFactorOf(r.name)===null).length;
@@ -3627,6 +3703,13 @@ function bind(){
     }
   };
   const iriText=$('#iri-text'); if(iriText) iriText.onblur=()=>renderInRecoveryPreview();
+  const baiName=$('#bai-name'); if(baiName) baiName.oninput=()=>{
+    const norm=s=>String(s||'').trim().toLowerCase();
+    const m = S.items.find(i=>norm(i.name)===norm(baiName.value));
+    const hint=$('#bai-hint'), unitEl=$('#bai-unit');
+    if(m){ if(hint) hint.innerHTML=`<span style="color:var(--green)">متطابق مع كارت الأصناف — ${esc(m.cat)} · ${esc(m.unit)}</span>`; if(unitEl && !unitEl.value) unitEl.value=m.unit; }
+    else if(hint) hint.textContent = baiName.value.trim() ? 'مش متطابق مع أي صنف عندك — هيتضاف بالاسم ده في طلبية الفرع بس' : '';
+  };
   const iciFile=$('#ici-file'); if(iciFile) iciFile.onchange=e=>{
     const f=e.target.files&&e.target.files[0]; if(!f) return;
     const name=(f.name||'').toLowerCase();
@@ -3921,7 +4004,7 @@ function bind(){
       if(target){
         m.party=target;
         const toFac=FACTORIES.find(f=>f.id===target);
-        const notifId=await notifyFactory(target,{itemName:it.name, unit:it.unit, qty:m.qty, date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY});
+        const notifId=await notifyFactory(target,{type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
         if(notifId){ m.notifyId=notifId; m.notifyFactory=target; await saveTx(); toast(`اتعدلت الجهة واتبعت إشعار لـ"${toFac?toFac.name:target}"`); }
         else toast('اتعدلت الجهة بس الإشعار ما اتبعتش، حاول تاني',1);
       } else {
@@ -4725,6 +4808,48 @@ function viewDispenseComparison(){
   `;
 }
 
+/* ================= إضافة صنف جديد لطلبية فرع (مش محتاج يكون موجود في الشيتات الثابتة) ================= */
+function boAddItemModal(){
+  const branches = [...new Set(BO.orders.map(o=>o.branch))].sort((a,b)=>a.localeCompare(b,'ar'));
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:440px">
+    <h3>إضافة صنف لطلبية فرع</h3>
+    <div class="pad">
+      <label class="f">الفرع</label>
+      <select id="bai-branch" style="width:100%">
+        <option value="">— اختار الفرع —</option>
+        ${branches.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('')}
+      </select>
+      <label class="f" style="margin-top:10px">اسم الصنف <span class="hint">(زي ما هو مكتوب في تطبيق الفروج)</span></label>
+      <input type="text" id="bai-name" list="bai-items-list" placeholder="اكتب اسم الصنف…" style="width:100%">
+      <datalist id="bai-items-list">${S.items.map(i=>`<option value="${esc(i.name)}">${esc(i.cat)} · ${esc(i.unit)}</option>`).join('')}</datalist>
+      <div class="hint" id="bai-hint" style="margin-top:4px"></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <div style="flex:1"><label class="f">الكمية</label><input type="number" step="any" min="0" id="bai-qty" style="width:100%"></div>
+        <div style="flex:1"><label class="f">الوحدة</label><input type="text" id="bai-unit" placeholder="مثلاً كيلو" style="width:100%"></div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn p" data-act="bo-add-item-go">إضافة</button>
+      <button class="btn" data-close="1">إلغاء</button>
+    </div>
+  </div></div>`;
+}
+
+// أي صنف موجود في طلبيات الفروع بس مش موجود في أي من الشيتات الثلاثة الثابتة (اجمالي الفروع/المقبلات/نادر) —
+// بيظهر هنا تلقائي، عشان أي صنف تضيفه (أو أي صنف الفرع طلبه لوحده) يبقى ليه جدول قابل للتعديل من غير ما نغلط في تصنيفه يدوي
+function extraItemsList(){
+  const norm = s => String(s||'').trim().toLowerCase();
+  const known = new Set([...CORE_ITEMS, ...APPETIZER_ITEMS, ...NADER_SAUCES].map(x=>norm(x.name)));
+  const seen = new Set(); const list = [];
+  BO.orders.forEach(o=>(o.items||[]).forEach(it=>{
+    const n = norm(it.name);
+    if(known.has(n) || seen.has(n)) return;
+    seen.add(n);
+    list.push({ label: it.name, name: it.name });
+  }));
+  return list.sort((a,b)=>a.label.localeCompare(b.label,'ar'));
+}
+
 function boMatrixHtml(itemsList, title){
   const allBranches = [...new Set(BO.orders.map(o=>o.branch))].sort((a,b)=>a.localeCompare(b,'ar'));
   if(!allBranches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في الفترة دي</div></div>`;
@@ -4873,7 +4998,7 @@ async function act(a,d){
       }
     }
     const toFac=FACTORIES.find(f=>f.id===target);
-    const notifId=await notifyFactory(target,{itemName:it.name, unit:it.unit, qty:m.qty, date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY});
+    const notifId=await notifyFactory(target,{type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
     if(!notifId) return toast('الإشعار ما اتبعتش، حاول تاني',1);
     m.notifyId=notifId; m.notifyFactory=target; m.party=target;
     await saveTx();
@@ -5148,6 +5273,13 @@ async function act(a,d){
   }
   if(a==='inbox-refresh'){ return loadMyInbox(); }
   if(a==='inbox-receive'){ return receiveInboxNotification(d.id); }
+  if(a==='inbox-ack-discrepancy'){
+    const n = MY_INBOX.find(x=>x.id===d.id); if(!n) return;
+    n.status='received'; n.acknowledgedAt=new Date().toISOString();
+    await saveFactoryInbox(FACTORY, MY_INBOX);
+    toast('اتعلّم إنك اطّلعت على البلاغ');
+    return render();
+  }
   if(a==='inbox-dismiss'){
     const n = MY_INBOX.find(x=>x.id===d.id);
     if(!n) return;
@@ -5164,6 +5296,33 @@ async function act(a,d){
     return decideFactoryShortageReport(+d.fsid, d.fsdecision);
   }
   if(a==='bo-matrix-clear'){ BO.matrixQ=''; return render(); }
+  if(a==='bo-add-item-open'){ ui.modal = boAddItemModal(); return render(); }
+  if(a==='bo-add-item-go'){
+    const branch = ($('#bai-branch')||{value:''}).value;
+    const name = ($('#bai-name')||{value:''}).value.trim();
+    const qty = +($('#bai-qty')||{value:0}).value;
+    let unit = ($('#bai-unit')||{value:''}).value.trim();
+    if(!branch) return toast('اختار الفرع الأول',1);
+    if(!name) return toast('اكتب اسم الصنف',1);
+    if(!(qty>0)) return toast('اكتب كمية صحيحة',1);
+    if(!unit){
+      const norm=s=>String(s||'').trim().toLowerCase();
+      const m = S.items.find(i=>norm(i.name)===norm(name));
+      unit = m ? m.unit : '';
+    }
+    const order = BO.orders.find(o=>o.branch===branch);
+    if(!order) return toast('تعذر إيجاد طلبية الفرع ده',1);
+    if(!order.items) order.items=[];
+    const norm2=s=>String(s||'').trim().toLowerCase();
+    const existing = order.items.findIndex(x=>norm2(x.name)===norm2(name));
+    if(existing>=0){ order.items[existing].qty = n2((+order.items[existing].qty||0)+qty); }
+    else { order.items.push({ name, unit, qty:n2(qty) }); }
+    const ok = await boSaveOrder(order);
+    if(!ok) return; // boSaveOrder نفسها بتعرض رسالة الخطأ
+    ui.modal=null;
+    toast(`اتضاف "${name}" لطلبية ${branch}`);
+    return render();
+  }
   if(a==='bo-fetch'){
     const f=$('#bo-from'), t=$('#bo-to');
     if(f) BO.from=f.value; if(t) BO.to=t.value;
@@ -5414,7 +5573,7 @@ async function act(a,d){
       if(res.auto) autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
       if(reason==='صرف لمصنع تاني' && party){
         const toFac = FACTORIES.find(f=>f.id===party);
-        const notifId = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty, date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY});
+        const notifId = await notifyFactory(party, {type:'shipment', itemName:it.name, unit:it.unit, qty, date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
         if(notifId && m){ m.notifyId=notifId; m.notifyFactory=party; await saveTx(); }
         autoMsg += notifId? ` — وتم إبلاغ "${toFac?toFac.name:party}"` : ' — بس حصل خطأ في إبلاغ المصنع المستلم، كلّمه يدوي';
       }
@@ -5474,7 +5633,7 @@ async function act(a,d){
       let sentCount=0;
       for(const m of moves){
         const it=item(m.itemId);
-        const notifId = await notifyFactory(party, {itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName});
+        const notifId = await notifyFactory(party, {type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName, fromFactoryId:FACTORY});
         if(notifId){ m.notifyId=notifId; m.notifyFactory=party; sentCount++; }
       }
       await saveTx();
