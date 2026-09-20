@@ -925,7 +925,7 @@ async function receiveInboxNotification(notifId){
     if(hasDiscrepancy && n.fromFactoryId){
       await notifyFactory(n.fromFactoryId, {
         type:'discrepancy', itemName:n.itemName, unit:n.unit||it.unit,
-        declaredQty, actualQty, diff:n2(actualQty-declaredQty),
+        declaredQty, actualQty, diff:n2(actualQty-declaredQty), originalNotifId:n.id,
         date:n.date||today(), fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY
       });
     }
@@ -1509,7 +1509,10 @@ function viewInbox(){
         <td class="n">${fmt(n.actualQty)} ${esc(n.unit||'')}</td>
         <td class="n hl" style="color:${n.diff<0?'var(--red)':'var(--green)'}">${n.diff>0?'+':''}${fmt(n.diff)}</td>
         <td>${esc(n.date||'')}</td>
-        <td><button class="btn sm" data-act="inbox-ack-discrepancy" data-id="${n.id}">تم الاطلاع</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn sm p" data-act="inbox-correct-move" data-id="${n.id}" title="يعدّل حركة الصرف عندك للرقم اللي استلموه فعليًا">صحّح حركتي بالفرق</button>
+          <button class="btn sm" data-act="inbox-ack-discrepancy" data-id="${n.id}">تم الاطلاع</button>
+        </td>
       </tr>`).join('')}</tbody>
     </table></div>
   </div>`:''}
@@ -5278,6 +5281,19 @@ async function act(a,d){
     n.status='received'; n.acknowledgedAt=new Date().toISOString();
     await saveFactoryInbox(FACTORY, MY_INBOX);
     toast('اتعلّم إنك اطّلعت على البلاغ');
+    return render();
+  }
+  if(a==='inbox-correct-move'){
+    const n = MY_INBOX.find(x=>x.id===d.id); if(!n) return;
+    if(!n.originalNotifId){ toast('البلاغ ده قديم ومالوش رابط بحركة معينة، صحّح الكمية يدوي من "منصرف"',1); return; }
+    const m = S.moves.find(x=>x.notifyId===n.originalNotifId);
+    if(!m){ toast('تعذر إيجاد الحركة الأصلية (ممكن تكون اتمسحت أو الفترة اتقفلت)، صحّحها يدوي من "منصرف"',1); return; }
+    if(!confirm(`هيتم تعديل كمية حركة "${esc(n.itemName)}" اللي بعتها من ${fmt(m.qty)} لـ${fmt(n.actualQty)} ${esc(n.unit||'')}، والفرق (${fmt(Math.abs(n.diff))}) هيرجع لمخزونك. متأكد؟`)) return;
+    m.qty = n.actualQty;
+    await saveTx();
+    n.status='received'; n.acknowledgedAt=new Date().toISOString(); n.corrected=true;
+    await saveFactoryInbox(FACTORY, MY_INBOX);
+    toast(`اتصحّحت الحركة — الرصيد رجع لمخزونك`);
     return render();
   }
   if(a==='inbox-dismiss'){
