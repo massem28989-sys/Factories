@@ -164,7 +164,30 @@ const SEED = [{"id": "i001", "name": "Abu Oud", "desc": "Tray (36 Pcs )", "unit"
 // ---- الاتصال بقاعدة البيانات: يتحط مرة واحدة هنا من صاحب النظام على GitHub ----
 const SUPABASE_URL = 'https://wmzzftcnfnpnnqirkeer.supabase.co';   // مثال: https://xxxxx.supabase.co
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtenpmdGNuZm5wbm5xaXJrZWVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDMwMDcsImV4cCI6MjEwMTMxOTAwN30.2urxyAAQV4OXzQQ-1JkPjb_scyJKeOjl7cEtfEDEzV4';
- 
+ // =====================================================
+// Supabase Auth
+// =====================================================
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let SESSION = null;
+
+async function signIn(email, password){
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if(error) throw error;
+  SESSION = data.session;
+  return data.user;
+}
+
+async function checkSession(){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  SESSION = session;
+  return !!session;
+}
+
+async function signOut(){
+  await supabaseClient.auth.signOut();
+  SESSION = null;
+  location.reload();
+}
 // ---- الدور والمصنع يتحددوا من رابط الصفحة ----
 const QS = new URLSearchParams(location.search);
 let ROLE = QS.get('manager')!==null ? 'manager' : 'owner';
@@ -506,11 +529,18 @@ let pushTimer=null;
  
 async function sb(path,opts={}){
   const base=DB.url.replace(/\/+$/,'');
+  const token = SESSION?.access_token || DB.key;  // ← استخدم session token
+  
   const r=await fetch(base+'/rest/v1/'+path,{
     method:opts.method||'GET',
-    headers:{apikey:DB.key,Authorization:'Bearer '+DB.key,'Content-Type':'application/json',
-             Prefer:opts.prefer||'return=minimal'},
+    headers:{
+      apikey: DB.key,
+      Authorization: 'Bearer ' + token,   // ← التغيير هنا
+      'Content-Type':'application/json',
+      Prefer:opts.prefer||'return=minimal'
+    },
     body:opts.body?JSON.stringify(opts.body):undefined});
+  
   if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,180)||('HTTP '+r.status)); }
   const t=await r.text(); return t?JSON.parse(t):null;
 }
@@ -3000,6 +3030,7 @@ function viewFac(){
     <div class="pad">
       ${!DB_CONFIGURED?`
         <div class="warnbar">النظام لسه محتاج رابط ومفتاح Supabase. من على GitHub، افتح الملف للتعديل، ودور على السطرين دول في أول الكود واستبدلهم ببيانات مشروعك:</div>
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <pre style="background:#F6F8F9;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px;overflow:auto;direction:ltr;text-align:left;font-family:'IBM Plex Mono',monospace;font-size:12.5px">const SUPABASE_URL = 'https://xxxxx.supabase.co';
 const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
         <div class="hint" style="margin-top:8px">لقيت الرابط والمفتاح دول في Supabase تحت <b>Project Settings ← API</b>.</div>
@@ -5915,8 +5946,53 @@ async function act(a,d){
     S={items:[],recipes:[],period:'',closed:[],moves:[],counts:{}}; await load(); toast('اترجع للأصل'); return render();
   }
 }
- 
+ function showLoginScreen(){
+  document.getElementById('root').innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:16px">
+      <div class="panel" style="max-width:400px;width:100%">
+        <h2 style="padding:16px;border-bottom:2px solid var(--brand-bg);background:#F6F8F9">🔐 تسجيل الدخول</h2>
+        <div class="pad">
+          <label class="f">الإيميل</label>
+          <input type="email" id="login-email" style="width:100%;margin-bottom:12px" autofocus>
+          <label class="f">كلمة السر</label>
+          <input type="password" id="login-pass" style="width:100%;margin-bottom:16px">
+          <button class="btn p" id="login-btn" style="width:100%;padding:11px">دخول</button>
+          <div id="login-err" style="color:var(--red);margin-top:12px;font-size:13px;text-align:center"></div>
+        </div>
+      </div>
+    </div>`;
+  
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-err');
+  const pass = document.getElementById('login-pass');
+  
+  const doLogin = async () => {
+    const email = document.getElementById('login-email').value.trim();
+    const password = pass.value;
+    if(!email || !password){ err.textContent = 'اكتب الإيميل وكلمة السر'; return; }
+    btn.disabled = true; btn.textContent = 'جاري الدخول...'; err.textContent = '';
+    try{
+      await signIn(email, password);
+      location.reload();
+    }catch(e){
+      err.textContent = '❌ ' + (e.message || 'فشل تسجيل الدخول');
+      btn.disabled = false; btn.textContent = 'دخول';
+    }
+  };
+  
+  btn.onclick = doLogin;
+  pass.onkeydown = e => { if(e.key === 'Enter') doLogin(); };
+}
 async function boot(){
+  // 1. تحقق من الجلسة الأول
+  try{
+    const ok = await checkSession();
+    if(!ok){ showLoginScreen(); return; }
+  }catch(e){
+    showLoginScreen(); return;
+  }
+  
+  // 2. بعدين اكمّل تحميل عادي
   try{ await load(); }
   catch(e){
     console.error(e);
