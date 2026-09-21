@@ -3439,8 +3439,9 @@ function settlementReceiptModal(historyEntry){
 
   const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
   const totalValue = n2(sorted.reduce((s,r)=>s+r.value,0));
-  const d = historyEntry ? new Date(historyEntry.takenAt).toLocaleString('ar-EG') : new Date().toLocaleDateString('ar-EG');
-  const subtitle = historyEntry ? `تسوية اتنفّذت بتاريخ ${esc(historyEntry.date)}` : 'معاينة قبل التنفيذ';
+  const d = historyEntry ? (historyEntry.takenAt ? new Date(historyEntry.takenAt).toLocaleString('ar-EG') : historyEntry.date) : new Date().toLocaleDateString('ar-EG');
+  const subtitle = historyEntry ? `تسوية اتنفّذت بتاريخ ${esc(historyEntry.date)}${historyEntry.reconstructed?' (مسترجعة من سجل الحركات)':''}` : 'معاينة قبل التنفيذ';
+  const hasOriginal = sorted.length && sorted[0].book!==null && sorted[0].book!==undefined;
 
   return `<div class="modal" data-close="1"><div class="box" style="max-width:560px">
     <h3>ورقة فرق التسوية</h3>
@@ -3453,14 +3454,14 @@ function settlementReceiptModal(historyEntry){
       <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:13px">
         <thead><tr style="border-bottom:1px solid var(--line)">
           <th style="text-align:start;padding:5px 0;color:var(--muted);font-weight:600">الصنف</th>
-          <th style="text-align:end;padding:5px 0;color:var(--muted);font-weight:600">الدفتري</th>
-          <th style="text-align:end;padding:5px 0;color:var(--muted);font-weight:600">الفعلي</th>
+          ${hasOriginal?`<th style="text-align:end;padding:5px 0;color:var(--muted);font-weight:600">الدفتري</th>
+          <th style="text-align:end;padding:5px 0;color:var(--muted);font-weight:600">الفعلي</th>`:''}
           <th style="text-align:end;padding:5px 0;color:var(--muted);font-weight:600">الفرق</th>
         </tr></thead>
         <tbody>${sorted.map(r=>`<tr style="border-bottom:1px dotted var(--line)">
           <td style="padding:5px 0">${esc(r.name)}</td>
-          <td class="n" style="padding:5px 0">${fmt(r.book)}</td>
-          <td class="n" style="padding:5px 0">${fmt(r.actual)}</td>
+          ${hasOriginal?`<td class="n" style="padding:5px 0">${fmt(r.book)}</td>
+          <td class="n" style="padding:5px 0">${fmt(r.actual)}</td>`:''}
           <td class="n" style="padding:5px 0;color:${r.diff<0?'var(--red)':'var(--green)'}">${r.diff>0?'+':''}${fmt(r.diff)} ${esc(r.unit)}</td>
         </tr>`).join('')}</tbody>
       </table>
@@ -3477,15 +3478,37 @@ function settlementReceiptModal(historyEntry){
   </div></div>`;
 }
 
+// بيسترجع تسويات قديمة اتعملت قبل ميزة الحفظ، من الحركات الفعلية اللي لسه موجودة في السجل
+// (أي حركة عليها علامة "تسوية جرد")، ويجمّعها حسب التاريخ عشان تقدر تطبعها زي لو كانت متحفوظة
+function reconstructSettlementsFromMoves(){
+  const settleMoves = S.moves.filter(m=>m.reason==='تسوية جرد' || String(m.party||'').startsWith('تسوية جرد'));
+  const byBatch = {}; // لو الحركة عليها settleBatch، بنجمع بيه؛ وإلا بنجمع حسب التاريخ بس
+  settleMoves.forEach(m=>{
+    const key = m.settleBatch || ('date:'+m.date);
+    if(!byBatch[key]) byBatch[key] = { date:m.date, moves:[] };
+    byBatch[key].moves.push(m);
+  });
+  return Object.values(byBatch).map(g=>{
+    const items = g.moves.map(m=>{
+      const it = item(m.itemId);
+      const diff = m.dir==='in' ? m.qty : -m.qty; // وارد = زيادة، منصرف = نقصان
+      return { name: it?it.name:'صنف محذوف', unit: it?it.unit:'', diff:n2(diff), value:n2(diff*(m.price||(it?it.price:0)||0)),
+        book:null, actual:null }; // مش عندنا الدفتري/الفعلي الأصليين، بس الفرق والقيمة دقيقين من الحركة نفسها
+    });
+    return { date:g.date, items, takenAt:null, reconstructed:true };
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+}
+
 function settlementHistoryModal(list){
   return `<div class="modal" data-close="1"><div class="box" style="max-width:460px">
     <h3>سجل التسويات السابقة</h3>
     <div class="pad">
       ${list.length? `<div class="tblwrap"><table class="gridcols">
-        <thead><tr><th>التاريخ</th><th class="n">عدد الأصناف</th><th></th></tr></thead>
+        <thead><tr><th>التاريخ</th><th class="n">عدد الأصناف</th><th>النوع</th><th></th></tr></thead>
         <tbody>${list.map((s,i)=>`<tr>
           <td>${esc(s.date)}</td>
           <td class="n">${s.items.length}</td>
+          <td>${s.reconstructed?'<span class="chip a">مسترجعة من الحركات</span>':'<span class="chip g">محفوظة</span>'}</td>
           <td><button class="btn sm" data-act="settlement-print-one" data-idx="${i}">🖨️ طباعة</button></td>
         </tr>`).join('')}</tbody>
       </table></div>` : `<div class="empty">لسه مفيش أي تسوية اتنفذت في المصنع ده</div>`}
@@ -5922,12 +5945,17 @@ async function act(a,d){
   if(a==='print-consolidated-open'){ ui.modal = consolidatedInvoicePickerModal(); return render(); }
   if(a==='print-settlement-open'){ ui.modal = settlementReceiptModal(); return render(); }
   if(a==='settlement-history-open'){
+    let savedList = [];
     try{
       const rows = await sb('stock_settings?'+fEq()+'&k=eq.settlements&select=v',{prefer:'return=representation'});
-      const list = (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
-      SETTLEMENT_HISTORY = list;
-      ui.modal = settlementHistoryModal(list);
-    }catch(e){ toast('تعذر تحميل السجل: '+e.message,1); }
+      savedList = (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
+    }catch(e){ toast('تعذر تحميل السجل المحفوظ: '+e.message,1); }
+    // نضيف كمان أي تسوية قديمة اتعملت قبل ميزة الحفظ، مسترجعة من الحركات نفسها —
+    // بس مش لو نفس التاريخ محفوظ أصلاً في savedList (عشان مانكررش نفس التسوية مرتين)
+    const savedDates = new Set(savedList.map(s=>s.date));
+    const reconstructed = reconstructSettlementsFromMoves().filter(r=>!savedDates.has(r.date));
+    SETTLEMENT_HISTORY = [...savedList, ...reconstructed].sort((a,b)=>b.date.localeCompare(a.date));
+    ui.modal = settlementHistoryModal(SETTLEMENT_HISTORY);
     return render();
   }
   if(a==='settlement-print-one'){
