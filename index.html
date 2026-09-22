@@ -2159,7 +2159,7 @@ function viewBranchOrders(){
       ${(()=>{ const extra=extraItemsList(); return extra.length?`<button class="btn sm ${BO.view==='extra'?'p':''}" data-boview="extra">أصناف إضافية (${extra.length})</button>`:''; })()}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
-      <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات النواقص${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
+      <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
   </div></div>`:''}
@@ -2220,14 +2220,20 @@ function viewBranchOrders(){
     </table></div>
   </div>` : ''}
   ${BO.view==='shortages' ? `<div class="panel">
-    <h2>بلاغات نواقص الاستلام من الفروع <em>${BO.shortages.length} بلاغ</em></h2>
-    <p class="hint" style="margin-top:-6px">لما فرع يشيّك على فاتورة استلام ويلاقي صنف ناقص أو مجاش، البلاغ بيوصلك هنا بالكميات بالظبط. راجع الفرق، وبعدين علّم البلاغ إنه اتحل.</p>
+    <h2>بلاغات فروق الاستلام من الفروع <em>${BO.shortages.length} بلاغ</em></h2>
+    <p class="hint" style="margin-top:-6px">لما فرع يشيّك على فاتورة استلام ويلاقي صنف ناقص أو زيادة أو مجاش، البلاغ بيوصلك هنا بالكميات بالظبط. راجع الفرق، وبعدين علّم البلاغ إنه اتحل.</p>
     <div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>الفرع</th><th>التاريخ</th><th>الأصناف الناقصة</th><th>بواسطة</th><th>الوقت</th><th>الحالة</th><th></th></tr></thead>
+      <thead><tr><th>الفرع</th><th>التاريخ</th><th>الفروق</th><th>بواسطة</th><th>الوقت</th><th>الحالة</th><th></th></tr></thead>
       <tbody>${BO.shortages.length? BO.shortages.map(r=>{
         const labels = { pending:'محتاج مراجعة', resolved:'اتحل', rejected:'مرفوض' };
         const cls = r.status==='resolved' ? 'g' : (r.status==='rejected' ? 'r' : 'a');
-        const itemsList = (r.items||[]).map(it=>`${esc(it.name)}: أرسل ${fmt(it.sentQty)}، استلم ${fmt(it.receivedQty)} <span class="chip r">ناقص ${fmt(it.missingQty)} ${esc(it.unit||'')}</span>`).join('<br>');
+        const itemsList = (r.items||[]).map(it=>{
+          const isSurplus = it.type==='surplus';
+          const badge = isSurplus
+            ? `<span class="chip b">زيادة ${fmt(it.extraQty)} ${esc(it.unit||'')}</span>`
+            : `<span class="chip r">ناقص ${fmt(it.missingQty)} ${esc(it.unit||'')}</span>`;
+          return `${esc(it.name)}: أرسل ${fmt(it.sentQty)}، استلم ${fmt(it.receivedQty)} ${badge}`;
+        }).join('<br>');
         return `<tr>
           <td><div class="iname">${esc(r.branch)}</div></td>
           <td>${esc(r.date)}</td>
