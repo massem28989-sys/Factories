@@ -642,7 +642,7 @@ function viewUsers(){
   ${isOwnerSession?`<div class="panel"><h2>إضافة أو تعديل مستخدم</h2><div class="pad">
     <div class="hint" style="margin-bottom:8px">الحساب لازم يكون متعمل الأول من لوحة Supabase (Authentication ← Add user). هنا بتحدد صلاحياته بس. لو الإيميل موجود بالفعل، صلاحياته هتتحدّث.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-      <div style="flex:2;min-width:200px"><label class="f">الإيميل</label><input type="email" id="u-email" style="width:100%"></div>
+      <div style="flex:2;min-width:200px"><label class="f">الإيميل <span class="hint">(إيميل المدير — مش إيميلك انت)</span></label><input type="email" id="u-email" style="width:100%"></div>
       <div style="flex:1;min-width:140px"><label class="f">الدور</label><select id="u-role" style="width:100%"><option value="manager">مدير مصنع</option><option value="owner">صاحب النظام (كل المصانع)</option></select></div>
     </div>
     <label class="f" style="margin-top:10px">المصانع المسموحة للمدير</label>
@@ -5859,6 +5859,7 @@ async function act(a,d){
     const facs=[...document.querySelectorAll('[data-ufac]:checked')].map(x=>x.dataset.ufac);
     if(!email) return toast('اكتب الإيميل',1);
     if(role==='manager'&&!facs.length) return toast('اختار مصنع واحد على الأقل للمدير',1);
+    if(AUTH && email===String(AUTH.user.email||'').toLowerCase() && role!=='owner') return toast('ده إيميلك انت — مينفعش تنزّل صلاحياتك كصاحب النظام',1);
     try{ await sb('rpc/app_set_user',{method:'POST',body:{p_email:email,p_role:role,p_factories:role==='owner'?[]:facs},prefer:'return=representation'});
       toast('اتحفظت صلاحيات '+email); await usersLoad(); }
     catch(e){ toast(_rpcErr(e.message),1); }
