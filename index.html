@@ -406,8 +406,8 @@ const TAB_GROUPS_OWNER = [
   { name:'المخزن',   tabs:[['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['items','كارت الأصناف'],['expiry','الصلاحيات']] },
   { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء']] },
   { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
-  { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['rep','التقارير والإقفال']] },
-  { name:'الإعدادات',tabs:[['fac','المصانع'],['backups','النسخ الاحتياطية'],['sec','الصلاحيات والأقفال']] },
+  { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['finance','التقرير المالي'],['rep','التقارير والإقفال']] },
+  { name:'الإعدادات',tabs:[['fac','المصانع'],['users','المستخدمين'],['backups','النسخ الاحتياطية'],['sec','الصلاحيات والأقفال']] },
 ];
 const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
 const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
@@ -505,22 +505,171 @@ let DB={url:SUPABASE_URL,key:SUPABASE_KEY,on:false,last:'',err:'',busy:false,dir
 let BK={dirty:0,lastAt:''};
 let pushTimer=null;
  
+/* ================= تسجيل الدخول (Supabase Auth) ================= */
+// كل طلب للقاعدة بيروح بتوكن المستخدم المسجّل. قبل ما الحماية (RLS) تتفعّل، النظام بيشتغل عادي حتى من غير دخول —
+// بعد التفعيل، Supabase نفسه بيرفض أي طلب من غير حساب، وكل مدير بيشوف مصانعه بس.
+const AUTH_KEY='fac_auth_v1';
+let AUTH=(()=>{ try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); }catch(e){ return null; } })();
+let PROFILE=null, AUTH_REQUIRED=false, AUTH_TABLE_READY=false;
+let USERS_LIST=[], usersLoaded=false, USERS_ERR='';
+const _authBase=()=>SUPABASE_URL.replace(/\/+$/,'');
+function authSave(){ try{ if(AUTH) localStorage.setItem(AUTH_KEY,JSON.stringify(AUTH)); else localStorage.removeItem(AUTH_KEY); }catch(e){} }
+function authStore(d){
+  if(!d||!d.access_token) throw new Error('رد غير متوقع من Supabase');
+  AUTH={ access_token:d.access_token, refresh_token:d.refresh_token||(AUTH&&AUTH.refresh_token),
+    expires_at: d.expires_at || Math.floor(Date.now()/1000)+(+d.expires_in||3600),
+    user:{ id:d.user?d.user.id:(AUTH&&AUTH.user.id), email:d.user?d.user.email:(AUTH&&AUTH.user.email) } };
+  authSave();
+}
+async function authCall(grant, body){
+  const r=await fetch(_authBase()+'/auth/v1/token?grant_type='+grant,{method:'POST',
+    headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error_description||d.msg||d.message||('HTTP '+r.status));
+  return d;
+}
+async function authLogin(email,password){ authStore(await authCall('password',{email:String(email).trim(),password})); }
+let _refreshing=null;
+async function authRefresh(){
+  if(!AUTH||!AUTH.refresh_token) return false;
+  if(!_refreshing) _refreshing=(async()=>{
+    try{ authStore(await authCall('refresh_token',{refresh_token:AUTH.refresh_token})); return true; }
+    catch(e){ if(/invalid|expired|not.?found|revoked/i.test(e.message)){ AUTH=null; authSave(); } return false; } // مشكلة نت مؤقتة ماتطلّعكش من حسابك
+  })().finally(()=>{ _refreshing=null; });
+  return _refreshing;
+}
+async function authToken(){
+  if(!AUTH) return null;
+  if(AUTH.expires_at - Math.floor(Date.now()/1000) < 90) await authRefresh(); // بنجدد الجلسة قبل ما تنتهي بدقيقة ونص
+  return AUTH? AUTH.access_token : null;
+}
+function authLogout(){
+  const tok=AUTH&&AUTH.access_token;
+  if(tok) fetch(_authBase()+'/auth/v1/logout',{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+tok}}).catch(()=>{});
+  AUTH=null; authSave(); try{ sessionStorage.removeItem('fac_guest'); }catch(e){}
+  location.href=location.pathname+'?'+(ROLE==='manager'?'manager&':'')+'factory='+encodeURIComponent(FACTORY);
+}
+async function fetchAuthRequired(){
+  try{ const r=await fetch(_authBase()+'/rest/v1/rpc/app_auth_required',{method:'POST',
+      headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'},body:'{}'});
+    if(!r.ok) return false; return (await r.json())===true; }catch(e){ return false; }
+}
+// بتتنادى قبل تحميل أي بيانات: بتقرر هل نعرض شاشة الدخول، ولو مدير — بتتأكد إنه فاتح مصنع من مصانعه بس
+async function authGate(){
+  if(!DB_CONFIGURED) return true;
+  AUTH_REQUIRED = await fetchAuthRequired();
+  let guest=false; try{ guest = sessionStorage.getItem('fac_guest')==='1'; }catch(e){}
+  if(AUTH) await authToken();
+  if(!AUTH){
+    if(!AUTH_REQUIRED && guest) return true;
+    renderLogin(); return false;
+  }
+  try{
+    const rows=await sb('app_users?user_id=eq.'+encodeURIComponent(AUTH.user.id)+'&select=role,factories,email',{prefer:'return=representation'});
+    AUTH_TABLE_READY=true; PROFILE=(rows&&rows[0])||null;
+  }catch(e){ AUTH_TABLE_READY=false; PROFILE=null; }
+  if(!PROFILE){
+    if(AUTH_REQUIRED){ renderNoAccess(`حسابك (${AUTH.user.email}) لسه متربطش بأي صلاحيات. كلّم صاحب النظام يضيفك من تبويب "المستخدمين".`); return false; }
+    return true; // لسه في المرحلة الانتقالية — النظام بيشتغل زي الأول
+  }
+  if(PROFILE.role==='manager'){
+    const allowed=PROFILE.factories||[];
+    if(!allowed.length){ renderNoAccess('حسابك مالوش أي مصنع متحدد. كلّم صاحب النظام.'); return false; }
+    const target=allowed.includes(FACTORY)?FACTORY:allowed[0];
+    if(ROLE!=='manager'||target!==FACTORY){ location.replace(location.pathname+'?manager&factory='+encodeURIComponent(target)); return false; }
+  }
+  return true;
+}
+function renderLogin(msg){
+  $('#root').innerHTML = `<div class="wrap" style="max-width:400px;margin:60px auto">
+    <div class="panel"><div class="pad">
+      <h2 style="margin:0 0 4px">تسجيل الدخول</h2>
+      <div class="hint" style="margin-bottom:12px">نظام مخازن المصانع</div>
+      <label class="f">الإيميل</label><input type="email" id="lg-email" style="width:100%" autocomplete="username">
+      <label class="f" style="margin-top:8px">الباسورد</label><input type="password" id="lg-pass" style="width:100%" autocomplete="current-password">
+      <div id="lg-err" class="warnbar" style="margin-top:10px;${msg?'':'display:none'}">${msg?esc(msg):''}</div>
+      <button class="btn p" id="lg-go" style="width:100%;margin-top:12px;padding:10px">دخول</button>
+      ${AUTH_REQUIRED?'':`<button class="btn" id="lg-guest" style="width:100%;margin-top:8px">متابعة من غير حساب (مؤقتًا)</button>
+        <div class="hint" style="margin-top:6px">الدخول من غير حساب هيتقفل قريب. لو معندكش حساب، اطلبه من صاحب النظام.</div>`}
+    </div></div></div>`;
+  const go=async()=>{ const e=$('#lg-email').value, p=$('#lg-pass').value, err=$('#lg-err'), btn=$('#lg-go');
+    if(!e||!p){ err.style.display='block'; err.textContent='اكتب الإيميل والباسورد'; return; }
+    btn.disabled=true; btn.textContent='جاري الدخول…';
+    try{ await authLogin(e,p); try{ sessionStorage.removeItem('fac_guest'); }catch(x){} location.reload(); }
+    catch(x){ err.style.display='block'; err.textContent=/invalid/i.test(x.message)?'الإيميل أو الباسورد غلط':('تعذر الدخول: '+x.message); btn.disabled=false; btn.textContent='دخول'; } };
+  $('#lg-go').onclick=go;
+  $('#lg-pass').onkeydown=e=>{ if(e.key==='Enter') go(); };
+  const g=$('#lg-guest'); if(g) g.onclick=()=>{ try{ sessionStorage.setItem('fac_guest','1'); }catch(e){} location.reload(); };
+}
+function renderNoAccess(msg){
+  $('#root').innerHTML = `<div class="wrap" style="max-width:440px;margin:60px auto"><div class="panel"><div class="pad">
+    <h2 style="margin:0 0 8px">مفيش صلاحية</h2><div class="warnbar">${esc(msg)}</div>
+    <button class="btn" id="na-out" style="width:100%;margin-top:12px">خروج والدخول بحساب تاني</button></div></div></div>`;
+  $('#na-out').onclick=authLogout;
+}
+async function usersLoad(){
+  try{ USERS_LIST = await sb('app_users?select=user_id,email,role,factories&order=email',{prefer:'return=representation'})||[]; USERS_ERR=''; AUTH_TABLE_READY=true; }
+  catch(e){ USERS_LIST=[]; USERS_ERR=e.message; }
+  usersLoaded=true;
+}
+const _rpcErr = m => { try{ const j=JSON.parse(m); return j.message||m; }catch(e){ return m; } };
+function viewUsers(){
+  if(!usersLoaded) usersLoad().then(render);
+  const tableMissing = usersLoaded && !AUTH_TABLE_READY && USERS_ERR;
+  const isOwnerSession = AUTH && PROFILE && PROFILE.role==='owner';
+  const facName = id => (FACTORIES.find(f=>f.id===id)||{name:id}).name;
+  return `
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">الحماية</div><div class="v" style="font-size:16px;color:${AUTH_REQUIRED?'var(--green)':'var(--red)'}">${AUTH_REQUIRED?'مفعّلة ✓':'لسه مش مفعّلة'}</div>
+      <div class="s">${AUTH_REQUIRED?'مفيش دخول من غير حساب':'أي حد معاه الرابط يقدر يدخل'}</div></div>
+    <div class="card"><div class="k">إنت داخل بـ</div><div class="v" style="font-size:14px">${AUTH?esc(AUTH.user.email):'من غير حساب'}</div>
+      <div class="s">${PROFILE?(PROFILE.role==='owner'?'صاحب النظام':'مدير'):'مالكش صلاحيات متسجلة'}</div></div>
+  </div></div></div>
+  ${tableMissing?`<div class="panel"><div class="pad"><div class="warnbar">جدول المستخدمين لسه مش موجود في القاعدة — شغّل <b>خطوة SQL رقم 1</b> الأول.</div></div></div>`:''}
+  ${!isOwnerSession&&!tableMissing?`<div class="panel"><div class="pad"><div class="warnbar">لازم تكون داخل بحساب <b>صاحب النظام</b> عشان تضيف أو تعدّل مستخدمين.</div></div></div>`:''}
+  <div class="panel">
+    <h2>المستخدمين <em>${USERS_LIST.length}</em><button class="btn sm" data-act="users-refresh" style="margin-inline-start:auto">تحديث</button></h2>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الإيميل</th><th>الدور</th><th>المصانع</th><th></th></tr></thead>
+      <tbody>${USERS_LIST.length? USERS_LIST.map(u=>`<tr>
+        <td><div class="iname">${esc(u.email)}</div></td>
+        <td>${u.role==='owner'?'<span class="chip g">صاحب النظام</span>':'<span class="chip b">مدير</span>'}</td>
+        <td>${u.role==='owner'?'<span class="hint">كل المصانع</span>':(u.factories||[]).map(f=>`<span class="chip">${esc(facName(f))}</span>`).join(' ')}</td>
+        <td>${isOwnerSession && !(AUTH&&u.user_id===AUTH.user.id)?`<button class="btn sm danger" data-act="users-remove" data-email="${esc(u.email)}">إلغاء الصلاحية</button>`:''}</td>
+      </tr>`).join('') : `<tr><td colspan="4" class="empty">${usersLoaded?'مفيش مستخدمين لسه':'جاري التحميل...'}</td></tr>`}</tbody>
+    </table></div>
+  </div>
+  ${isOwnerSession?`<div class="panel"><h2>إضافة أو تعديل مستخدم</h2><div class="pad">
+    <div class="hint" style="margin-bottom:8px">الحساب لازم يكون متعمل الأول من لوحة Supabase (Authentication ← Add user). هنا بتحدد صلاحياته بس. لو الإيميل موجود بالفعل، صلاحياته هتتحدّث.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      <div style="flex:2;min-width:200px"><label class="f">الإيميل</label><input type="email" id="u-email" style="width:100%"></div>
+      <div style="flex:1;min-width:140px"><label class="f">الدور</label><select id="u-role" style="width:100%"><option value="manager">مدير مصنع</option><option value="owner">صاحب النظام (كل المصانع)</option></select></div>
+    </div>
+    <label class="f" style="margin-top:10px">المصانع المسموحة للمدير</label>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${FACTORIES.map(f=>`<label style="display:flex;gap:4px;align-items:center"><input type="checkbox" data-ufac="${esc(f.id)}"> ${esc(f.name)}</label>`).join('')}</div>
+    <button class="btn p" data-act="users-add" style="margin-top:12px">حفظ الصلاحيات</button>
+  </div></div>`:''}`;
+}
+
 async function sb(path,opts={}){
   const base=DB.url.replace(/\/+$/,'');
-  const r=await fetch(base+'/rest/v1/'+path,{
+  const go=tok=>fetch(base+'/rest/v1/'+path,{
     method:opts.method||'GET',
-    headers:{apikey:DB.key,Authorization:'Bearer '+DB.key,'Content-Type':'application/json',
+    headers:{apikey:DB.key,Authorization:'Bearer '+(tok||DB.key),'Content-Type':'application/json',
              Prefer:opts.prefer||'return=minimal'},
     body:opts.body?JSON.stringify(opts.body):undefined});
+  let r=await go(await authToken());
+  if(r.status===401 && AUTH && await authRefresh()) r=await go(AUTH.access_token); // الجلسة خلصت في النص — نجددها ونعيد الطلب مرة
   if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,180)||('HTTP '+r.status)); }
   const t=await r.text(); return t?JSON.parse(t):null;
 }
 // بيرجّع العدد الحقيقي لصفوف جدول من غير ما ينزّل البيانات نفسها (بيستخدم هيدر Content-Range من Supabase)
 async function sbCount(table){
   const base=DB.url.replace(/\/+$/,'');
+  const tok=await authToken();
   const r=await fetch(base+'/rest/v1/'+table+'?select=id',{
     method:'GET',
-    headers:{apikey:DB.key,Authorization:'Bearer '+DB.key,Prefer:'count=exact',Range:'0-0'}});
+    headers:{apikey:DB.key,Authorization:'Bearer '+(tok||DB.key),Prefer:'count=exact',Range:'0-0'}});
   if(!r.ok) throw new Error('HTTP '+r.status);
   const range=r.headers.get('content-range')||'';
   const m=range.match(/\/(\d+)$/);
@@ -632,43 +781,8 @@ function schedulePush(){
   pushTimer=setTimeout(()=>pushAll(true),1500);
 }
  
-async function pushAll(quiet){
-  if(!DB.on||DB.busy) return false;
-  DB.busy=true; DB.err=''; if(!quiet) render();
-  const P=S.period, F=FACTORY;
-  const errors=[];
-
-  // كل قسم مستقل تمامًا عن الباقي: فشل قسم واحد (زي الحركات لو أعمدة جديدة لسه ما اتضافتش) مايوقفش حفظ باقي الأقسام خالص
-  try{
-    // حماية أساسية: لو نسختنا المحلية فاضية من الأصناف بس السيرفر عنده أصناف فعلاً، ده مش حالة "مسح كل الأصناف" حقيقية —
-    // غالبًا التحميل لسه ما خلصش عندنا أو حصلت مشكلة، فبنوقف من غير ما نمسح حاجة بدل ما نخاطر نمسح كل كارت الأصناف من غير بديل
-    let itemsSafe = true;
-    if(!S.items.length){
-      try{
-        const existing = await sb('stock_items?'+fEq()+'&select=id&limit=1',{prefer:'return=representation'});
-        if(existing && existing.length) itemsSafe = false;
-      }catch(e){ itemsSafe = false; } // لو مقدرناش نتأكد، الأولى نوقف بدل ما نخاطر
-    }
-    if(!itemsSafe){
-      errors.push('الأصناف: اتأجّل الحفظ عشان كارت الأصناف عندك فاضي محليًا بس فيه أصناف مسجلة على السيرفر — يمكن التحميل لسه ما خلصش. اعمل ريفريش للصفحة وحاول تاني.');
-    } else {
-    // نمسح كل أصناف المصنع ده الأول ثم نعيد إدراج الموجود بس حاليًا، عشان أي صنف اتحذف محليًا يتشال فعليًا من القاعدة (بدل ما يفضل موجود وبيرجع تاني)
-    await sb('stock_items?'+fEq(),{method:'DELETE'});
-    if(S.items.length){
-      const base = i=>({ id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
-        opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
-        pack_unit:i.packUnit||'',pack_size:+i.packSize||0 });
-      try{
-        await sb('stock_items',{method:'POST',body:S.items.map(i=>({...base(i), daily:!!i.daily}))});
-      }catch(e){
-        // لو عمود "daily" لسه ما اتضافش في القاعدة، نحفظ من غيره عشان الحفظ مايتوقفش خالص
-        await sb('stock_items',{method:'POST',body:S.items.map(base)});
-        errors.push('تنبيه: عمود "متابعة يومية" لسه مش مضاف في القاعدة — الأصناف اتحفظت من غيره. شغّل أمر SQL اللي بعتهولك عشان يتفعّل.');
-      }
-    }
-    }
-  }catch(e){ errors.push('الأصناف: '+e.message); }
-
+// الطريقة القديمة (مسح الفترة وإعادة كتابتها) — بتستخدم بس كخطة بديلة لو القاعدة مش بتدعم الحفظ صف بصف
+async function pushMovesLegacy(F,P,errors){
   try{
     // قبل أي حذف أو كتابة: لازم نسحب آخر نسخة موجودة فعليًا على السيرفر للفترة دي الأول، ونضمّها لنسختنا المحلية —
     // عشان لو جهاز تاني (زي المدير) كان سجّل حركة جديدة قبلنا بلحظات ولسه ما سحبناهاش، متتمسحش من غير قصد.
@@ -712,8 +826,82 @@ async function pushAll(quiet){
       }
       DELETED_MOVE_IDS.clear();
     }
-    DELETED_MOVE_IDS.clear();
   }catch(e){ errors.push('الحركات: '+e.message); }
+}
+async function pushAll(quiet){
+  if(!DB.on||DB.busy) return false;
+  DB.busy=true; DB.err=''; if(!quiet) render();
+  const P=S.period, F=FACTORY;
+  const errors=[];
+
+  // كل قسم مستقل تمامًا عن الباقي: فشل قسم واحد (زي الحركات لو أعمدة جديدة لسه ما اتضافتش) مايوقفش حفظ باقي الأقسام خالص
+  try{
+    // حماية أساسية: لو نسختنا المحلية فاضية من الأصناف بس السيرفر عنده أصناف فعلاً، ده مش حالة "مسح كل الأصناف" حقيقية —
+    // غالبًا التحميل لسه ما خلصش عندنا أو حصلت مشكلة، فبنوقف من غير ما نمسح حاجة بدل ما نخاطر نمسح كل كارت الأصناف من غير بديل
+    let itemsSafe = true;
+    if(!S.items.length){
+      try{
+        const existing = await sb('stock_items?'+fEq()+'&select=id&limit=1',{prefer:'return=representation'});
+        if(existing && existing.length) itemsSafe = false;
+      }catch(e){ itemsSafe = false; } // لو مقدرناش نتأكد، الأولى نوقف بدل ما نخاطر
+    }
+    if(!itemsSafe){
+      errors.push('الأصناف: اتأجّل الحفظ عشان كارت الأصناف عندك فاضي محليًا بس فيه أصناف مسجلة على السيرفر — يمكن التحميل لسه ما خلصش. اعمل ريفريش للصفحة وحاول تاني.');
+    } else {
+    // نمسح كل أصناف المصنع ده الأول ثم نعيد إدراج الموجود بس حاليًا، عشان أي صنف اتحذف محليًا يتشال فعليًا من القاعدة (بدل ما يفضل موجود وبيرجع تاني)
+    await sb('stock_items?'+fEq(),{method:'DELETE'});
+    if(S.items.length){
+      const base = i=>({ id:i.id,factory:F,name:i.name,descr:i.desc||'',unit:i.unit,cat:i.cat,
+        opening:+i.opening||0,price:+i.price||0,min_qty:+i.min||0,note:i.note||'',
+        pack_unit:i.packUnit||'',pack_size:+i.packSize||0 });
+      try{
+        await sb('stock_items',{method:'POST',body:S.items.map(i=>({...base(i), daily:!!i.daily}))});
+      }catch(e){
+        // لو عمود "daily" لسه ما اتضافش في القاعدة، نحفظ من غيره عشان الحفظ مايتوقفش خالص
+        await sb('stock_items',{method:'POST',body:S.items.map(base)});
+        errors.push('تنبيه: عمود "متابعة يومية" لسه مش مضاف في القاعدة — الأصناف اتحفظت من غيره. شغّل أمر SQL اللي بعتهولك عشان يتفعّل.');
+      }
+    }
+    }
+  }catch(e){ errors.push('الأصناف: '+e.message); }
+
+  try{
+    // الطريقة الجديدة: كل حركة بتتحفظ لوحدها بالـ id بتاعها (upsert)، والحذف بيحصل بس للحركات اللي اتمسحت فعلاً عندنا.
+    // كده مستحيل حفظ من جهاز يمسح حركات سجّلها جهاز تاني (زي المدير)، حتى لو نسخة الجهاز ده ناقصة أو قديمة.
+    const toRow = (m, full) => full ? ({
+        id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
+        party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null,
+        prod_date:m.prodDate||null,temp:(m.temp!=null&&m.temp!=='')?+m.temp:null,
+        notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null,invoice:m.invoice||null,exp_date:m.expDate||null})
+      : ({ id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
+        party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null });
+    const upsertChunks = async (full) => {
+      for(let i=0;i<S.moves.length;i+=400){
+        await sb('stock_moves',{...UPSERT, body:S.moves.slice(i,i+400).map(m=>toRow(m,full))});
+      }
+    };
+    let upsertOk = false;
+    try{ await upsertChunks(true); upsertOk = true; }
+    catch(e1){
+      if(/unique|exclusion|42P10|conflict/i.test(e1.message)){ throw e1; } // القاعدة مش مجهزة للـ upsert — نرجع للطريقة القديمة المحمية تحت
+      try{ await upsertChunks(false); upsertOk = true;
+        errors.push('تنبيه: أعمدة تاريخ الإنتاج/الحرارة/الإشعارات لسه مش مضافة في القاعدة — الحركات اتحفظت من غيرها.');
+      }catch(e2){ throw e2; }
+    }
+    if(upsertOk && DELETED_MOVE_IDS.size){
+      const ids = [...DELETED_MOVE_IDS];
+      for(let i=0;i<ids.length;i+=100){
+        const list = ids.slice(i,i+100).map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
+        await sb('stock_moves?'+fEq()+'&id=in.('+encodeURIComponent(list)+')',{method:'DELETE'});
+      }
+    }
+    DELETED_MOVE_IDS.clear(); // بنمسح القائمة بس بعد ما الحذف اتنفذ فعلاً على السيرفر
+  }catch(e){
+    // خطة بديلة: لو القاعدة مش بتدعم الـ upsert على id، نستخدم الطريقة القديمة بكل حماياتها
+    if(/unique|exclusion|42P10|conflict/i.test(e.message)){
+      try{ await pushMovesLegacy(F,P,errors); }catch(e3){ errors.push('الحركات: '+e3.message); }
+    } else errors.push('الحركات: '+e.message);
+  }
 
   try{
     // خطر حقيقي: الحذف الكامل هنا كان بيمسح أي جرد اتسجل من جهاز تاني (المدير مثلاً) لسه ما وصلش لنسختنا.
@@ -815,6 +1003,7 @@ async function pullAll(silent){
     if(ROLE!=='manager'){ await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed}); }
     DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
     if(ROLE==='owner') maybeAutoBackup(); // بدون انتظار — بتشتغل في الخلفية ومتأثرش على سرعة التحميل
+    if(ROLE==='owner') setTimeout(()=>maybeExternalBackup(),5000); // النسخة الخارجية بعد 5 ثواني عشان متزاحمش التحميل
   }catch(e){ DB.err=e.message; DB.busy=false; if(!silent) render(); if(!silent) toast('فشل التحميل: '+e.message,1); return false; }
   DB.busy=false; if(!silent) render(); if(!silent) toast('البيانات اتحمّلت من القاعدة'); return true;
 }
@@ -1143,7 +1332,56 @@ function viewSuppliers(){
         </tr></tfoot>
       </table></div>
     </div>`;})():''}
+  ${viewSupplierPriceComparison()}
   `;
+}
+
+/* ================= مقارنة أسعار الموردين (من حركات الوارد الفعلية) ================= */
+let SPC_Q = '';
+function supplierPriceStats(){
+  const EXCL = p => !p || p.startsWith('إنتاج تلقائي') || p.startsWith('تسوية جرد');
+  const byItem = {};
+  S.moves.forEach(m=>{
+    if(m.dir!=='in' || !(+m.price>0) || EXCL(String(m.party||''))) return;
+    const it = item(m.itemId); if(!it) return;
+    if(!byItem[it.id]) byItem[it.id] = { it, sup:{} };
+    const s = byItem[it.id].sup[m.party] || (byItem[it.id].sup[m.party] = { name:m.party, last:0, lastDate:'', min:Infinity, max:0, count:0, qty:0, val:0 });
+    s.count++; s.qty+=+m.qty||0; s.val+=(+m.qty||0)*(+m.price);
+    s.min=Math.min(s.min,+m.price); s.max=Math.max(s.max,+m.price);
+    if(String(m.date)>=s.lastDate){ s.lastDate=m.date; s.last=+m.price; }
+  });
+  return Object.values(byItem).map(x=>{
+    const sups = Object.values(x.sup).map(s=>({...s, avg:s.qty? n2(s.val/s.qty):s.last})).sort((a,b)=>a.last-b.last);
+    const cheapest = sups[0], dearest = sups[sups.length-1];
+    const saving = sups.length>1 ? n2(dearest.last - cheapest.last) : 0;
+    return { it:x.it, sups, cheapest, saving };
+  }).sort((a,b)=> (b.sups.length>1)-(a.sups.length>1) || b.saving-a.saving || a.it.name.localeCompare(b.it.name,'ar'));
+}
+function viewSupplierPriceComparison(){
+  const all = supplierPriceStats();
+  if(!all.length) return '';
+  const q = SPC_Q.trim().toLowerCase();
+  const list = q ? all.filter(x=>x.it.name.toLowerCase().includes(q) || x.sups.some(s=>String(s.name).toLowerCase().includes(q))) : all;
+  const multi = all.filter(x=>x.sups.length>1).length;
+  return `<div class="panel">
+    <h2>مقارنة أسعار الموردين <em>${all.length} صنف · ${multi} ليهم أكتر من مورد</em></h2>
+    <div class="pad">
+      <div class="hint">محسوبة من حركات الوارد الفعلية في الفترة الحالية. الأصناف اللي ليها أكتر من مورد بتظهر الأول، مرتبة حسب فرق السعر. الأخضر = أرخص مورد في آخر سعر.</div>
+      <div class="bar" style="margin-top:8px"><input type="text" class="grow" id="spc-q" placeholder="دور باسم الصنف أو المورد…" value="${esc(SPC_Q)}"></div>
+    </div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الصنف</th><th>المورد</th><th class="n">آخر سعر</th><th>تاريخه</th><th class="n">أقل / أعلى</th><th class="n">متوسط</th><th class="n">مرات الشراء</th></tr></thead>
+      <tbody>${list.length? list.map(x=>x.sups.map((s,i)=>`<tr${i===0&&x.sups.length>1?' style="background:var(--greenbg,#EEF7EF)"':''}>
+        ${i===0?`<td rowspan="${x.sups.length}"><div class="iname">${esc(x.it.name)}</div>${x.saving>0?`<div class="hint">توفير محتمل ${money(x.saving)} لكل ${esc(x.it.unit)}</div>`:''}</td>`:''}
+        <td>${esc(s.name)}${i===0&&x.sups.length>1?' <span class="chip g">الأرخص</span>':''}</td>
+        <td class="n hl">${fmt(s.last)}</td>
+        <td>${esc(s.lastDate)}</td>
+        <td class="n">${fmt(s.min)} / ${fmt(s.max)}</td>
+        <td class="n">${fmt(s.avg)}</td>
+        <td class="n">${s.count}</td>
+      </tr>`).join('')).join('') : `<tr><td colspan="7" class="empty">مفيش نتايج</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
 }
 
 /* ================= استيراد الوصفات من إكسل ================= */
@@ -1271,11 +1509,13 @@ async function uploadInvoiceImage(file, moveId){
   const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
   const path = `${FACTORY}/${moveId}-${Date.now()}.${ext}`;
   const base = DB.url.replace(/\/+$/,'');
-  const r = await fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
+  const up = tok => fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
     method:'POST',
-    headers:{ apikey:DB.key, Authorization:'Bearer '+DB.key, 'Content-Type': file.type||'image/jpeg', 'x-upsert':'true' },
+    headers:{ apikey:DB.key, Authorization:'Bearer '+(tok||DB.key), 'Content-Type': file.type||'image/jpeg', 'x-upsert':'true' },
     body: file
   });
+  let r = await up(await authToken());
+  if(!r.ok && AUTH && [400,401,403].includes(r.status)) r = await up(null); // سياسات التخزين القديمة ممكن تكون متفعّلة للمفتاح العام بس
   if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,140)||('HTTP '+r.status)); }
   return path;
 }
@@ -1290,9 +1530,11 @@ async function deleteInvoiceImage(path){
   if(!path || !DB.on) return false;
   const base = DB.url.replace(/\/+$/,'');
   try{
-    const r = await fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
-      method:'DELETE', headers:{ apikey:DB.key, Authorization:'Bearer '+DB.key }
+    const del = tok => fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
+      method:'DELETE', headers:{ apikey:DB.key, Authorization:'Bearer '+(tok||DB.key) }
     });
+    let r = await del(await authToken());
+    if(!r.ok && AUTH && [400,401,403].includes(r.status)) r = await del(null);
     return r.ok;
   }catch(e){ return false; }
 }
@@ -1596,6 +1838,124 @@ function renderItemCatalogImportPreview(){
 
 let ICI_PARSED = [];
 
+/* ================= التقرير المالي (تكاليف — مفيش أسعار بيع في نظام المصانع) ================= */
+let FIN = { from:'', to:'' };
+function financeData(){
+  const inRange = m => (!FIN.from || m.date>=FIN.from) && (!FIN.to || m.date<=FIN.to);
+  const moves = S.moves.filter(inRange);
+  const priceOf = id => { const it=item(id); return it? (+it.price||0) : 0; };
+  const isProd = p => String(p||'').startsWith('إنتاج تلقائي');
+  const isSettle = (m) => m.reason==='تسوية جرد' || String(m.party||'').startsWith('تسوية جرد');
+
+  const openingValue = n2(S.items.reduce((s,i)=>s+(+i.opening||0)*(+i.price||0),0));
+  const closingValue = n2(S.items.reduce((s,i)=>s+calc(i).book*(+i.price||0),0));
+
+  // الوارد: مشتريات من موردين/مصانع، إنتاج داخلي، وتسويات زيادة
+  let purchases=0, produced=0, settleIn=0; const bySupplier={};
+  moves.filter(m=>m.dir==='in').forEach(m=>{
+    const v = (+m.qty||0) * (+m.price>0 ? +m.price : priceOf(m.itemId));
+    if(isProd(m.party)) produced+=v;
+    else if(isSettle(m)) settleIn+=v;
+    else { purchases+=v; const k=m.party||'بدون مورد'; bySupplier[k]=(bySupplier[k]||0)+v; }
+  });
+
+  // المنصرف حسب الجهة — بيتقيّم بسعر الصنف الحالي (حركات المنصرف مفيهاش سعر خاص بيها)
+  const byReason={}, byBranch={}, byItem={}, waste={};
+  let outTotal=0;
+  moves.filter(m=>m.dir==='out').forEach(m=>{
+    const v = n2((+m.qty||0)*priceOf(m.itemId));
+    const r = m.reason || 'أخرى';
+    byReason[r] = byReason[r] || {count:0,value:0}; byReason[r].count++; byReason[r].value+=v;
+    outTotal+=v;
+    if(r==='صرف للفروع'){ const b=m.party||'—'; byBranch[b]=(byBranch[b]||0)+v; }
+    if(r!=='صرف للإنتاج (تلقائي)' && r!=='تسوية جرد'){ byItem[m.itemId]=(byItem[m.itemId]||0)+v; }
+    if(r==='هالك / تالف'){ waste[m.itemId]=waste[m.itemId]||{qty:0,value:0}; waste[m.itemId].qty+=+m.qty||0; waste[m.itemId].value+=v; }
+  });
+
+  // الإنتاج حسب المنتج
+  const prod={};
+  (S.runs||[]).filter(r=>(!FIN.from||r.date>=FIN.from)&&(!FIN.to||r.date<=FIN.to)).forEach(r=>{
+    const p=prod[r.name]||(prod[r.name]={name:r.name,runs:0,outQty:0,cost:0}); p.runs++; p.outQty+=+r.outQty||0; p.cost+=+r.cost||0;
+  });
+
+  return { openingValue, closingValue, purchases:n2(purchases), produced:n2(produced), settleIn:n2(settleIn), outTotal:n2(outTotal),
+    bySupplier, byReason, byBranch, byItem, waste, prod:Object.values(prod) };
+}
+
+function viewFinance(){
+  const d = financeData();
+  const pct = v => d.outTotal? Math.round(v/d.outTotal*1000)/10 : 0;
+  const sortE = o => Object.entries(o).sort((a,b)=>(b[1].value??b[1])-(a[1].value??a[1]));
+  const reasons = sortE(d.byReason);
+  const branches = sortE(d.byBranch);
+  const topItems = sortE(d.byItem).slice(0,10);
+  const topWaste = sortE(d.waste).slice(0,10);
+  const suppliers = sortE(d.bySupplier);
+  const wasteTotal = d.byReason['هالك / تالف'] ? n2(d.byReason['هالك / تالف'].value) : 0;
+  const settleLoss = d.byReason['تسوية جرد'] ? n2(d.byReason['تسوية جرد'].value) : 0;
+  const hasFilter = FIN.from || FIN.to;
+  const tbl = (head, rows, empty) => `<div class="tblwrap"><table class="gridcols"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="6" class="empty">${empty}</td></tr>`}</tbody></table></div>`;
+
+  return `
+  <div class="panel"><div class="pad">
+    <div class="hint">تقرير <b>تكاليف</b> للفترة ${periodLabel(S.period)}. نظام المصانع مفيهوش أسعار بيع، فمفيش حساب ربح هنا — الأرقام دي تكلفة اللي دخل وخرج.
+      المنصرف متقيّم بسعر الصنف <b>الحالي</b> في الكارت.${hasFilter?'':' الأرصدة (أول وآخر المدة) بتتحسب للفترة كلها بغض النظر عن فلتر التاريخ.'}</div>
+    <div class="bar" style="margin-top:10px;flex-wrap:wrap">
+      <label class="hint">من</label><input type="date" id="fin-from" value="${esc(FIN.from)}">
+      <label class="hint">لحد</label><input type="date" id="fin-to" value="${esc(FIN.to)}">
+      ${hasFilter?`<button class="btn sm" data-act="fin-clear">كل الفترة</button>`:''}
+      <button class="btn sm g" data-act="fin-export" style="margin-inline-start:auto">تصدير CSV</button>
+      <button class="btn sm" data-act="do-print">🖨️ طباعة</button>
+    </div>
+  </div></div>
+
+  <div class="panel"><div class="pad"><div class="cards">
+    <div class="card"><div class="k">مخزون أول المدة</div><div class="v">${money(d.openingValue)}</div></div>
+    <div class="card"><div class="k">مشتريات (وارد من موردين ومصانع)</div><div class="v">${money(d.purchases)}</div></div>
+    <div class="card"><div class="k">إجمالي المنصرف</div><div class="v">${money(d.outTotal)}</div></div>
+    <div class="card"><div class="k">مخزون آخر المدة (دفتري)</div><div class="v">${money(d.closingValue)}</div></div>
+    <div class="card"><div class="k">تكلفة التالف</div><div class="v" style="color:${wasteTotal?'var(--red)':'inherit'}">${money(wasteTotal)}</div><div class="s">${pct(wasteTotal)}% من المنصرف</div></div>
+    <div class="card"><div class="k">عجز تسويات الجرد</div><div class="v" style="color:${settleLoss?'var(--red)':'inherit'}">${money(settleLoss)}</div><div class="s">${d.settleIn?`وزيادة ${money(d.settleIn)}`:'فرق بين الدفتري والفعلي'}</div></div>
+  </div></div></div>
+
+  <div class="panel"><h2>المنصرف حسب الجهة</h2>
+    ${tbl('<th>الجهة</th><th class="n">عدد الحركات</th><th class="n">القيمة</th><th class="n">النسبة</th>',
+      reasons.map(([r,v])=>`<tr><td>${esc(r)}</td><td class="n">${v.count}</td><td class="n hl">${money(v.value)}</td><td class="n">${pct(v.value)}%</td></tr>`).join(''),'مفيش منصرف في الفترة دي')}
+  </div>
+
+  ${branches.length?`<div class="panel"><h2>تكلفة الصرف لكل فرع <em>${branches.length}</em></h2>
+    ${tbl('<th>الفرع</th><th class="n">القيمة</th><th class="n">من صرف الفروع</th>',
+      (()=>{ const tot=branches.reduce((s,[,v])=>s+v,0); return branches.map(([b,v])=>`<tr><td>${esc(b)}</td><td class="n hl">${money(v)}</td><td class="n">${tot?Math.round(v/tot*1000)/10:0}%</td></tr>`).join(''); })(),'')}
+  </div>`:''}
+
+  <div class="panel"><h2>أعلى 10 أصناف تكلفة في المنصرف</h2>
+    <div class="hint" style="margin:-6px 14px 6px">من غير خامات الإنتاج التلقائي (عشان متتحسبش مرتين مع المنتج النهائي) ومن غير التسويات.</div>
+    ${tbl('<th>الصنف</th><th class="n">القيمة</th><th class="n">النسبة</th>',
+      topItems.map(([id,v])=>{const it=item(id)||{name:'—'}; return `<tr><td>${esc(it.name)}</td><td class="n hl">${money(v)}</td><td class="n">${pct(v)}%</td></tr>`;}).join(''),'مفيش بيانات')}
+  </div>
+
+  ${topWaste.length?`<div class="panel"><h2>أعلى أصناف في التالف</h2>
+    ${tbl('<th>الصنف</th><th class="n">الكمية</th><th class="n">التكلفة</th>',
+      topWaste.map(([id,v])=>{const it=item(id)||{name:'—',unit:''}; return `<tr><td>${esc(it.name)}</td><td class="n">${fmt(v.qty)} ${esc(it.unit)}</td><td class="n hl" style="color:var(--red)">${money(v.value)}</td></tr>`;}).join(''),'')}
+  </div>`:''}
+
+  ${suppliers.length?`<div class="panel"><h2>المشتريات حسب المورد</h2>
+    ${tbl('<th>المورد</th><th class="n">القيمة</th><th class="n">النسبة</th>',
+      suppliers.map(([s,v])=>`<tr><td>${esc(s)}</td><td class="n hl">${money(v)}</td><td class="n">${d.purchases?Math.round(v/d.purchases*1000)/10:0}%</td></tr>`).join(''),'')}
+  </div>`:''}
+
+  ${d.prod.length?`<div class="panel"><h2>تكلفة الإنتاج حسب المنتج</h2>
+    ${tbl('<th>المنتج</th><th class="n">تشغيلات</th><th class="n">الكمية المنتجة</th><th class="n">التكلفة</th><th class="n">تكلفة الوحدة</th>',
+      d.prod.sort((a,b)=>b.cost-a.cost).map(p=>`<tr><td>${esc(p.name)}</td><td class="n">${p.runs}</td><td class="n">${fmt(p.outQty)}</td><td class="n hl">${money(p.cost)}</td><td class="n">${p.outQty?money(p.cost/p.outQty):'—'}</td></tr>`).join(''),'')}
+  </div>`:''}
+
+  ${S.closed.length?`<div class="panel"><h2>مقارنة الشهور المقفولة</h2>
+    ${tbl('<th>الشهر</th><th class="n">قيمة المخزون آخر الشهر</th><th class="n">التغيّر</th>',
+      S.closed.slice().sort((a,b)=>a.period.localeCompare(b.period)).map((p,i,arr)=>{ const prev=i?arr[i-1].value:null; const ch=prev!=null?n2(p.value-prev):null;
+        return `<tr><td>${periodLabel(p.period)}</td><td class="n hl">${money(p.value)}</td><td class="n" style="color:${ch==null?'inherit':ch<0?'var(--red)':'var(--green)'}">${ch==null?'—':(ch>0?'+':'')+money(ch)}</td></tr>`;}).join(''),'')}
+  </div>`:''}`;
+}
+
 function viewInbox(){
   const pending = MY_INBOX.filter(n=>n.status==='pending' && n.type!=='discrepancy');
   const processing = MY_INBOX.filter(n=>n.status==='processing');
@@ -1740,6 +2100,8 @@ function render(){
           <div><b style="font-size:13px;color:${DB.on?(DB.err?'#F0C9C3':'#9FD6B6'):MODE==='memory'?'#F0C9C3':'#D9E0E5'}">${DB.on?(DB.busy?t('syncing'):DB.err?t('sync_err'):DB.dirty?t('pending'):t('saved_db')):MODE==='cloud'?t('saved_cloud'):MODE==='browser'?t('saved_device'):t('not_saved')}</b><span>${t('save_status')}</span></div>
           <div><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">${t('save_backup')}${BK.dirty>0?` (${BK.dirty})`:''}</button></div>`}
           <div>${langBtn}</div>
+          ${AUTH?`<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11.5px;opacity:.85">${esc(AUTH.user.email)}</span><button class="btn" data-act="logout" style="padding:6px 10px">خروج</button></div>`
+            :(DB_CONFIGURED?`<div><button class="btn" data-act="login-screen" style="padding:6px 10px">تسجيل الدخول</button></div>`:'')}
         </div>
       </div>
       <nav>
@@ -1758,7 +2120,7 @@ function render(){
       })():''}
     </div>
   </header>
-  <div class="wrap">${({dashboard:viewDashboard,dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dashboard:viewDashboard,dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,finance:viewFinance,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,users:viewUsers,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -2637,6 +2999,7 @@ function viewMove(dir){
     <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
       ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:''}
       ${isIn&&ROLE==='owner'?`<button class="btn sm" data-act="in-recovery-open">استيراد وارد بالجملة</button>`:''}
+      ${isIn&&ROLE==='owner'&&zeroPriceInMoves().length?`<button class="btn sm danger" data-act="fix-zero-prices">صحّح ${zeroPriceInMoves().length} حركة سعرها صفر</button>`:''}
       ${ROLE==='owner'&&DB.on?`<button class="btn sm" data-act="db-pull-quiet" ${isIn?'style="margin-inline-start:auto"':''} title="اسحب أحدث حركات مسجّلة من القاعدة">${DB.busy?'بيحدّث…':'🔄 تحديث دلوقتي'}</button>`:''}
       <button class="btn sm g" data-act="mv-export" data-dir="${dir}" ${(isIn&&!(ROLE==='owner'&&DB.on))?'style="margin-inline-start:auto"':''}>${t('export_csv')}</button></h2>
     <div class="pad">
@@ -3588,6 +3951,96 @@ let BACKUPS_LIST = [];
 let SETTLEMENT_HISTORY = [];
 let backupsLoaded = false;
 
+/* ================= نسخ احتياطية خارج Supabase (على خادم Google — مكان مستقل تمامًا) ================= */
+// بنستخدم نفس خادم Google اللي تطبيق الفروج شغال عليه، لكل المصانع. لو Supabase كله وقع أو الحساب اتقفل، النسخ دي بتفضل موجودة.
+const EXT_BK = (()=>{ const cfg = Object.values(BRANCH_APP_CONFIG||{})[0]; return cfg && cfg.gscriptUrl ? {url:cfg.gscriptUrl, token:cfg.secretToken} : null; })();
+const EXT_CHUNK = 40000; // خلية Google Sheets حدها 50 ألف حرف، فبنقسّم النسخة على أجزاء أصغر من كده
+const EXT_KEEP = 14;
+let EXT_LIST = []; let extLoaded = false; let EXT_BUSY = false;
+const extPrefix = () => 'fac_backup:'+FACTORY+':';
+async function extReq(params){
+  if(!EXT_BK) throw new Error('مفيش خادم خارجي متعرّف');
+  const res = await fetch(EXT_BK.url, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({...params, token:EXT_BK.token}).toString() });
+  if(!res.ok) throw new Error('تعذر الاتصال بخادم Google');
+  const data = await res.json();
+  if(!data.success && data.error && data.error!=='not_found') throw new Error(data.error);
+  return data;
+}
+async function extGet(key){ const r=await extReq({action:'get',key}); return r.success? r.value : null; }
+async function extSet(key,value){
+  for(let t=0;t<3;t++){ try{ const r=await extReq({action:'set',key,value}); if(r.success) return true; }catch(e){ if(t===2) throw e; }
+    await new Promise(r=>setTimeout(r,800*(t+1))); }
+  return false;
+}
+async function extDel(key){ try{ await extReq({action:'delete',key}); }catch(e){} }
+function buildSnapshot(){
+  return { factory:FACTORY, period:S.period, items:S.items, recipes:S.recipes, moves:S.moves, counts:S.counts, runs:S.runs||[],
+    takenAt:new Date().toISOString(), version:1 };
+}
+async function extListLoad(){
+  try{ const v = await extGet(extPrefix()+'index'); EXT_LIST = v? JSON.parse(v) : []; }catch(e){ EXT_LIST = []; }
+  extLoaded = true;
+}
+// بتتنادى تلقائي بعد تحميل النظام — مرة واحدة في اليوم لكل مصنع، في الخلفية
+async function maybeExternalBackup(force){
+  if(!EXT_BK || EXT_BUSY) return false;
+  EXT_BUSY = true;
+  try{
+    const d = today();
+    let idx = [];
+    try{ const v = await extGet(extPrefix()+'index'); idx = v? JSON.parse(v) : []; }catch(e){ return false; } // لو مش قادرين نقرأ الفهرس، منكتبش حاجة
+    if(!force && idx.some(x=>x.date===d)) return false;
+    const txt = JSON.stringify(buildSnapshot());
+    const parts = []; for(let i=0;i<txt.length;i+=EXT_CHUNK) parts.push(txt.slice(i,i+EXT_CHUNK));
+    for(let i=0;i<parts.length;i++){ if(!await extSet(extPrefix()+d+':p'+i, parts[i])) throw new Error('فشل حفظ جزء '+(i+1)); }
+    // الفهرس بيتكتب في الآخر خالص — كده أي نسخة ظاهرة في القايمة مضمون إنها كاملة
+    const entry = { date:d, parts:parts.length, items:S.items.length, recipes:S.recipes.length, moves:S.moves.length, takenAt:new Date().toISOString() };
+    idx = [entry, ...idx.filter(x=>x.date!==d)];
+    const keep = idx.slice(0,EXT_KEEP), drop = idx.slice(EXT_KEEP);
+    await extSet(extPrefix()+'index', JSON.stringify(keep));
+    for(const o of drop){ for(let i=0;i<(o.parts||0);i++) await extDel(extPrefix()+o.date+':p'+i); }
+    EXT_LIST = keep; extLoaded = true;
+    return true;
+  }catch(e){ return false; }
+  finally{ EXT_BUSY = false; }
+}
+async function extLoadSnapshot(date){
+  const e = EXT_LIST.find(x=>x.date===date); if(!e) throw new Error('النسخة مش موجودة');
+  let txt=''; for(let i=0;i<e.parts;i++){ const p = await extGet(extPrefix()+date+':p'+i); if(p==null) throw new Error('جزء ناقص من النسخة ('+(i+1)+')'); txt+=p; }
+  return JSON.parse(txt);
+}
+async function applySnapshot(snap){
+  if(!snap || !Array.isArray(snap.items)) throw new Error('الملف مش نسخة احتياطية صالحة');
+  if(snap.factory && snap.factory!==FACTORY && !confirm(`النسخة دي تبع مصنع تاني (${snap.factory}). متأكد إنك عايز تسترجعها هنا؟`)) return false;
+  S.items=snap.items||[]; S.recipes=snap.recipes||[]; S.moves=snap.moves||[]; S.counts=snap.counts||{}; S.runs=snap.runs||[];
+  await saveMain(); await saveTx(); if(DB.on) await pushAll(true);
+  return true;
+}
+function viewExternalBackups(){
+  if(!extLoaded && EXT_BK) extListLoad().then(render);
+  return `<div class="panel">
+    <h2>نسخ خارج Supabase <em>${EXT_BK? (extLoaded? EXT_LIST.length+' نسخة':'جاري التحميل…') : 'مش متاح'}</em>
+      ${EXT_BK?`<button class="btn sm" data-act="ext-backup-now" style="margin-inline-start:auto" ${EXT_BUSY?'disabled':''}>${EXT_BUSY?'جاري الحفظ…':'خد نسخة دلوقتي'}</button>`:''}</h2>
+    <div class="pad">
+      <div class="hint">نسخة كاملة بتتحفظ <b>تلقائي مرة كل يوم</b> على خادم Google (مكان مستقل تمامًا عن Supabase)، ومحتفظين بآخر ${EXT_KEEP} يوم.
+        كمان تقدر تنزّل نسخة على جهازك كملف، أو تسترجع من ملف نزّلته قبل كده.</div>
+      <div class="bar" style="margin-top:10px;flex-wrap:wrap">
+        <button class="btn sm g" data-act="file-backup-download">⬇️ نزّل نسخة كاملة على جهازك</button>
+        <label class="btn sm" style="cursor:pointer">⬆️ استرجاع من ملف<input type="file" id="file-backup-restore" accept=".json,application/json" style="display:none"></label>
+      </div>
+    </div>
+    ${EXT_BK?`<div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>التاريخ</th><th class="n">أصناف</th><th class="n">وصفات</th><th class="n">حركات</th><th>وقت النسخ</th><th></th></tr></thead>
+      <tbody>${EXT_LIST.length? EXT_LIST.map(b=>`<tr>
+        <td><div class="iname">${esc(b.date)}</div></td><td class="n">${b.items}</td><td class="n">${b.recipes}</td><td class="n">${b.moves}</td>
+        <td style="font-size:12px">${b.takenAt?new Date(b.takenAt).toLocaleString('ar-EG'):'-'}</td>
+        <td><button class="btn sm danger" data-act="ext-restore" data-date="${esc(b.date)}">استرجاع</button></td></tr>`).join('')
+        : `<tr><td colspan="6" class="empty">${extLoaded?'لسه مفيش نسخ — أول نسخة هتتاخد تلقائي، أو دوس "خد نسخة دلوقتي"':'جاري التحميل...'}</td></tr>`}</tbody>
+    </table></div>`:''}
+  </div>`;
+}
+
 function viewBackups(){
   if(!backupsLoaded && DB.on){ listBackups().then(list=>{ BACKUPS_LIST=list; backupsLoaded=true; render(); }); }
   return `
@@ -3611,7 +4064,8 @@ function viewBackups(){
         <td><button class="btn sm danger" data-act="backup-restore-open" data-date="${esc(b.date)}">استرجاع من النسخة دي</button></td>
       </tr>`).join('') : `<tr><td colspan="6" class="empty">${backupsLoaded?'لسه مفيش نسخ — هتتكوّن أول نسخة تلقائي أول ما تفتح النظام النهاردة':'جاري التحميل...'}</td></tr>`}</tbody>
     </table></div>
-  </div>`;
+  </div>
+  ${viewExternalBackups()}`;
 }
 
 function backupRestoreModal(date){
@@ -3635,6 +4089,24 @@ function backupRestoreModal(date){
   </div></div>`;
 }
 
+// اقتراحات شراء تلقائية: أي صنف رصيده الدفتري تحت الحد الأدنى، ومالوش طلب شراء مفتوح (معلّق أو موافق عليه).
+// الكمية المقترحة بترجّع الرصيد لضعف الحد الأدنى، ولو الصنف ليه وحدة بديلة (كرتونة مثلًا) بنقرّبها لعدد عبوات كامل.
+function purchaseSuggestions(){
+  const open = new Set(PURCHASE_REQUESTS.filter(r=>r.status==='pending'||r.status==='approved').map(r=>r.itemId));
+  return S.items.filter(it=>+it.min>0 && !open.has(it.id)).map(it=>{
+    const book = calc(it).book;
+    if(book >= +it.min) return null;
+    let qty = n2(Math.max(+it.min*2 - book, +it.min));
+    let packNote = '';
+    if(it.packSize>0 && it.packUnit){
+      const packs = Math.ceil(qty/it.packSize);
+      qty = n2(packs*it.packSize);
+      packNote = `${packs} ${it.packUnit}`;
+    }
+    return { it, book, qty, packNote };
+  }).filter(Boolean).sort((a,b)=>(a.book/a.it.min)-(b.book/b.it.min));
+}
+
 function viewPurchaseRequests(){
   if(!purReqLoaded && DB.on) fetchPurchaseRequests().then(render);
   const q=(ui.q||'').trim().toLowerCase();
@@ -3648,6 +4120,23 @@ function viewPurchaseRequests(){
     <div class="card"><div class="k">موافق عليها ومستنية التوريد</div><div class="v" style="color:var(--blue)">${list.filter(r=>r.status==='approved').length}</div><div class="s">هتتقفل لوحدها لما تسجّل وارد</div></div>
     <div class="card"><div class="k">اتوردت</div><div class="v" style="color:var(--green)">${list.filter(r=>r.status==='fulfilled').length}</div></div>
   </div></div></div>
+
+  ${(()=>{ const sug=purchaseSuggestions(); if(!sug.length) return '';
+    return `<div class="panel" style="border:2px solid var(--amber)">
+    <h2>⚠️ أصناف تحت الحد الأدنى — اقتراحات شراء <em>${sug.length}</em>
+      <button class="btn sm p" data-act="pur-create-suggested" style="margin-inline-start:auto">إنشاء طلبات للمحدد</button></h2>
+    <div class="hint" style="margin:-6px 14px 8px">الكمية المقترحة بترجّع الرصيد لضعف الحد الأدنى (ومقرّبة لعبوات كاملة لو الصنف ليه وحدة بديلة). عدّلها براحتك قبل الإنشاء.</div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th style="width:30px"></th><th>الصنف</th><th class="n">الرصيد</th><th class="n">الحد الأدنى</th><th class="n">الكمية المقترحة</th></tr></thead>
+      <tbody>${sug.map(s=>`<tr class="lowrow">
+        <td><input type="checkbox" data-sugsel="${s.it.id}" checked></td>
+        <td><div class="iname">${esc(s.it.name)}</div></td>
+        <td class="n" style="color:var(--red)">${fmt(s.book)} ${esc(s.it.unit)}</td>
+        <td class="n">${fmt(s.it.min)}</td>
+        <td class="n"><input type="number" step="any" min="0" data-sugqty="${s.it.id}" value="${s.qty}" style="width:80px;text-align:center"> ${esc(s.it.unit)}
+          ${s.packNote?`<div class="hint">= ${esc(s.packNote)}</div>`:''}</td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>`; })()}
 
   <div class="panel">
     <h2>طلب شراء جديد</h2>
@@ -3709,6 +4198,16 @@ function viewPurchaseRequests(){
 
 /* ================= استعادة/استيراد وارد بالجملة (لاسترجاع الفواتير المفقودة) ================= */
 // الصيغة: التاريخ | الصنف | الكمية | السعر | المورد (اختياري)
+// حركات وارد اتسجلت بسعر صفر رغم إن الصنف ليه سعر في الكارت (زي الاستلام من مصانع قبل الإصلاح)
+// بنستبعد الإنتاج التلقائي والتسويات لأن ليهم طريقة تسعير مختلفة
+function zeroPriceInMoves(){
+  return S.moves.filter(m=>{
+    if(m.dir!=='in' || +m.price>0) return false;
+    const p=String(m.party||'');
+    if(p.startsWith('إنتاج تلقائي') || p.startsWith('تسوية جرد')) return false;
+    const it=item(m.itemId); return it && +it.price>0;
+  });
+}
 function inRecoveryImportModal(){
   return `<div class="modal" data-close="1"><div class="box" style="max-width:680px">
     <h3>استيراد وارد بالجملة</h3>
@@ -3967,6 +4466,19 @@ function bind(){
       rd.readAsText(f,'utf-8');
     }
   };
+  const fbr=$('#file-backup-restore'); if(fbr) fbr.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=async()=>{ try{ const snap=JSON.parse(String(rd.result||''));
+        if(!confirm(`استرجاع من الملف "${f.name}"؟\n\n(${(snap.items||[]).length} صنف، ${(snap.recipes||[]).length} وصفة، ${(snap.moves||[]).length} حركة)\n\nهيستبدل البيانات الحالية.`)) return;
+        if(prompt('للتأكيد اكتب "استرجاع"')!=='استرجاع') return toast('اتلغت العملية',1);
+        if(await applySnapshot(snap)) toast('تم الاسترجاع من الملف'); render();
+      }catch(err){ toast('الملف مش سليم: '+err.message,1); } };
+    rd.readAsText(f,'utf-8');
+  };
+  const finF=$('#fin-from'); if(finF) finF.onchange=e=>{ FIN.from=e.target.value; render(); };
+  const finT=$('#fin-to'); if(finT) finT.onchange=e=>{ FIN.to=e.target.value; render(); };
+  const spcQ=$('#spc-q'); if(spcQ) spcQ.oninput=e=>{ SPC_Q=e.target.value; const p=e.target.selectionStart; render(); const n=$('#spc-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } };
   const iriText=$('#iri-text'); if(iriText) iriText.onblur=()=>renderInRecoveryPreview();
   const baiName=$('#bai-name'); if(baiName) baiName.oninput=()=>{
     const norm=s=>String(s||'').trim().toLowerCase();
@@ -5190,6 +5702,27 @@ async function act(a,d){
     const el=document.createElement('a'); el.href=url; el.download=`${isIn?'وارد':'منصرف'}-${S.period}.csv`; el.click(); URL.revokeObjectURL(url);
     return toast('تم التصدير');
   }
+  if(a==='fin-clear'){ FIN={from:'',to:''}; return render(); }
+  if(a==='fin-export'){
+    const d=financeData(); const out=[];
+    const row=(...x)=>out.push(x);
+    row('التقرير المالي', periodLabel(S.period), FIN.from?('من '+FIN.from):'', FIN.to?('لحد '+FIN.to):'');
+    row(); row('البند','القيمة');
+    row('مخزون أول المدة',d.openingValue); row('مشتريات',d.purchases); row('إنتاج داخلي',d.produced);
+    row('إجمالي المنصرف',d.outTotal); row('مخزون آخر المدة (دفتري)',d.closingValue);
+    row(); row('المنصرف حسب الجهة','عدد الحركات','القيمة');
+    Object.entries(d.byReason).forEach(([r,v])=>row(r,v.count,n2(v.value)));
+    row(); row('الفرع','تكلفة الصرف');
+    Object.entries(d.byBranch).sort((a,b)=>b[1]-a[1]).forEach(([b,v])=>row(b,n2(v)));
+    row(); row('المورد','المشتريات');
+    Object.entries(d.bySupplier).sort((a,b)=>b[1]-a[1]).forEach(([s,v])=>row(s,n2(v)));
+    row(); row('الصنف التالف','الكمية','التكلفة');
+    Object.entries(d.waste).forEach(([id,v])=>row((item(id)||{name:'—'}).name,n2(v.qty),n2(v.value)));
+    const csv='\uFEFF'+out.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    const el=document.createElement('a'); el.href=url; el.download=`التقرير-المالي-${S.period}.csv`; el.click(); URL.revokeObjectURL(url);
+    return toast('تم التصدير');
+  }
   if(a==='mv-clear-sel'){ mvSel.clear(); return render(); }
   if(a==='mv-sel-all'){
     const dir = tab==='in'?'in':'out';
@@ -5271,6 +5804,16 @@ async function act(a,d){
     return render();
   }
   if(a==='inv-view'){ ui.modal = invoiceViewModal(d.id); return render(); }
+  if(a==='fix-zero-prices'){
+    const list=zeroPriceInMoves();
+    if(!list.length) return toast('مفيش حركات محتاجة تصحيح');
+    const preview=list.slice(0,10).map(m=>{const it=item(m.itemId);return `• ${it.name} (${m.date}): ${fmt(m.qty)} ${it.unit} ← سعر ${fmt(it.price)}`;}).join('\n');
+    if(!confirm(`هيتم تسعير ${list.length} حركة وارد بسعر الصنف الحالي في الكارت:\n\n${preview}${list.length>10?`\n… و${list.length-10} كمان`:''}\n\nتكمل؟`)) return;
+    list.forEach(m=>{ m.price=+item(m.itemId).price; });
+    await saveTx();
+    toast(`اتسعّرت ${list.length} حركة`);
+    return render();
+  }
   if(a==='in-recovery-open'){ IRI_PARSED=[]; ui.modal=inRecoveryImportModal(); return render(); }
   if(a==='iri-preview'){ renderInRecoveryPreview(); return; }
   if(a==='iri-apply'){
@@ -5285,6 +5828,46 @@ async function act(a,d){
     await saveMain(); await saveTx();
     ui.modal=null; IRI_PARSED=[];
     toast(`اتسجّل ${rows.length} حركة وارد`);
+    return render();
+  }
+  if(a==='ext-backup-now'){
+    toast('جاري أخذ نسخة على Google… ممكن ياخد دقيقة'); render();
+    const ok = await maybeExternalBackup(true);
+    toast(ok?'اتحفظت النسخة الخارجية':'تعذر حفظ النسخة الخارجية، حاول تاني', ok?0:1);
+    return render();
+  }
+  if(a==='file-backup-download'){
+    const txt = JSON.stringify(buildSnapshot());
+    const url = URL.createObjectURL(new Blob([txt],{type:'application/json'}));
+    const el = document.createElement('a'); el.href=url; el.download=`نسخة-${FACTORY}-${today()}.json`; el.click(); URL.revokeObjectURL(url);
+    return toast('اتنزّلت النسخة — احتفظ بيها في مكان آمن');
+  }
+  if(a==='ext-restore'){
+    const e = EXT_LIST.find(x=>x.date===d.date); if(!e) return;
+    if(!confirm(`استرجاع نسخة ${d.date} من Google؟\n\n(${e.items} صنف، ${e.recipes} وصفة، ${e.moves} حركة)\n\nأي حاجة اتسجلت بعد التاريخ ده هتضيع.`)) return;
+    if(prompt('للتأكيد اكتب "استرجاع"')!=='استرجاع') return toast('اتلغت العملية',1);
+    try{ toast('جاري التحميل من Google…'); const snap = await extLoadSnapshot(d.date);
+      if(await applySnapshot(snap)) toast(`تم الاسترجاع من نسخة ${d.date}`); }
+    catch(err){ toast('فشل الاسترجاع: '+err.message,1); }
+    return render();
+  }
+  if(a==='logout'){ return authLogout(); }
+  if(a==='login-screen'){ try{ sessionStorage.removeItem('fac_guest'); }catch(e){} return location.reload(); }
+  if(a==='users-refresh'){ usersLoaded=false; return render(); }
+  if(a==='users-add'){
+    const email=(($('#u-email')||{}).value||'').trim().toLowerCase(); const role=($('#u-role')||{}).value||'manager';
+    const facs=[...document.querySelectorAll('[data-ufac]:checked')].map(x=>x.dataset.ufac);
+    if(!email) return toast('اكتب الإيميل',1);
+    if(role==='manager'&&!facs.length) return toast('اختار مصنع واحد على الأقل للمدير',1);
+    try{ await sb('rpc/app_set_user',{method:'POST',body:{p_email:email,p_role:role,p_factories:role==='owner'?[]:facs},prefer:'return=representation'});
+      toast('اتحفظت صلاحيات '+email); await usersLoad(); }
+    catch(e){ toast(_rpcErr(e.message),1); }
+    return render();
+  }
+  if(a==='users-remove'){
+    if(!confirm(`إلغاء صلاحيات ${d.email}؟ مش هيقدر يدخل النظام بعد تفعيل الحماية.`)) return;
+    try{ await sb('rpc/app_remove_user',{method:'POST',body:{p_email:d.email},prefer:'return=representation'}); toast('اتلغت الصلاحيات'); await usersLoad(); }
+    catch(e){ toast(_rpcErr(e.message),1); }
     return render();
   }
   if(a==='dashboard-refresh'){ DASHBOARD_DATA=null; return loadDashboard(); }
@@ -5310,6 +5893,20 @@ async function act(a,d){
       ui.modal=null;
       toast(`تم الاسترجاع من نسخة ${date} بنجاح`);
     }catch(e){ toast('حصل خطأ أثناء الاسترجاع: '+e.message,1); }
+    return render();
+  }
+  if(a==='pur-create-suggested'){
+    const picks=[...document.querySelectorAll('[data-sugsel]:checked')].map(cb=>{
+      const it=item(cb.dataset.sugsel); const q=+((document.querySelector(`[data-sugqty="${cb.dataset.sugsel}"]`)||{}).value||0);
+      return it&&q>0 ? {it,q} : null; }).filter(Boolean);
+    if(!picks.length) return toast('محددتش أصناف بكمية صحيحة',1);
+    if(!confirm(`هيتعمل ${picks.length} طلب شراء (هيستنوا موافقة صاحب النظام). تكمل؟`)) return;
+    const by = ROLE==='owner'?'صاحب النظام':'مدير المصنع';
+    picks.forEach(({it,q})=>PURCHASE_REQUESTS.push({ id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(q),
+      note:'اقتراح تلقائي — تحت الحد الأدنى', status:'pending', requestedBy:by, createdAt:new Date().toISOString() }));
+    const ok=await savePurchaseRequests();
+    if(!ok){ PURCHASE_REQUESTS.splice(-picks.length); return toast('حصل خطأ أثناء الحفظ، حاول تاني',1); }
+    toast(`اتعمل ${picks.length} طلب شراء`);
     return render();
   }
   if(a==='pur-create'){
@@ -6235,6 +6832,8 @@ async function act(a,d){
 }
  
 async function boot(){
+  try{ if(!(await authGate())) return; }
+  catch(e){ console.error(e); renderLogin('مشكلة في الاتصال: '+e.message); return; }
   try{ await load(); }
   catch(e){
     console.error(e);
