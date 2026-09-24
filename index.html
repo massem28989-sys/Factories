@@ -278,21 +278,19 @@ html[data-skin="farooj"] .hrow{padding-bottom:12px}
 html[data-skin="farooj"] .hlogo{width:52px;height:52px;padding:4px;background:#fff;box-shadow:none;outline:0}
 html[data-skin="farooj"] .brand{font-family:var(--font);font-size:24px;font-weight:600;letter-spacing:-.2px;line-height:1.25;color:var(--ink)}
 html[data-skin="farooj"] .brand small{color:var(--muted);font-size:12.5px;font-weight:400}
-html[data-skin="farooj"] .hstat{gap:20px;align-items:center}
 html[data-skin="farooj"] .hstat b{color:var(--ink)}
 html[data-skin="farooj"] .hstat span{color:var(--muted)}
+html[data-skin="farooj"] .hstat{flex:1 1 100%;margin:0;gap:0;align-items:stretch;border-top:1px solid var(--line);padding-top:12px}
+html[data-skin="farooj"] .hstat>div{text-align:start;padding-inline:18px;border-inline-start:1px solid var(--line);display:flex;flex-direction:column;justify-content:center}
+html[data-skin="farooj"] .hstat>div:first-child{padding-inline-start:0;border-inline-start:0}
+html[data-skin="farooj"] .hstat>.hs-act{border:0;padding-inline:0 0;margin-inline-start:8px;flex-direction:row;align-items:center}
+html[data-skin="farooj"] .hstat>div:not(.hs-act)+.hs-act{margin-inline-start:auto}
 html[data-skin="farooj"] #lang-select{background:#fff!important;color:var(--ink)!important;border:1px solid var(--line)!important;border-radius:8px!important;padding:6px 10px!important}
 html[data-skin="farooj"] .warnbar{background:var(--brand-bg);color:var(--brand-deep);border:1px solid var(--line)}
-/* البانر والشريط الأسود: بعرض الشاشة كله زي الموقع */
+/* البانر: بعرض الشاشة كله زي الموقع */
 .heroband{display:none}
 html[data-skin="farooj"] .heroband{display:block;margin-inline:calc(50% - 50vw);border-top:1px solid var(--line)}
 html[data-skin="farooj"] .heroband .hb-img{height:clamp(120px,21vw,300px);background:var(--hero) center/cover no-repeat,#8E1A20}
-html[data-skin="farooj"] .heroband .hb-tick{background:#1A0A0A;color:#fff;font-size:14px;font-weight:500;height:40px;overflow:hidden;display:flex;align-items:center;direction:rtl}
-html[data-skin="farooj"] .hb-track{display:flex;flex:0 0 auto;white-space:nowrap;animation:hbTick 38s linear infinite}
-html[data-skin="farooj"] .hb-track span{padding-inline:14px}
-html[data-skin="farooj"] .hb-track span::after{content:"✱";margin-inline-start:28px;opacity:.7;font-size:11px}
-@keyframes hbTick{from{transform:translateX(0)}to{transform:translateX(50%)}}
-@media(prefers-reduced-motion:reduce){html[data-skin="farooj"] .hb-track{animation:none}}
 /* القايمة: أزرار بيضا بإطار وردي، واللي مفتوح أحمر */
 html[data-skin="farooj"] nav{flex-wrap:wrap;gap:8px;overflow:visible;padding:16px 0 4px}
 html[data-skin="farooj"] nav button{background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 16px;font-size:14px;font-weight:500}
@@ -332,8 +330,11 @@ html[data-skin="farooj"] .foot{background:var(--tint);border-top-color:var(--lin
 html[data-skin="farooj"] .toast{background:#1A0A0A}
 html[data-skin="farooj"] .btn:focus-visible,html[data-skin="farooj"] .cattab:focus-visible,html[data-skin="farooj"] nav button:focus-visible{outline-color:var(--brand)}
 @media(max-width:640px){
-  html[data-skin="farooj"] .heroband .hb-tick{height:34px;font-size:12.5px}
   html[data-skin="farooj"] .hlogo{width:44px;height:44px}
+  html[data-skin="farooj"] .hstat{display:grid;grid-template-columns:repeat(2,1fr);row-gap:10px}
+  html[data-skin="farooj"] .hstat>div{padding-inline:12px}
+  html[data-skin="farooj"] .hstat>div:nth-child(odd){padding-inline-start:0;border-inline-start:0}
+  html[data-skin="farooj"] .hstat>.hs-act{margin:0!important;grid-column:auto}
 }
 
 /* بابا كنافة: نفس هوية الموقع الرسمي — كريمي فاتح، عنوان نسخ كبير، أزرار كبسولة بيج وبرتقالي الكنافة */
@@ -2362,7 +2363,7 @@ function render(){
       ${isMgr&&DB.err?`<div class="warnbar">مش قادر أوصل بصاحب المصنع دلوقتي: ${esc(DB.err)}</div>`:''}
       <div class="hrow">
         ${FACTORY_LOGOS[FACTORY]?`<img class="hlogo" src="${FACTORY_LOGOS[FACTORY]}" alt="">`:''}
-        <div class="brand">${isMgr?(LANG==='en'?'Count ':'جرد '):(LANG==='en'?'Stock ':'مخزن ')}${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:'المصنع'}).name)}
+        <div class="brand">${isMgr?(LANG==='en'?'Count ':'جرد '):''}${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:'المصنع'}).name)}
           <small>${t('period_current')}: ${periodLabel(S.period)}${isMgr?'':' '+t('monthly_count_suffix')}</small></div>
         <div class="hstat">
           ${isMgr?`<div><b>${tt.counted}/${tt.total}</b><span>${t('items_counted')}</span></div>`:`
@@ -2370,13 +2371,13 @@ function render(){
           <div><b>${tt.counted}/${tt.total}</b><span>${t('items_counted2')}</span></div>
           <div><b>${tt.low}</b><span>${t('under_min')}</span></div>
           <div><b style="font-size:13px;color:${DB.on?(DB.err?'var(--hs-bad,#F0C9C3)':'var(--hs-ok,#9FD6B6)'):MODE==='memory'?'var(--hs-bad,#F0C9C3)':'var(--hs-neutral,#D9E0E5)'}">${DB.on?(DB.busy?t('syncing'):DB.err?t('sync_err'):DB.dirty?t('pending'):t('saved_db')):MODE==='cloud'?t('saved_cloud'):MODE==='browser'?t('saved_device'):t('not_saved')}</b><span>${t('save_status')}</span></div>
-          <div><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">${t('save_backup')}${BK.dirty>0?` (${BK.dirty})`:''}</button></div>`}
-          <div>${langBtn}</div>
-          ${AUTH?`<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11.5px;opacity:.85">${esc(AUTH.user.email)}</span><button class="btn" data-act="logout" style="padding:6px 10px">خروج</button></div>`
-            :(DB_CONFIGURED?`<div><button class="btn" data-act="login-screen" style="padding:6px 10px">تسجيل الدخول</button></div>`:'')}
+          <div class="hs-act"><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">${t('save_backup')}${BK.dirty>0?` (${BK.dirty})`:''}</button></div>`}
+          <div class="hs-act">${langBtn}</div>
+          ${AUTH?`<div class="hs-act" style="display:flex;align-items:center;gap:6px"><span style="font-size:11.5px;opacity:.85">${esc(AUTH.user.email)}</span><button class="btn" data-act="logout" style="padding:6px 10px">خروج</button></div>`
+            :(DB_CONFIGURED?`<div class="hs-act"><button class="btn" data-act="login-screen" style="padding:6px 10px">تسجيل الدخول</button></div>`:'')}
         </div>
       </div>
-      <div class="heroband" aria-hidden="true"><div class="hb-img"></div><div class="hb-tick"><div class="hb-track">${Array(16).fill('<span>فروج أبو العبد</span><span>لبناني الأصل</span>').join('')}</div></div></div>
+      <div class="heroband" aria-hidden="true"><div class="hb-img"></div></div>
       <nav>
         ${TAB_GROUPS
           ? TAB_GROUPS.map(g=>{
