@@ -1280,9 +1280,25 @@ async function pushAll(quiet){
     }
     if(!recipesSafe){ errors.push('الوصفات: اتأجّل الحفظ لنفس سبب الأصناف — كارت الوصفات فاضي محليًا بس فيه وصفات على السيرفر.'); }
     else {
-      await sb('stock_recipes?'+fEq(),{method:'DELETE'});
-      if(S.recipes.length) await sb('stock_recipes',{method:'POST',body:S.recipes.map(r=>({
-        id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}))});
+      // الطريقة الآمنة: نحفظ/نحدّث الوصفات الموجودة الأول (upsert)، وبعدين نمسح بس الوصفات اللي اتحذفت فعلًا.
+      // قبل كده كان بيمسح كله وبعدين يضيف — ولو الإضافة فشلت لأي سبب (نت، بيانات)، الوصفات كانت بتضيع من السيرفر.
+      const rrows = S.recipes.map(r=>({id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}));
+      let upOk=false;
+      try{ if(rrows.length) await sb('stock_recipes',{...UPSERT,body:rrows}); upOk=true; }
+      catch(e){ if(!/unique|exclusion|42P10|conflict/i.test(e.message)) throw e; }
+      if(upOk){
+        const srv = await sb('stock_recipes?'+fEq()+'&select=id',{prefer:'return=representation'})||[];
+        const keep = new Set(S.recipes.map(r=>r.id));
+        const gone = srv.map(x=>x.id).filter(id=>!keep.has(id));
+        for(let i=0;i<gone.length;i+=100){
+          const list = gone.slice(i,i+100).map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
+          await sb('stock_recipes?'+fEq()+'&id=in.('+encodeURIComponent(list)+')',{method:'DELETE'});
+        }
+      } else {
+        // القاعدة مش مجهزة للـ upsert — الطريقة القديمة
+        await sb('stock_recipes?'+fEq(),{method:'DELETE'});
+        if(rrows.length) await sb('stock_recipes',{method:'POST',body:rrows});
+      }
     }
   }catch(e){ errors.push('الوصفات: '+e.message); }
 
@@ -4085,7 +4101,23 @@ function itemModal(it){
       </div>
       <div><label class="f">اسم العبوة</label><input type="text" id="f-packunit" placeholder="مثال: كرتونة" value="${esc(e.packUnit||'')}" style="width:100%"></div>
       <div><label class="f">العبوة فيها كام ${esc(e.unit)}</label><input type="number" step="any" id="f-packsize" placeholder="مثال: 24" value="${e.packSize||''}" style="width:100%"></div>
-    </div></div>
+    </div>
+    ${it?(()=>{ const rs=(S.recipes||[]).map(r=>({r, ln:(r.lines||[]).find(l=>l.itemId===it.id), out:r.outItemId===it.id})).filter(x=>x.ln||x.out);
+      if(!rs.length) return '';
+      return `<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+        <label class="f">الصنف ده داخل في ${rs.length} وصفة — الكميات بالـ${esc(e.unit)}</label>
+        <div class="tblwrap" style="margin:6px 0 10px;max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:8px"><table><tbody>
+          ${rs.map(x=>`<tr><td>${esc(x.r.name)}</td><td class="n" style="white-space:nowrap">${x.ln?`داخل: <b>${fmtP(x.ln.qty)}</b> ${esc(e.unit)}`:''}${x.ln&&x.out?' · ':''}${x.out?`طالع: <b>${fmtP(x.r.outQty)}</b> ${esc(e.unit)}`:''}</td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="hint" style="margin-bottom:6px">لو الكميات دي لسه بالوحدة القديمة (قبل ما تغير الوحدة)، اكتب الوحدة القديمة فيها كام ${esc(e.unit)} ودوس «حوّل» — كل الوصفات دي هتتعدل مرة واحدة.</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span>1 وحدة قديمة =</span>
+          <input type="number" step="any" min="0" id="f-rscale" placeholder="مثال: 4" style="width:90px;text-align:center">
+          <span>${esc(e.unit)}</span>
+          <button class="btn" data-act="recipes-scale" data-id="${e.id}">حوّل الكميات في الوصفات</button>
+        </div>
+      </div>`; })():''}
+    </div>
     <div class="foot"><button class="btn p" data-act="save-item" data-id="${e.id}">حفظ</button>
       <button class="btn" data-close="1">إلغاء</button>
       ${it?`<button class="btn danger" data-act="del-item" data-id="${e.id}" style="margin-inline-start:auto">حذف الصنف</button>`:''}</div>
@@ -4490,7 +4522,9 @@ function viewBackups(){
         <td class="n">${b.recipesCount}</td>
         <td class="n">${b.movesCount}</td>
         <td style="font-size:12px">${b.takenAt?new Date(b.takenAt).toLocaleString('ar-EG'):'-'}</td>
-        <td><button class="btn sm danger" data-act="backup-restore-open" data-date="${esc(b.date)}">استرجاع من النسخة دي</button></td>
+        <td><div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${b.recipesCount?`<button class="btn sm p" data-act="backup-recipes" data-date="${esc(b.date)}">رجّع الوصفات بس</button>`:''}
+          <button class="btn sm danger" data-act="backup-restore-open" data-date="${esc(b.date)}">استرجاع من النسخة دي</button></div></td>
       </tr>`).join('') : `<tr><td colspan="6" class="empty">${backupsLoaded?'لسه مفيش نسخ — هتتكوّن أول نسخة تلقائي أول ما تفتح النظام النهاردة':'جاري التحميل...'}</td></tr>`}</tbody>
     </table></div>
   </div>
@@ -6306,6 +6340,27 @@ async function act(a,d){
     BACKUPS_LIST = await listBackups(); backupsLoaded=true;
     return render();
   }
+  if(a==='backup-recipes'){
+    const date=d.date;
+    try{
+      const rows = await sb('stock_settings?'+fEq()+'&k=eq.'+_backupKey(date)+'&select=v',{prefer:'return=representation'});
+      const snap = rows && rows[0] && rows[0].v;
+      const rc = (snap && snap.recipes)||[];
+      if(!rc.length) return toast('النسخة دي مفيهاش وصفات',1);
+      const have = new Set((S.recipes||[]).map(r=>r.id));
+      const add = rc.filter(r=>!have.has(r.id));
+      if(!add.length) return toast('كل وصفات النسخة دي موجودة عندك أصلًا');
+      const ids = new Set(S.items.map(i=>i.id));
+      const missing = add.reduce((n,r)=>n+(r.lines||[]).filter(l=>!ids.has(l.itemId)).length+(ids.has(r.outItemId)?0:1),0);
+      if(!confirm(`هيرجع ${add.length} وصفة من نسخة ${date}.\n\nالأصناف والحركات والجرد مش هيتلمسوا خالص — الوصفات بس.`+
+        (missing?`\n\nتنبيه: ${missing} مكوّن في الوصفات دي بيشاور على أصناف مش موجودة دلوقتي في كارت الأصناف — راجعهم بعد الاسترجاع.`:'')+
+        `\n\nملحوظة: الكميات هترجع بالوحدات اللي كانت ساعة النسخة. لو غيرت وحدة مكوّن بعد التاريخ ده، افتح الصنف واستخدم «حوّل الكميات في الوصفات».\n\nتكمل؟`)) return;
+      S.recipes = [...(S.recipes||[]), ...add.map(r=>({id:r.id,name:r.name,outItemId:r.outItemId,outQty:+r.outQty||0,lines:(r.lines||[]).map(l=>({...l}))}))];
+      await saveMain();
+      toast(`رجعت ${add.length} وصفة من نسخة ${date}`);
+    }catch(e){ toast('حصل خطأ: '+e.message,1); }
+    return render();
+  }
   if(a==='backup-restore-open'){ ui.modal = backupRestoreModal(d.date); return render(); }
   if(a==='backup-restore-go'){
     const typed = ($('#backup-confirm-text')||{value:''}).value;
@@ -6821,6 +6876,18 @@ async function act(a,d){
   if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.rhead=null; ui.editingRecipe=null; ui.modal=recipeModal(); return render(); }
   if(a==='add-line'){ readLines(); readRecipeHeader(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(ui.editingRecipe); return render(); }
  
+  if(a==='recipes-scale'){
+    const it=item(d.id); if(!it) return; const f=+($('#f-rscale')?.value||0);
+    if(!(f>0)) return toast('اكتب الوحدة القديمة فيها كام '+it.unit,1);
+    let n=0;
+    for(const r of (S.recipes||[])){
+      let hit=false;
+      for(const l of (r.lines||[])) if(l.itemId===it.id){ l.qty=p6(l.qty*f); hit=true; }
+      if(r.outItemId===it.id){ r.outQty=p6(r.outQty*f); hit=true; }
+      if(hit) n++;
+    }
+    await saveMain(); ui.modal=itemModal(it); toast(`اتعدلت ${n} وصفة — كميات "${it.name}" اتضربت في ${fmtP(f)}`); return render();
+  }
   if(a==='drift-fix'){
     const it=item(d.id); const last=S.closed[S.closed.length-1]; const sp=(last.items||[]).find(x=>x.id===d.id);
     if(!it||!sp) return;
