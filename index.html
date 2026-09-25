@@ -494,6 +494,28 @@ html[data-skin="kunafa"] .wrap>.hint,html[data-skin="farooj"] .wrap>.hint{color:
 /* شاشة طولية: مساحة فوق الهيدر عشان اللافتة (اللوجو المنور) تبان زي صورة غلاف */
 @media (max-aspect-ratio:4/5){html[data-skin="kunafa"] header,html[data-skin="farooj"] header{padding-top:min(60vw,32vh)}}
 
+/* جدول الوصفات: يدخل في عرض الشاشة من غير مسطرة يمين وشمال */
+table.rectbl{table-layout:fixed}
+table.rectbl th:nth-child(1){width:22%}
+table.rectbl th:nth-child(2){width:auto}
+table.rectbl th:nth-child(3),table.rectbl th:nth-child(4),table.rectbl th:nth-child(5){width:78px}
+table.rectbl th:nth-child(6){width:176px}
+table.rectbl th{white-space:normal;line-height:1.3;vertical-align:bottom}
+table.rectbl td{vertical-align:top}
+table.rectbl .rec-name{overflow-wrap:anywhere}
+table.rectbl .rec-lines .chip{display:inline-block;margin:0 0 4px;white-space:normal;max-width:100%}
+table.rectbl .rec-act{white-space:nowrap}
+table.rectbl .rec-act .btn{padding-inline:9px}
+@media(max-width:760px){
+  table.rectbl,table.rectbl tbody,table.rectbl tr,table.rectbl td{display:block;width:auto}
+  table.rectbl thead{display:none}
+  table.rectbl tr{padding:10px 12px;border-bottom:1px solid var(--line)}
+  table.rectbl td{border:0;padding:3px 0}
+  table.rectbl td.n{display:inline-block;margin-inline-end:14px}
+  table.rectbl td.n::before{content:attr(data-l);display:block;font-size:11px;color:var(--muted)}
+  table.rectbl tr.catrow td{padding:6px 0}
+}
+
 </style>
  
 <script>
@@ -3713,14 +3735,13 @@ function viewProd(){
       <div class="cattabs">
         ${recCats.map(c=>`<button class="cattab ${recCat===c?'on':''}" data-reccat="${esc(c)}">${esc(c)}${c!=='الكل'?` <span class="ct-n">${catCounts[c]||0}</span>`:''}</button>`).join('')}
       </div>
-      <div class="tblwrap"><table class="gridcols">
+      <div class="tblwrap"><table class="gridcols rectbl">
       <thead><tr>
-        <th style="cursor:pointer" data-recsort="name">الوصفة${arrow('name')}</th>
-        <th style="cursor:pointer" data-recsort="cat">التصنيف${arrow('cat')}</th>
-        <th>الناتج</th><th>مكونات</th>
-        <th class="n" style="cursor:pointer" data-recsort="cost">تكلفة التشغيلة${arrow('cost')}</th>
-        <th class="n" style="cursor:pointer" data-recsort="unitcost">تكلفة الوحدة${arrow('unitcost')}</th>
-        <th class="n">سعره في الكارت</th><th></th>
+        <th style="cursor:pointer" data-recsort="name">الوصفة والناتج${arrow('name')}</th>
+        <th>المكونات</th>
+        <th class="n" style="cursor:pointer" data-recsort="cost">تكلفة<br>التشغيلة${arrow('cost')}</th>
+        <th class="n" style="cursor:pointer" data-recsort="unitcost">تكلفة<br>الوحدة${arrow('unitcost')}</th>
+        <th class="n">سعر<br>الكارت</th><th></th>
       </tr></thead>
       <tbody>${(()=>{ let lastCat=null; return shown.map(e=>{
         const {r,out,cost:c,unitCost,cat}=e;
@@ -3728,19 +3749,19 @@ function viewProd(){
         const cardPrice = out ? (+out.price||0) : 0;
         const diff = unitCost>0 ? Math.abs(unitCost-cardPrice) : 0;
         const stale = unitCost>0 && diff>0.005;
-        const hdr = (groupByCat && cat!==lastCat) ? (lastCat=cat, `<tr class="catrow"><td colspan="8">${esc(cat)}</td></tr>`) : '';
-        return hdr+`<tr><td class="iname">${esc(r.name)}${missingPrice?' <span class="chip a">خامة من غير سعر</span>':''}</td>
-          <td><span class="chip">${esc(cat)}</span></td>
-          <td class="n">${fmt(r.outQty)} <span class="chip">${esc(out?out.unit:'')}</span> ${esc(out?out.name:'—')}</td>
-          <td>${r.lines.map(l=>`<span class="chip">${esc((item(l.itemId)||{}).name||'?')} · ${fmt(l.qty)}</span>`).join(' ')}</td>
-          <td class="n"><b>${money(c)}</b></td>
-          <td class="n hl">${money(unitCost)}</td>
-          <td class="n">${cardPrice>0?money(cardPrice):'<span class="hint">مفيش</span>'}${stale?` <span class="chip a" title="سعر الكارت مختلف عن تكلفة الوصفة">مختلف</span>`:''}</td>
-          <td style="white-space:nowrap">
+        const hdr = (groupByCat && cat!==lastCat) ? (lastCat=cat, `<tr class="catrow"><td colspan="6">${esc(cat)}</td></tr>`) : '';
+        return hdr+`<tr><td class="rec-name"><div class="iname">${esc(r.name)}</div>
+            <div class="hint">الناتج: <b class="num">${fmt(r.outQty)}</b> ${esc(out?out.unit:'')} · ${esc(out?out.name:'—')}</div>
+            <div style="margin-top:3px">${groupByCat?'':`<span class="chip">${esc(cat)}</span> `}${missingPrice?'<span class="chip a">خامة من غير سعر</span>':''}</div></td>
+          <td class="rec-lines">${r.lines.map(l=>{ const it=item(l.itemId); return `<span class="chip">${esc((it||{}).name||'?')} · <b>${fmtP(l.qty)}</b>${it?' '+esc(it.unit):''}</span>`; }).join(' ')}</td>
+          <td class="n" data-l="تكلفة التشغيلة"><b>${money(c)}</b></td>
+          <td class="n hl" data-l="تكلفة الوحدة">${money(unitCost)}</td>
+          <td class="n" data-l="سعر الكارت">${cardPrice>0?money(cardPrice):'<span class="hint">مفيش</span>'}${stale?` <span class="chip a" title="سعر الكارت مختلف عن تكلفة الوصفة">مختلف</span>`:''}</td>
+          <td class="rec-act">
             <button class="btn sm g" data-run="${r.id}">تشغيل</button>
             <button class="btn sm" data-act="edit-recipe" data-id="${r.id}">تعديل</button>
             <button class="btn sm danger" data-delr="${r.id}">حذف</button></td></tr>`;
-      }).join('');})() || `<tr><td colspan="8" class="empty">مفيش وصفات مطابقة للبحث</td></tr>`}</tbody>
+      }).join('');})() || `<tr><td colspan="6" class="empty">مفيش وصفات مطابقة للبحث</td></tr>`}</tbody>
       </table></div>`;
     })()
       : `<div class="empty">لسه مفيش وصفات. اعمل وصفة لكل منتج (كنافة، مبرومة، كوكيز…) عشان الخامات تتخصم لوحدها وتعرف تكلفة الحبة.</div>`}
