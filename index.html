@@ -2434,6 +2434,82 @@ function unitDrift(){
   rows.sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
   return {rows, snapTotal:n2(snapTotal), nowTotal:n2(nowTotal), period:last.period};
 }
+/* ترجيع الوصفات بس من نسخة (سيرفر أو ملف) — من غير ما نلمس الأصناف أو الحركات أو الجرد.
+   snapItems = أصناف النسخة نفسها: بنستخدمها عشان (1) لو صنف اتمسح واتعمل تاني بـ id جديد نربطه بالاسم،
+   و(2) نعرف أنهي مكونات وحدتها اتغيرت من ساعة النسخة، عشان المستخدم يحوّل كمياتها */
+async function importRecipes(rc, label, snapItems){
+  if(!rc || !rc.length){ toast(label+' مفيهاش وصفات',1); return false; }
+  const have = new Set((S.recipes||[]).map(r=>r.id));
+  const add = rc.filter(r=>r && !have.has(r.id));
+  if(!add.length){ toast('كل وصفات '+label+' موجودة عندك أصلًا'); return false; }
+  const norm = t=>String(t||'').trim().toLowerCase().replace(/\s+/g,' ');
+  const cur = new Map(S.items.map(i=>[i.id,i]));
+  const byName = new Map(S.items.map(i=>[norm(i.name),i]));
+  const old = new Map((snapItems||[]).map(i=>[i.id,i]));
+  // نحدد لكل id في الوصفات: هو موجود؟ ولا نربطه بالاسم؟ ولا مش موجود خالص؟
+  const remap = new Map(), lost = new Map();
+  const resolve = id => {
+    if(cur.has(id)) return id;
+    if(remap.has(id)) return remap.get(id);
+    const o = old.get(id); const m = o && byName.get(norm(o.name));
+    if(m){ remap.set(id,m.id); return m.id; }
+    lost.set(id, o ? o.name : id); return id;
+  };
+  const fixed = add.map(r=>({id:r.id,name:r.name,outItemId:resolve(r.outItemId),outQty:+r.outQty||0,
+    lines:(r.lines||[]).map(l=>({...l,itemId:resolve(l.itemId)}))}));
+  // المكونات اللي وحدتها اتغيرت من ساعة النسخة
+  const changed = new Map();
+  for(const r of fixed){
+    for(const id of [r.outItemId, ...r.lines.map(l=>l.itemId)]){
+      const now = cur.get(id); if(!now) continue;
+      const origId = [...remap.entries()].find(([,v])=>v===id)?.[0] || id;
+      const was = old.get(origId);
+      if(was && was.unit && now.unit && was.unit!==now.unit){
+        const c = changed.get(id) || {id, name:now.name, from:was.unit, to:now.unit, recipes:new Set()};
+        c.recipes.add(r.name); changed.set(id,c);
+      }
+    }
+  }
+  const totalRefs = new Set(fixed.flatMap(r=>[r.outItemId,...r.lines.map(l=>l.itemId)])).size;
+  if(lost.size > totalRefs/2){ alert(`الملف ده شكله تبع مصنع تاني: ${lost.size} من ${totalRefs} صنف في وصفاته مش موجودين في المصنع اللي انت فاتحه.\n\nافتح المصنع الصح وجرب تاني.`); return false; }
+  if(!confirm(`هيرجع ${add.length} وصفة من ${label}.\n\nالأصناف والحركات والجرد مش هيتلمسوا خالص — الوصفات بس.`+
+    (remap.size?`\n\n${remap.size} صنف اتربط بالاسم (كان اتمسح واتعمل تاني).`:'')+
+    (lost.size?`\n\nتنبيه: ${lost.size} صنف في الوصفات مش موجود دلوقتي في كارت الأصناف.`:'')+
+    (changed.size?`\n\n${changed.size} مكوّن وحدته اتغيرت من ساعة النسخة — هيظهرولك بعد الاسترجاع عشان تحوّل كمياتهم.`:'')+
+    `\n\nتكمل؟`)) return false;
+  S.recipes = [...(S.recipes||[]), ...fixed];
+  await saveMain();
+  ui.recipeReport = {label, count:add.length, changed:[...changed.values()].map(c=>({...c,recipes:[...c.recipes]})), lost:[...lost.values()]};
+  ui.modal = recipeReportModal();
+  toast(`رجعت ${add.length} وصفة من ${label}`);
+  return true;
+}
+function recipeReportModal(){
+  const R = ui.recipeReport; if(!R) return null;
+  const pending = R.changed.filter(c=>!c.done);
+  return `<div class="modal"><div class="box" style="max-width:720px">
+    <h3>رجعت ${R.count} وصفة من ${esc(R.label)}</h3>
+    <div class="pad" style="max-height:70vh;overflow:auto">
+      ${R.changed.length?`
+      <div class="hint" style="margin-bottom:10px;line-height:1.8">المكونات دي <b>وحدتها اتغيرت</b> من ساعة النسخة، فكمياتها في الوصفات لسه بالوحدة القديمة.
+        لكل واحد اكتب <b>الوحدة القديمة فيها كام من الجديدة</b> ودوس «حوّل». لو الكمية كانت صح أصلًا، دوس «سيبها».</div>
+      <div class="tblwrap" style="border:1px solid var(--line);border-radius:8px"><table><thead><tr><th>المكوّن</th><th>الوحدة</th><th>التحويل</th></tr></thead><tbody>
+      ${R.changed.map(c=>`<tr style="${c.done?'opacity:.5':''}">
+        <td><div class="iname">${esc(c.name)}</div><div class="hint">في ${c.recipes.length} وصفة: ${c.recipes.map(esc).join('، ')}</div></td>
+        <td style="white-space:nowrap">${esc(c.from)} ← <b>${esc(c.to)}</b></td>
+        <td>${c.done?`<span class="hint">${esc(c.done)}</span>`:`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span class="hint" style="white-space:nowrap">1 ${esc(c.from)} =</span>
+          <input type="number" step="any" min="0" data-rrf="${c.id}" style="width:70px;text-align:center">
+          <span class="hint">${esc(c.to)}</span>
+          <button class="btn p sm" data-act="rr-scale" data-id="${c.id}">حوّل</button>
+          <button class="btn sm" data-act="rr-skip" data-id="${c.id}">سيبها</button></div>`}</td></tr>`).join('')}
+      </tbody></table></div>`:`<div class="hint">مفيش ولا مكوّن وحدته اتغيرت — الوصفات جاهزة زي ما هي.</div>`}
+      ${R.lost.length?`<div class="warnbar" style="margin-top:14px">أصناف في الوصفات مش موجودة في كارت الأصناف دلوقتي: <b>${R.lost.map(esc).join('، ')}</b>.
+        افتح الوصفات اللي فيها وغيّر المكوّن ده أو امسحه.</div>`:''}
+    </div>
+    <div class="foot"><button class="btn ${pending.length?'':'p'}" data-act="rr-close">${pending.length?`قفل (فاضل ${pending.length})`:'تمام'}</button></div>
+  </div></div>`;
+}
 function unitDriftPanel(){
   if(ROLE==='manager') return '';
   const d = unitDrift(); if(!d.rows.length) return '';
@@ -4510,6 +4586,10 @@ function viewBackups(){
       النظام بياخد <b>نسخة احتياطية كاملة تلقائي كل يوم</b> (أصناف، وصفات، حركات، جرد) من غير ما تحتاج تعمل أي حاجة —
       ومحتفظ بآخر ${BACKUP_KEEP_DAYS} يوم. لو حصلت أي مشكلة في البيانات، تقدر ترجع لأي يوم من هنا مباشرة، من غير ما تحتاج تدخل قاعدة البيانات خالص.
     </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+      <label class="btn p" style="cursor:pointer">رجّع الوصفات بس من ملف على جهازك<input type="file" id="file-recipes-restore" accept=".json,application/json" style="display:none"></label>
+      <span class="hint">أي ملف نسخة اتنزل قبل كده (اسمه بيبدأ بـ «نسخة-احتياطية-مخزن» أو «نسخة-»). الوصفات بس اللي هترجع.</span>
+    </div>
   </div></div>
   <div class="panel">
     <h2>النسخ المتاحة <em>${BACKUPS_LIST.length}</em>
@@ -4928,6 +5008,14 @@ function bind(){
       rd.onload=()=>{ if(ta){ ta.value=String(rd.result||''); renderInRecoveryPreview(); } };
       rd.readAsText(f,'utf-8');
     }
+  };
+  const frr=$('#file-recipes-restore'); if(frr) frr.onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=async()=>{ try{ const snap=JSON.parse(String(rd.result||''));
+        await importRecipes(snap.recipes||[], 'الملف "'+f.name+'"', snap.items||[]); render();
+      }catch(err){ toast('الملف مش سليم: '+err.message,1); } };
+    rd.readAsText(f,'utf-8');
   };
   const fbr=$('#file-backup-restore'); if(fbr) fbr.onchange=e=>{
     const f=e.target.files&&e.target.files[0]; if(!f) return;
@@ -6345,19 +6433,7 @@ async function act(a,d){
     try{
       const rows = await sb('stock_settings?'+fEq()+'&k=eq.'+_backupKey(date)+'&select=v',{prefer:'return=representation'});
       const snap = rows && rows[0] && rows[0].v;
-      const rc = (snap && snap.recipes)||[];
-      if(!rc.length) return toast('النسخة دي مفيهاش وصفات',1);
-      const have = new Set((S.recipes||[]).map(r=>r.id));
-      const add = rc.filter(r=>!have.has(r.id));
-      if(!add.length) return toast('كل وصفات النسخة دي موجودة عندك أصلًا');
-      const ids = new Set(S.items.map(i=>i.id));
-      const missing = add.reduce((n,r)=>n+(r.lines||[]).filter(l=>!ids.has(l.itemId)).length+(ids.has(r.outItemId)?0:1),0);
-      if(!confirm(`هيرجع ${add.length} وصفة من نسخة ${date}.\n\nالأصناف والحركات والجرد مش هيتلمسوا خالص — الوصفات بس.`+
-        (missing?`\n\nتنبيه: ${missing} مكوّن في الوصفات دي بيشاور على أصناف مش موجودة دلوقتي في كارت الأصناف — راجعهم بعد الاسترجاع.`:'')+
-        `\n\nملحوظة: الكميات هترجع بالوحدات اللي كانت ساعة النسخة. لو غيرت وحدة مكوّن بعد التاريخ ده، افتح الصنف واستخدم «حوّل الكميات في الوصفات».\n\nتكمل؟`)) return;
-      S.recipes = [...(S.recipes||[]), ...add.map(r=>({id:r.id,name:r.name,outItemId:r.outItemId,outQty:+r.outQty||0,lines:(r.lines||[]).map(l=>({...l}))}))];
-      await saveMain();
-      toast(`رجعت ${add.length} وصفة من نسخة ${date}`);
+      await importRecipes((snap && snap.recipes)||[], 'نسخة '+date, (snap && snap.items)||[]);
     }catch(e){ toast('حصل خطأ: '+e.message,1); }
     return render();
   }
@@ -6876,6 +6952,20 @@ async function act(a,d){
   if(a==='new-recipe'){ ui.rlines=[{itemId:'',qty:''}]; ui.rhead=null; ui.editingRecipe=null; ui.modal=recipeModal(); return render(); }
   if(a==='add-line'){ readLines(); readRecipeHeader(); ui.rlines.push({itemId:'',qty:''}); ui.modal=recipeModal(ui.editingRecipe); return render(); }
  
+  if(a==='rr-scale' || a==='rr-skip'){
+    const R=ui.recipeReport; const c=R&&R.changed.find(x=>x.id===d.id); const it=item(d.id); if(!c||!it) return;
+    if(a==='rr-scale'){
+      const f=+(document.querySelector(`[data-rrf="${d.id}"]`)?.value||0);
+      if(!(f>0)) return toast(`اكتب الـ${c.from} فيه كام ${c.to}`,1);
+      const names=new Set(c.recipes);
+      for(const r of S.recipes){ if(!names.has(r.name)) continue;
+        for(const l of (r.lines||[])) if(l.itemId===it.id) l.qty=p6(l.qty*f);
+        if(r.outItemId===it.id) r.outQty=p6(r.outQty*f); }
+      await saveMain(); c.done=`اتحولت ×${fmtP(f)}`;
+    } else c.done='اتسابت زي ما هي';
+    ui.modal=recipeReportModal(); return render();
+  }
+  if(a==='rr-close'){ ui.recipeReport=null; ui.modal=null; return render(); }
   if(a==='recipes-scale'){
     const it=item(d.id); if(!it) return; const f=+($('#f-rscale')?.value||0);
     if(!(f>0)) return toast('اكتب الوحدة القديمة فيها كام '+it.unit,1);
