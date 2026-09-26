@@ -852,12 +852,12 @@ const TAB_GROUPS_OWNER = [
   { name:'نظرة عامة', tabs:[['dashboard','لوحة التحكم الشاملة']] },
   { name:'المخزن',   tabs:[['dailystock','الجرد اليومي'],['count','الجرد الشهري'],['items','كارت الأصناف'],['expiry','الصلاحيات']] },
   { name:'الحركة',   tabs:[['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء']] },
-  { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])] },
+  { name:'الإنتاج',  tabs:[['prod','الإنتاج والوصفات'], ...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[['korders','طلبيات الفروع']])] },
   { name:'الحسابات', tabs:[['suppliers','حسابات الموردين'],['finance','التقرير المالي'],['rep','التقارير والإقفال']] },
   { name:'الإعدادات',tabs:[['fac','المصانع'],['users','المستخدمين'],['backups','النسخ الاحتياطية'],['sec','الصلاحيات والأقفال']] },
 ];
 const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
-const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[])];
+const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[['korders','طلبيات الفروع']])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const TAB_GROUPS = ROLE==='manager'? null : TAB_GROUPS_OWNER;
 function groupOfTab(k){ return TAB_GROUPS ? (TAB_GROUPS.find(g=>g.tabs.some(t=>t[0]===k))||{}).name : null; }
@@ -2053,7 +2053,7 @@ async function uploadInvoiceImage(file, moveId){
   const base = DB.url.replace(/\/+$/,'');
   const up = tok => fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
     method:'POST',
-    headers:{ apikey:DB.key, Authorization:'Bearer '+(tok||DB.key), 'Content-Type': file.type||'image/jpeg', 'x-upsert':'true' },
+    headers:{ apikey:DB.key, Authorization:'Bearer '+(tok||DB.key), 'Content-Type': file.type||'image/jpeg' },
     body: file
   });
   let r = await up(await authToken());
@@ -2079,6 +2079,370 @@ async function deleteInvoiceImage(path){
     if(!r.ok && AUTH && [400,401,403].includes(r.status)) r = await del(null);
     return r.ok;
   }catch(e){ return false; }
+}
+
+
+/* ================= أرشفة صور الفواتير مع إقفال الشهر =================
+   الفواتير الضريبية لازم تتحفظ 5 سنين، فما بنمسحش أي صورة قبل ما تنزل في ملف ZIP على جهاز المستخدم.
+   مع كل إقفال: بننزّل ZIP لكل شهر مقفول صوره لسه ما اتأرشفتش، وبعدين نمسح من السيرفر صور الشهور
+   اللي عدّى عليها أكتر من INV_KEEP_MONTHS (وكانت اتأرشفت قبل كده). الحركة نفسها بتفضل، ومكان الصورة
+   بيتكتب "archived:اسم الملف" عشان يبان هي في أنهي ملف. */
+const INV_KEEP_MONTHS = 3;
+const INV_ZIP_KEY = 'inv_zipped';
+const invIsArchived = v => String(v||'').startsWith('archived:');
+const invArchiveName = v => String(v||'').slice(9);
+function periodShift(p, n){ const [y,m]=p.split('-').map(Number); const d=new Date(y, m-1+n, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+async function ensureJSZip(){
+  if(window.JSZip) return window.JSZip;
+  await new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'; sc.onload=res; sc.onerror=()=>rej(new Error('مش قادر أحمّل أداة الضغط — اتأكد من النت')); document.head.appendChild(sc); });
+  return window.JSZip;
+}
+async function invZipLog(){ try{ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+INV_ZIP_KEY+'&select=v',{prefer:'return=representation'}); return (r&&r[0]&&r[0].v)||{}; }catch(e){ return {}; } }
+async function invZipLogSave(log){ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:INV_ZIP_KEY,v:log}]}); }
+const _fnSafe = t => String(t||'').replace(/[\\/:*?"<>|#%\n\r\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0,60) || '-';
+/* uptoPeriod = آخر شهر مقفول. localMoves = حركات الشهر ده لو لسه في الذاكرة (أحدث من القاعدة) */
+async function invoiceArchiveRun(uptoPeriod, localMoves){
+  if(!DB.on) return {skipped:'مش متصل بالقاعدة'};
+  const facName = (FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name;
+  // 1) كل حركات الوارد اللي عندها صورة لسه على السيرفر، لحد الشهر المقفول
+  let rows = await sb('stock_moves?'+fEq()+'&period=lte.'+encodeURIComponent(uptoPeriod)+'&invoice=not.is.null&select=id,period,move_date,party,item_id,qty,invoice',{prefer:'return=representation'}) || [];
+  if(localMoves && localMoves.length){
+    const byId=new Map(rows.map(r=>[r.id,r]));
+    for(const m of localMoves) if(m.invoice) byId.set(m.id,{id:m.id,period:uptoPeriod,move_date:m.date,party:m.party,item_id:m.itemId,qty:m.qty,invoice:m.invoice});
+    rows=[...byId.values()];
+  }
+  rows = rows.filter(r=>r.invoice && !invIsArchived(r.invoice));
+  const log = await invZipLog();
+  // 2) ZIP للشهور اللي لسه ما نزلتش
+  const toZip = [...new Set(rows.map(r=>r.period))].filter(p=>!log[p]).sort();
+  let zipped = null;
+  if(toZip.length){
+    const JSZip = await ensureJSZip(); const zip = new JSZip(); const fails=[]; const done=new Set(); let n=0;
+    for(const r of rows.filter(r=>toZip.includes(r.period))){
+      const it=item(r.item_id)||{name:r.item_id};
+      const fname = `${r.period}/${r.move_date||r.period} - ${_fnSafe(r.party)} - ${_fnSafe(it.name)} - ${r.id}.jpg`;
+      if(done.has(r.invoice)){ // نفس الصورة مربوطة بكذا صنف — ملف نصي صغير بيشاور عليها بدل ما نكررها
+        zip.file(fname.replace(/\.jpg$/,' (نفس فاتورة تانية).txt'), 'الصورة دي هي نفس صورة فاتورة تانية في نفس الفولدر: '+r.invoice); continue; }
+      try{ const res=await fetch(invoiceImageUrl(r.invoice)); if(!res.ok) throw new Error('HTTP '+res.status);
+        zip.file(fname, await res.blob()); done.add(r.invoice); n++; }
+      catch(e){ fails.push(`${r.move_date} ${it.name}: ${e.message}`); }
+    }
+    const zipName = `فواتير-${facName}-${toZip.length>1?toZip[0]+'-إلى-'+toZip[toZip.length-1]:toZip[0]}.zip`;
+    const blob = await zip.generateAsync({type:'blob'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=zipName; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    if(!confirm(`نزل ملف "${zipName}" فيه ${n} صورة فاتورة${fails.length?` (و${fails.length} صورة ما نزلتش)`:''}.\n\nاحفظه في مكان آمن (Google Drive أو فلاشة) — الفواتير الضريبية لازم تتحفظ 5 سنين.\n\nالملف نزل عندك واتحفظ؟`)){
+      return {zipName, n, fails, aborted:true};
+    }
+    for(const p of toZip) log[p]={zip:zipName, at:new Date().toISOString(), count:rows.filter(r=>r.period===p).length};
+    await invZipLogSave(log);
+    zipped={zipName,n,fails};
+  }
+  // 3) نمسح من السيرفر صور الشهور القديمة (أقدم من آخر INV_KEEP_MONTHS شهور) اللي نزلت في ZIP
+  const cutoff = periodShift(uptoPeriod, -(INV_KEEP_MONTHS-1)); // بنسيب الشهور من cutoff لحد uptoPeriod
+  const old = rows.filter(r=>r.period<cutoff && log[r.period]);
+  const keepPaths = new Set(rows.filter(r=>!(r.period<cutoff && log[r.period])).map(r=>r.invoice));
+  let removed=0;
+  if(old.length){
+    const byZip = {}; old.forEach(r=>{ const z=log[r.period].zip; (byZip[z]=byZip[z]||[]).push(r.id); });
+    for(const [z,ids] of Object.entries(byZip)){
+      for(let i=0;i<ids.length;i+=100){
+        const list=ids.slice(i,i+100).map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
+        await sb('stock_moves?'+fEq()+'&id=in.('+encodeURIComponent(list)+')',{method:'PATCH',body:{invoice:'archived:'+z}});
+      }
+    }
+    for(const path of new Set(old.map(r=>r.invoice))){ if(keepPaths.has(path)) continue; if(await deleteInvoiceImage(path)) removed++; }
+  }
+  return {zipped, removed, oldCount:old.length, cutoff};
+}
+function invoiceArchiveSummary(r){
+  if(!r || r.skipped) return '';
+  const parts=[];
+  if(r.zipped) parts.push(`نزل ملف ${r.zipped.zipName} (${r.zipped.n} صورة)`);
+  if(r.aborted) parts.push('الأرشفة اتأجلت — ما اتمسحش حاجة');
+  if(r.removed) parts.push(`اتمسحت ${r.removed} صورة قديمة من السيرفر (موجودة في ملفات الـZIP)`);
+  return parts.join(' · ');
+}
+
+/* ================================================================
+   طلبيات الفروع — نسخة داخلية (للمصانع اللي فروعها معندهاش تطبيق خاص، زي الكنافة)
+   رابط واحد لكل الفروع: ?factory=<المصنع>&branch  — كل فرع بيختار اسمه ويكتب الباسورد بتاعه.
+   التخزين: جدول stock_settings الموجود (من غير أي جدول جديد):
+     korder_cfg      → {items:[ids اللي بتظهر للفروع], pins:{اسم الفرع: hash}}
+     korder_o...     → طلبية واحدة
+   ================================================================ */
+const KO_CFG_KEY='korder_cfg';
+const KO_STATUS={new:'جديدة',sent:'اتبعتت',received:'اتسلمت',cancelled:'اتلغت'};
+async function koHash(branch,pin){
+  const txt=`${FACTORY}|${branch}|${String(pin).trim()}`;
+  try{ const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+  catch(e){ return 'h'+hsh(txt)+hsh(txt.split('').reverse().join('')); }
+}
+async function koGetCfg(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {items:v.items||[], pins:v.pins||{}}; }
+async function koSaveCfg(cfg){ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:KO_CFG_KEY,v:cfg}]}); }
+async function koList(branch){
+  let q='stock_settings?'+fEq()+'&k=like.korder_o*&select=v';
+  if(branch) q+='&v->>branch=eq.'+encodeURIComponent(branch);
+  const r=await sb(q,{prefer:'return=representation'})||[];
+  return r.map(x=>x.v).filter(Boolean).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+async function koSave(o){ o.updatedAt=new Date().toISOString(); await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'korder_'+o.id,v:o}]}); }
+const koTime = iso => { try{ const d=new Date(iso); return d.toLocaleDateString('en-GB')+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return iso||''; } };
+const koLink = () => location.origin+location.pathname+'?factory='+encodeURIComponent(FACTORY)+'&branch';
+
+/* ---------------- صفحة الفرع ---------------- */
+const BP={cfg:null, items:[], branch:'', tab:'new', qty:{}, q:'', cat:'الكل', note:'', need:'', orders:[], err:''};
+async function branchPortal(){
+  document.title='طلبيات الفروع — '+((FACTORIES.find(f=>f.id===FACTORY)||{}).name||'');
+  $('#root').innerHTML='<div class="boot">جاري التحميل…</div>';
+  try{
+    if(!DB_CONFIGURED) throw new Error('النظام مش متوصل بقاعدة البيانات');
+    DB.on=true;
+    BP.cfg=await koGetCfg();
+    const its=await sb('stock_items?'+fEq()+'&select=id,name,unit,cat',{prefer:'return=representation'})||[];
+    const allow=new Set(BP.cfg.items); BP.items=its.filter(i=>allow.has(i.id)).sort((a,b)=>(a.cat||'').localeCompare(b.cat||'','ar')||a.name.localeCompare(b.name,'ar'));
+    try{ const s=JSON.parse(sessionStorage.getItem('bp:'+FACTORY)||'null'); if(s && BP.cfg.pins[s.branch]===s.h) BP.branch=s.branch; }catch(e){}
+    try{ const d=JSON.parse(localStorage.getItem('bp-draft:'+FACTORY)||'null'); if(d&&d.qty) BP.qty=d.qty; }catch(e){}
+  }catch(e){ BP.err=e.message; }
+  bpRender();
+}
+function bpSaveDraft(){ try{ localStorage.setItem('bp-draft:'+FACTORY,JSON.stringify({qty:BP.qty})); }catch(e){} }
+function bpShell(inner){
+  const fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY==='kunafa'?'مصنع الكنافة':FACTORY}).name;
+  return `<div id="toast"></div><header><div class="wrap"><div class="hrow">
+    ${FACTORY_LOGOS[FACTORY]?`<img class="hlogo" src="${FACTORY_LOGOS[FACTORY]}" alt="">`:''}
+    <div class="brand">طلبيات الفروع<small>${esc(fac)}${BP.branch?' · فرع <b>'+esc(BP.branch)+'</b>':''}</small></div>
+    ${BP.branch?`<div class="hstat"><div class="hs-act"><button class="btn" data-bp="logout">تغيير الفرع</button></div></div>`:''}
+  </div>
+  ${BP.branch?`<nav><button class="${BP.tab==='new'?'on':''}" data-bp="tab" data-v="new">طلبية جديدة</button><button class="${BP.tab==='mine'?'on':''}" data-bp="tab" data-v="mine">طلبياتي</button></nav>`:''}
+  </div></header><div class="wrap">${inner}</div>`;
+}
+function bpRender(){
+  let inner='';
+  if(BP.err) inner=`<div class="panel"><div class="pad"><div class="warnbar">مش قادر أفتح صفحة الطلبيات: ${esc(BP.err)}</div></div></div>`;
+  else if(!BP.branch){
+    const names=Object.keys(BP.cfg.pins).sort((a,b)=>a.localeCompare(b,'ar'));
+    inner = names.length ? `<div class="panel" style="max-width:420px;margin:24px auto 0"><h2>دخول الفرع</h2><div class="pad">
+        <label class="f">الفرع</label><select id="bp-branch" style="width:100%"><option value="">اختار الفرع…</option>${names.map(n=>`<option>${esc(n)}</option>`).join('')}</select>
+        <label class="f" style="margin-top:10px">الباسورد</label><input type="password" id="bp-pin" inputmode="numeric" autocomplete="off" style="width:100%">
+        <div class="warnbar" id="bp-err" style="margin-top:10px;display:none"></div>
+        <button class="btn p" data-bp="login" style="width:100%;margin-top:12px;padding:10px">دخول</button></div></div>`
+      : `<div class="panel"><div class="pad"><div class="warnbar">المصنع لسه ما عملش باسورد لأي فرع. كلّم المصنع.</div></div></div>`;
+  }
+  else if(BP.tab==='new') inner=bpNewView();
+  else inner=bpMineView();
+  $('#root').innerHTML=bpShell(inner);
+  bpBind();
+}
+function bpNewView(){
+  if(!BP.items.length) return `<div class="panel"><div class="pad"><div class="warnbar">المصنع لسه ما حددش الأصناف اللي الفروع تطلبها.</div></div></div>`;
+  const cats=['الكل',...new Set(BP.items.map(i=>i.cat||'أخرى'))];
+  const q=BP.q.trim().toLowerCase();
+  const shown=BP.items.filter(i=>(BP.cat==='الكل'||(i.cat||'أخرى')===BP.cat)&&(!q||i.name.toLowerCase().includes(q)));
+  const chosen=BP.items.filter(i=>+BP.qty[i.id]>0);
+  const tmr=new Date(Date.now()+864e5).toISOString().slice(0,10);
+  return `<div class="panel"><h2>طلبية جديدة <em>${chosen.length} صنف</em></h2>
+    <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="bp-q" placeholder="دور على صنف…" value="${esc(BP.q)}"></div></div>
+    <div class="cattabs">${cats.map(c=>`<button class="cattab ${BP.cat===c?'on':''}" data-bp="cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+    <div class="tblwrap" style="max-height:none"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
+      ${shown.map(i=>`<tr${+BP.qty[i.id]>0?' style="background:var(--brand-bg)"':''}><td><div class="iname">${esc(i.name)}</div><div class="hint">${esc(i.cat||'')}</div></td>
+        <td class="n"><div style="display:flex;gap:6px;align-items:center;justify-content:flex-end"><input type="number" min="0" step="any" inputmode="decimal" data-bq="${i.id}" value="${BP.qty[i.id]||''}" style="width:78px;text-align:center"><span class="hint" style="min-width:34px">${esc(i.unit||'')}</span></div></td></tr>`).join('')||`<tr><td colspan="2" class="empty">مفيش أصناف مطابقة</td></tr>`}
+    </tbody></table></div></div>
+    <div class="panel"><h2>مراجعة وإرسال</h2><div class="pad">
+      ${chosen.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${chosen.map(i=>`<span class="chip">${esc(i.name)} · <b>${fmtP(BP.qty[i.id])}</b> ${esc(i.unit||'')}</span>`).join('')}</div>`:'<div class="hint" style="margin-bottom:10px">اكتب الكميات فوق الأول.</div>'}
+      <div class="grid">
+        <div><label class="f">مطلوبة يوم</label><input type="date" id="bp-need" value="${esc(BP.need||tmr)}" style="width:100%"></div>
+        <div style="grid-column:span 2"><label class="f">ملاحظة <span class="hint">(اختياري)</span></label><input type="text" id="bp-note" value="${esc(BP.note)}" style="width:100%"></div>
+      </div>
+      <button class="btn p" data-bp="send" style="width:100%;margin-top:14px;padding:11px" ${chosen.length?'':'disabled'}>ابعت الطلبية للمصنع (${chosen.length} صنف)</button>
+    </div></div>`;
+}
+function bpMineView(){
+  const L=BP.orders;
+  return `<div class="panel"><h2>طلبياتي <em>${L.length}</em><button class="btn sm" data-bp="reload" style="margin-inline-start:auto">تحديث</button></h2>
+  ${L.length?L.slice(0,30).map(o=>`<div class="pad" style="border-top:1px solid var(--line)">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+      <div><b>${koTime(o.createdAt)}</b> <span class="hint">· مطلوبة ${esc(o.needDate||'')}</span></div>
+      <span class="chip ${o.status==='sent'?'a':o.status==='received'?'b':o.status==='cancelled'?'r':''}">${KO_STATUS[o.status]||o.status}</span></div>
+    ${o.note?`<div class="hint" style="margin-top:4px">ملاحظة: ${esc(o.note)}</div>`:''}
+    ${o.status==='cancelled'&&o.cancelReason?`<div class="hint" style="margin-top:4px">سبب الإلغاء: ${esc(o.cancelReason)}</div>`:''}
+    <table style="margin-top:8px"><thead><tr><th>الصنف</th><th class="n">طلبت</th>${o.status!=='new'&&o.status!=='cancelled'?'<th class="n">اتبعت</th>':''}${o.status==='sent'||o.status==='received'?'<th class="n">استلمت</th>':''}</tr></thead><tbody>
+      ${o.lines.map((l,ix)=>`<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span></td><td class="n">${fmtP(l.qty)}</td>
+        ${o.status!=='new'&&o.status!=='cancelled'?`<td class="n">${fmtP(l.sent||0)}</td>`:''}
+        ${o.status==='sent'?`<td class="n"><input type="number" min="0" step="any" data-br="${o.id}:${ix}" value="${l.sent||0}" style="width:74px;text-align:center"></td>`:''}
+        ${o.status==='received'?`<td class="n" style="${Math.abs((l.recv||0)-(l.sent||0))>0.0001?'color:var(--red);font-weight:600':''}">${fmtP(l.recv||0)}</td>`:''}</tr>`).join('')}
+    </tbody></table>
+    ${o.status==='sent'?`<div class="hint" style="margin-top:6px">عدّ اللي وصلك فعلًا وعدّل الرقم لو فيه نقص أو زيادة، وبعدين أكّد.</div><button class="btn p" data-bp="recv" data-id="${o.id}" style="margin-top:8px">أكّد الاستلام</button>`:''}
+    ${o.status==='new'?`<button class="btn sm danger" data-bp="cancel" data-id="${o.id}" style="margin-top:8px">إلغاء الطلبية</button>`:''}
+  </div>`).join(''):`<div class="empty">لسه مفيش طلبيات</div>`}</div>`;
+}
+function bpBind(){
+  const R=$('#root');
+  R.querySelectorAll('[data-bp]').forEach(b=>b.onclick=()=>bpAct(b.dataset.bp,b.dataset));
+  const q=$('#bp-q'); if(q) q.oninput=()=>{ BP.q=q.value; const p=q.selectionStart; bpRender(); const n=$('#bp-q'); n.focus(); n.setSelectionRange(p,p); };
+  R.querySelectorAll('[data-bq]').forEach(inp=>inp.oninput=()=>{ const v=inp.value; if(v===''||!(+v>0)) delete BP.qty[inp.dataset.bq]; else BP.qty[inp.dataset.bq]=+v; bpSaveDraft();
+    inp.closest('tr').style.background=+v>0?'var(--brand-bg)':''; });
+  R.querySelectorAll('[data-bq]').forEach(inp=>inp.onchange=()=>{ const p=document.activeElement&&document.activeElement.dataset.bq; bpRender(); if(p){ const n=R.querySelector(`[data-bq="${p}"]`); if(n) n.focus(); } });
+  const n=$('#bp-note'); if(n) n.oninput=()=>BP.note=n.value;
+  const d=$('#bp-need'); if(d) d.onchange=()=>BP.need=d.value;
+  const pin=$('#bp-pin'); if(pin) pin.onkeydown=e=>{ if(e.key==='Enter') bpAct('login',{}); };
+}
+async function bpAct(a,d){
+  try{
+    if(a==='login'){
+      const br=$('#bp-branch').value, pin=$('#bp-pin').value, err=$('#bp-err');
+      if(!br||!pin){ err.style.display='block'; err.textContent='اختار الفرع واكتب الباسورد'; return; }
+      const h=await koHash(br,pin);
+      if(BP.cfg.pins[br]!==h){ err.style.display='block'; err.textContent='الباسورد غلط'; return; }
+      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); }catch(e){}
+      BP.tab='new'; return bpRender();
+    }
+    if(a==='logout'){ BP.branch=''; try{ sessionStorage.removeItem('bp:'+FACTORY); }catch(e){} return bpRender(); }
+    if(a==='tab'){ BP.tab=d.v; if(d.v==='mine'){ BP.orders=await koList(BP.branch); } return bpRender(); }
+    if(a==='cat'){ BP.cat=d.v; return bpRender(); }
+    if(a==='reload'){ BP.orders=await koList(BP.branch); toast('اتحدثت'); return bpRender(); }
+    if(a==='send'){
+      const lines=BP.items.filter(i=>+BP.qty[i.id]>0).map(i=>({itemId:i.id,name:i.name,unit:i.unit,qty:+BP.qty[i.id]}));
+      if(!lines.length) return toast('اكتب الكميات الأول',1);
+      if(!confirm(`هتبعت طلبية فيها ${lines.length} صنف لفرع ${BP.branch}. تأكيد؟`)) return;
+      const btn=document.querySelector('[data-bp="send"]'); if(btn){ btn.disabled=true; btn.textContent='بيبعت…'; }
+      const o={id:'o'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), branch:BP.branch, createdAt:new Date().toISOString(),
+        needDate:($('#bp-need')||{}).value||'', note:(($('#bp-note')||{}).value||'').trim(), status:'new', lines};
+      await koSave(o);
+      BP.qty={}; BP.note=''; bpSaveDraft();
+      BP.orders=await koList(BP.branch); BP.tab='mine'; bpRender(); toast('الطلبية اتبعتت للمصنع ✓'); return;
+    }
+    if(a==='cancel'){
+      const o=BP.orders.find(x=>x.id===d.id); if(!o||o.status!=='new') return;
+      if(!confirm('إلغاء الطلبية دي؟')) return;
+      const fresh=(await koList(BP.branch)).find(x=>x.id===o.id);
+      if(fresh && fresh.status!=='new'){ toast('المصنع بدأ يجهّزها — كلّم المصنع',1); BP.orders=await koList(BP.branch); return bpRender(); }
+      o.status='cancelled'; o.cancelReason='الفرع لغاها'; await koSave(o); toast('اتلغت'); return bpRender();
+    }
+    if(a==='recv'){
+      const o=BP.orders.find(x=>x.id===d.id); if(!o||o.status!=='sent') return;
+      o.lines.forEach((l,ix)=>{ const inp=document.querySelector(`[data-br="${o.id}:${ix}"]`); l.recv=inp&&inp.value!==''?+inp.value:(l.sent||0); });
+      const diffs=o.lines.filter(l=>Math.abs((l.recv||0)-(l.sent||0))>0.0001);
+      if(!confirm(diffs.length?`فيه ${diffs.length} صنف مختلف عن اللي اتبعت:\n${diffs.map(l=>`• ${l.name}: اتبعت ${fmtP(l.sent||0)} واستلمت ${fmtP(l.recv)}`).join('\n')}\n\nتأكيد؟`:'كل الكميات وصلت زي ما اتبعتت. تأكيد الاستلام؟')) return;
+      o.status='received'; o.receivedAt=new Date().toISOString(); await koSave(o); toast('الاستلام اتأكد ✓'); return bpRender();
+    }
+  }catch(e){ toast('حصل خطأ: '+e.message,1); const b=document.querySelector('[data-bp="send"]'); if(b){ b.disabled=false; b.textContent='ابعت الطلبية للمصنع'; } }
+}
+
+/* ---------------- شاشة المصنع ---------------- */
+const KO={loaded:false, loading:false, at:0, list:[], cfg:{items:[],pins:{}}, err:'', showSetup:false, q:'', cat:'الكل', sel:null};
+async function koLoad(){
+  if(KO.loading) return; KO.loading=true;
+  try{ KO.cfg=await koGetCfg(); KO.list=await koList(); KO.err=''; }catch(e){ KO.err=e.message; }
+  KO.loaded=true; KO.loading=false; KO.at=Date.now();
+  if(tab==='korders') render();
+}
+function viewKOrders(){
+  if(!DB.on) return `<div class="panel"><div class="pad"><div class="warnbar">طلبيات الفروع محتاجة اتصال بالقاعدة.</div></div></div>`;
+  if(!KO.loaded || Date.now()-KO.at>20000) koLoad();
+  if(!KO.loaded) return `<div class="panel"><div class="pad"><div class="empty">جاري تحميل الطلبيات…</div></div></div>`;
+  const isOwner=ROLE!=='manager';
+  const fresh=KO.list.filter(o=>o.status==='new'), sent=KO.list.filter(o=>o.status==='sent'), done=KO.list.filter(o=>o.status==='received').slice(0,15);
+  const branches=[...new Set([...S.branches.filter(b=>b!=='الفرع الرئيسي'), ...Object.keys(KO.cfg.pins)])].sort((a,b)=>a.localeCompare(b,'ar'));
+  const setupNeeded=!KO.cfg.items.length || !Object.keys(KO.cfg.pins).length;
+  const bal=id=>{ const it=item(id); if(!it) return null; const c=calc(it); return c.book; };
+  const orderCard=(o,mode)=>`<div class="pad" style="border-top:1px solid var(--line)">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+      <div><b style="font-size:16px">${esc(o.branch)}</b> <span class="hint">· اتطلبت ${koTime(o.createdAt)} · مطلوبة ${esc(o.needDate||'—')}</span></div>
+      <span class="chip ${mode==='sent'?'a':mode==='done'?'b':''}">${KO_STATUS[o.status]}</span></div>
+    ${o.note?`<div class="warnbar" style="margin-top:6px">ملاحظة الفرع: ${esc(o.note)}</div>`:''}
+    <div class="tblwrap" style="margin-top:8px;max-height:none"><table><thead><tr><th>الصنف</th><th class="n">مطلوب</th>
+      ${mode==='new'?'<th class="n">الرصيد عندك</th><th class="n">هيتبعت</th>':'<th class="n">اتبعت</th>'}${mode==='done'?'<th class="n">الفرع استلم</th>':''}</tr></thead><tbody>
+      ${o.lines.map((l,ix)=>{ const b=bal(l.itemId); const short=b!==null&&b<l.qty;
+        return `<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span></td><td class="n">${fmtP(l.qty)}</td>
+        ${mode==='new'?`<td class="n" style="${short?'color:var(--red);font-weight:600':''}">${b===null?'—':fmt(b)}</td>
+          <td class="n"><input type="number" min="0" step="any" data-kosent="${o.id}:${ix}" value="${short?Math.max(0,n2(b)):l.qty}" style="width:80px;text-align:center"></td>`
+          :`<td class="n">${fmtP(l.sent||0)}</td>`}
+        ${mode==='done'?`<td class="n" style="${Math.abs((l.recv||0)-(l.sent||0))>0.0001?'color:var(--red);font-weight:600':''}">${fmtP(l.recv||0)}</td>`:''}</tr>`; }).join('')}
+    </tbody></table></div>
+    ${mode==='new'?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn p" data-act="ko-send" data-id="${o.id}">جهزت واتبعتت ← سجّل منصرف</button>
+      <button class="btn danger" data-act="ko-cancel" data-id="${o.id}">إلغاء</button></div>
+      <div class="hint" style="margin-top:6px">عدّل عمود «هيتبعت» لو هتبعت أقل أو أكتر. الأصناف اللي رصيدها مش كفاية متعلّمة بالأحمر.</div>`:''}
+    ${mode==='done'&&o.lines.some(l=>Math.abs((l.recv||0)-(l.sent||0))>0.0001)?`<div class="warnbar" style="margin-top:8px">فيه فرق بين اللي اتبعت واللي الفرع استلمه — راجعه مع الفرع والسواق.</div>`:''}
+  </div>`;
+  return `
+  ${isOwner?`<div class="panel"><div class="pad">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px"><div class="hint">رابط الطلبيات — نفس الرابط لكل الفروع، وكل فرع بيدخل بالباسورد بتاعه:</div>
+        <input type="text" readonly value="${esc(koLink())}" style="width:100%;margin-top:4px;direction:ltr;font-size:12.5px" onclick="this.select()"></div>
+      <button class="btn" data-act="ko-copy">نسخ الرابط</button>
+      <button class="btn ${setupNeeded?'p':''}" data-act="ko-setup">${KO.showSetup?'قفل الإعدادات':'الفروع والأصناف'}</button>
+    </div>
+    ${setupNeeded&&!KO.showSetup?`<div class="warnbar" style="margin-top:10px">قبل ما الفروع تطلب: حدد الأصناف اللي تظهرلهم، واعمل باسورد لكل فرع — من «الفروع والأصناف».</div>`:''}
+  </div></div>`:''}
+  ${isOwner&&KO.showSetup?koSetupView(branches):''}
+  ${KO.err?`<div class="panel"><div class="pad"><div class="warnbar">${esc(KO.err)}</div></div></div>`:''}
+  <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em><button class="btn sm" data-act="ko-refresh" style="margin-inline-start:auto">تحديث</button></h2>
+    ${fresh.length?fresh.slice().reverse().map(o=>orderCard(o,'new')).join(''):'<div class="empty">مفيش طلبيات جديدة</div>'}</div>
+  <div class="panel"><h2>اتبعتت ومستنية تأكيد الفرع <em>${sent.length}</em></h2>
+    ${sent.length?sent.map(o=>orderCard(o,'sent')).join(''):'<div class="empty">مفيش</div>'}</div>
+  <div class="panel"><h2>اتسلمت <em>آخر ${done.length}</em></h2>
+    ${done.length?done.map(o=>orderCard(o,'done')).join(''):'<div class="empty">مفيش</div>'}</div>`;
+}
+function koSetupView(branches){
+  if(!KO.sel) KO.sel=new Set(KO.cfg.items);
+  const cats=cats_ko(); const q=KO.q.trim().toLowerCase();
+  const shown=S.items.filter(i=>(KO.cat==='الكل'||i.cat===KO.cat)&&(!q||i.name.toLowerCase().includes(q)));
+  return `<div class="panel"><h2>باسورد الفروع <em>${Object.keys(KO.cfg.pins).length} فرع جاهز</em><button class="btn sm" data-act="add-branch" style="margin-inline-start:auto">+ فرع جديد</button></h2>
+    <div class="tblwrap" style="max-height:none"><table><tbody>
+      ${branches.length?branches.map(b=>`<tr><td><b>${esc(b)}</b></td><td>${KO.cfg.pins[b]?'<span class="chip b">الباسورد متظبط ✓</span>':'<span class="chip r">لسه مالوش باسورد</span>'}</td>
+        <td style="white-space:nowrap;text-align:end"><button class="btn sm ${KO.cfg.pins[b]?'':'p'}" data-act="ko-pin" data-b="${esc(b)}">${KO.cfg.pins[b]?'غيّر الباسورد':'اعمل باسورد'}</button>
+        ${KO.cfg.pins[b]?`<button class="btn sm danger" data-act="ko-unpin" data-b="${esc(b)}">اقفل دخوله</button>`:''}</td></tr>`).join(''):'<tr><td class="empty">ضيف الفروع الأول من «+ فرع جديد»</td></tr>'}
+    </tbody></table></div></div>
+  <div class="panel"><h2>الأصناف اللي بتظهر للفروع <em>${KO.sel.size} صنف</em><button class="btn sm p" data-act="ko-items-save" style="margin-inline-start:auto">حفظ الأصناف</button></h2>
+    <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="ko-q" placeholder="دور على صنف…" value="${esc(KO.q)}">
+      <button class="btn sm" data-act="ko-sel-shown" data-v="1">حدد المعروض</button><button class="btn sm" data-act="ko-sel-shown" data-v="0">شيل المعروض</button></div></div>
+    <div class="cattabs">${cats.map(c=>`<button class="cattab ${KO.cat===c?'on':''}" data-act="ko-cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+    <div class="tblwrap"><table><tbody>${shown.map(i=>`<tr><td style="width:34px"><input type="checkbox" data-koitem="${i.id}" ${KO.sel.has(i.id)?'checked':''}></td>
+      <td>${esc(i.name)}</td><td class="hint">${esc(i.cat)} · ${esc(i.unit)}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+function cats_ko(){ return ['الكل',...new Set(S.items.map(i=>i.cat).filter(Boolean))]; }
+async function koAct(a,d){
+  if(a==='ko-refresh'){ KO.at=0; await koLoad(); return toast('اتحدثت'); }
+  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; return render(); }
+  if(a==='ko-copy'){ try{ await navigator.clipboard.writeText(koLink()); toast('الرابط اتنسخ — ابعته لكل الفروع'); }catch(e){ prompt('انسخ الرابط:',koLink()); } return; }
+  if(a==='ko-cat'){ KO.cat=d.v; return render(); }
+  if(a==='ko-sel-shown'){ const q=KO.q.trim().toLowerCase(); S.items.filter(i=>(KO.cat==='الكل'||i.cat===KO.cat)&&(!q||i.name.toLowerCase().includes(q))).forEach(i=>d.v==='1'?KO.sel.add(i.id):KO.sel.delete(i.id)); return render(); }
+  if(a==='ko-items-save'){ KO.cfg.items=[...KO.sel]; await koSaveCfg(KO.cfg); toast(`اتحفظ — ${KO.cfg.items.length} صنف هيظهر للفروع`); return render(); }
+  if(a==='ko-pin'){
+    const pin=prompt(`باسورد فرع "${d.b}" (4 أرقام أو حروف على الأقل):`); if(pin===null) return;
+    if(String(pin).trim().length<4) return toast('الباسورد لازم يبقى 4 حروف/أرقام على الأقل',1);
+    KO.cfg.pins[d.b]=await koHash(d.b,pin); await koSaveCfg(KO.cfg);
+    alert(`باسورد فرع "${d.b}" اتحفظ.\n\nابعته للفرع مع الرابط:\n${koLink()}\n\n(الباسورد مش بيتحفظ مكتوب في النظام، فلو نسيوه اعمل واحد جديد.)`); return render();
+  }
+  if(a==='ko-unpin'){ if(!confirm(`قفل دخول فرع "${d.b}"؟ مش هيقدر يطلب لحد ما تعمله باسورد جديد.`)) return; delete KO.cfg.pins[d.b]; await koSaveCfg(KO.cfg); return render(); }
+  if(a==='ko-cancel'){
+    const o=KO.list.find(x=>x.id===d.id); if(!o) return;
+    const why=prompt('سبب الإلغاء (هيظهر للفرع):',''); if(why===null) return;
+    o.status='cancelled'; o.cancelReason=why||'المصنع لغاها'; await koSave(o); toast('اتلغت'); return render();
+  }
+  if(a==='ko-send'){
+    const o=KO.list.find(x=>x.id===d.id); if(!o||o.status!=='new') return;
+    const fresh=(await koList()).find(x=>x.id===o.id); if(fresh&&fresh.status!=='new'){ toast('الطلبية اتغيرت ('+(KO_STATUS[fresh.status]||'')+') — اتحدثت',1); KO.at=0; return koLoad(); }
+    o.lines.forEach((l,ix)=>{ const inp=document.querySelector(`[data-kosent="${o.id}:${ix}"]`); l.sent=inp&&inp.value!==''?Math.max(0,+inp.value):l.qty; });
+    const toSend=o.lines.filter(l=>l.sent>0);
+    if(!toSend.length) return toast('كل الكميات صفر — لو مش هتبعت حاجة الغي الطلبية',1);
+    if(!confirm(`هيتسجل منصرف "صرف للفروع" لفرع ${o.branch}:\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}`).join('\n')}\n\nتأكيد؟`)) return;
+    SUBMITTING++;
+    try{
+      const errs=[]; o.moveIds=[];
+      for(const l of o.lines){ if(!(l.sent>0)) continue;
+        const res=dispenseOut(l.itemId, l.sent, today(), o.branch, 'صرف للفروع');
+        if(res.error){ errs.push(`${l.name}: ${res.error}`); l.sent=0; } else if(res.move) o.moveIds.push(res.move.id); }
+      if(!o.moveIds.length){ alert('ما اتسجلش ولا صنف:\n'+errs.join('\n')); return render(); }
+      await saveTx();
+      o.status='sent'; o.sentAt=new Date().toISOString(); await koSave(o);
+      if(errs.length) alert('الطلبية اتبعتت، بس الأصناف دي ما اتسجلتش (واتكتبت صفر):\n'+errs.join('\n'));
+      toast(`اتسجل منصرف ${o.moveIds.length} صنف لفرع ${o.branch} ✓`);
+    } finally { SUBMITTING--; }
+    return render();
+  }
 }
 
 /* ================= أرشيف الفواتير ================= */
@@ -2115,6 +2479,10 @@ function viewInvoices(){
 
   <div class="panel"><div class="pad">
     <div class="hint">حدد كذا صنف من نفس الفاتورة (لو الفاتورة فيها أكتر من منتج)، وارفع صورة واحدة بس — هتتربط بكل الحركات المحددة مرة واحدة. ده بيشتغل مع الحركات القديمة كمان.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px">
+      <div class="hint" style="flex:1;min-width:220px;line-height:1.7">مع كل إقفال شهر، صور فواتيره بتنزل في ملف <b>ZIP</b> على جهازك، والصور اللي عدّى عليها أكتر من <b>${INV_KEEP_MONTHS} شهور</b> بتتمسح من السيرفر عشان المساحة. احفظ ملفات الـ<bdi>ZIP</bdi> لمدة 5 سنين لأنها فواتير ضريبية.</div>
+      ${S.closed.length?`<button class="btn sm" data-act="inv-archive-run">أرشِف الشهور المقفولة دلوقتي</button>`:''}
+    </div>
     <div class="bar" style="margin-top:10px">
       <input type="text" class="grow" id="inv-q" placeholder="دور باسم الصنف أو المورد…" value="${esc(invQ)}">
       ${chip('all','الكل',inMoves.length)}
@@ -2141,7 +2509,9 @@ function viewInvoices(){
           <td><div class="iname">${esc(it.name)}</div></td>
           <td class="n">${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span></td>
           <td>${esc(m.party||'—')}</td>
-          <td>${m.invoice
+          <td>${invIsArchived(m.invoice)
+              ? `<span class="chip b" title="${esc(invArchiveName(m.invoice))}">🗂 في ملف ${esc(invArchiveName(m.invoice))}</span>`
+              : m.invoice
               ? `<button class="btn sm g" data-act="inv-view" data-id="${m.id}">📎 عرض الصورة</button>`
               : `<span class="chip r">مفيش صورة</span>`}</td>
         </tr>`;
@@ -2819,7 +3189,7 @@ function render(){
       })():''}
     </div>
   </header>
-  <div class="wrap">${({dashboard:viewDashboard,dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,finance:viewFinance,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,users:viewUsers,sec:viewSec}[tab])()}</div>
+  <div class="wrap">${({dashboard:viewDashboard,dailystock:viewDailyStock,count:viewCount,in:()=>viewMove('in'),out:()=>viewMove('out'),expiry:viewExpiry,invoices:viewInvoices,suppliers:viewSuppliers,finance:viewFinance,inbox:viewInbox,purchase:viewPurchaseRequests,branchorders:viewBranchOrders,korders:viewKOrders,prod:viewProd,items:viewItems,rep:viewRep,fac:viewFac,backups:viewBackups,users:viewUsers,sec:viewSec}[tab])()}</div>
   ${ui.modal?ui.modal:''}`;
   $('#root').dataset.ready='1';
   bind();
@@ -5072,6 +5442,9 @@ function receiptModal(m){
    EVENTS
    ================================================================ */
 function bind(){
+  document.querySelectorAll('[data-koitem]').forEach(c=>c.onchange=()=>{ if(!KO.sel) KO.sel=new Set(KO.cfg.items); c.checked?KO.sel.add(c.dataset.koitem):KO.sel.delete(c.dataset.koitem);
+    const h=c.closest('.panel').querySelector('h2 em'); if(h) h.textContent=KO.sel.size+' صنف'; });
+  { const kq=document.getElementById('ko-q'); if(kq) kq.oninput=()=>{ KO.q=kq.value; const p=kq.selectionStart; render(); const n=document.getElementById('ko-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } }; }
   const root=$('#root');
   root.querySelectorAll('[data-tabgroup]').forEach(b=>b.onclick=()=>{
     const g = TAB_GROUPS.find(x=>x.name===b.dataset.tabgroup);
@@ -6430,6 +6803,7 @@ function boMatrixHtml(itemsList, title){
 function isInMoveTab(){ return tab==='in'; }
 function addMoveAction(d){ return act('__add-move-inner', d); }
 async function act(a,d){
+  if(a.startsWith('ko-')) return koAct(a,d);
   if(a==='mv-toggle-edit'){ ui.mvEdit=!ui.mvEdit; if(!ui.mvEdit) mvSel.clear(); return render(); }
   if(a==='mv-export'){
     const isIn=d.dir==='in';
@@ -6713,6 +7087,15 @@ async function act(a,d){
     }).map(m=>m.id);
     if(shownIds.every(id=>INV_SEL.has(id))) shownIds.forEach(id=>INV_SEL.delete(id));
     else shownIds.forEach(id=>INV_SEL.add(id));
+    return render();
+  }
+  if(a==='inv-archive-run'){
+    if(!DB.on) return toast('لازم تكون متصل بالقاعدة',1);
+    const last=S.closed[S.closed.length-1]; if(!last) return toast('مفيش شهور مقفولة لسه',1);
+    if(!confirm(`هينزّل ملف ZIP لصور فواتير الشهور المقفولة اللي لسه ما اتأرشفتش (لحد ${periodLabel(last.period)})،\nوبعد ما تأكد إنه نزل، هيمسح من السيرفر صور الشهور الأقدم من ${INV_KEEP_MONTHS} شهور.\n\nتكمل؟`)) return;
+    try{ toast('بيجهّز الملف…'); const r=await invoiceArchiveRun(last.period, null);
+      toast(invoiceArchiveSummary(r) || 'مفيش صور محتاجة أرشفة دلوقتي'); }
+    catch(e){ alert('الأرشفة ما خلصتش: '+e.message); }
     return render();
   }
   if(a==='inv-bulk-upload'){
@@ -7511,7 +7894,7 @@ async function act(a,d){
   }
   if(a==='close-month'){
     if(!confirm(`إقفال ${periodLabel(S.period)}؟ الجرد الفعلي هيبقى أول المدة للشهر الجاي.`)) return;
-    const t=totals(); const closedPeriod=S.period;
+    const t=totals(); const closedPeriod=S.period; const closedMoves=S.moves.filter(m=>m.dir==='in'&&m.invoice).map(m=>({...m}));
     S.closed.push({period:closedPeriod,value:t.value,date:today(),
       items:S.items.map(i=>({id:i.id,name:i.name,unit:i.unit,openingBefore:i.opening,closing:(S.counts[i.id]!==undefined?+S.counts[i.id]:calc(i).book),price:i.price}))});
     for(const it of S.items){ const c=calc(it); it.opening = c.has? c.real : c.book; }
@@ -7519,7 +7902,15 @@ async function act(a,d){
     const [y,m]=closedPeriod.split('-').map(Number); const nd=new Date(y,m,1);
     S.period=`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
     await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed});
-    toast('الشهر اتقفل — بدأنا '+periodLabel(S.period)); return render();
+    toast('الشهر اتقفل — بدأنا '+periodLabel(S.period)); render();
+    if(DB.on){
+      try{
+        toast('بيجهّز ملف صور فواتير '+periodLabel(closedPeriod)+'…');
+        const r = await invoiceArchiveRun(closedPeriod, closedMoves);
+        const msg = invoiceArchiveSummary(r); if(msg) toast(msg);
+      }catch(e){ alert('الشهر اتقفل تمام، بس أرشفة صور الفواتير ما خلصتش:\n'+e.message+'\n\nتقدر تعيدها من «أرشيف الفواتير» ← «أرشِف الشهور المقفولة».'); }
+    }
+    return;
   }
   if(a==='archive-size'){
     if(!DB.on) return toast('لازم تكون متصل بالقاعدة الأول',1);
@@ -7667,6 +8058,7 @@ async function act(a,d){
 }
  
 async function boot(){
+  if(QS.has('branch')) return branchPortal(); // صفحة طلبيات الفروع: من غير حساب — الفرع بيدخل بالباسورد بتاعه
   try{ if(!(await authGate())) return; }
   catch(e){ console.error(e); renderLogin('مشكلة في الاتصال: '+e.message); return; }
   try{ await load(); }
@@ -7686,7 +8078,7 @@ async function boot(){
       const typing = document.activeElement && document.activeElement.hasAttribute('data-count');
       // كان التحديث التلقائي مقصور على تبويب الجرد بس — وسّعناه لكل الشاشات اللي بتعتمد على بيانات حية
       // (وارد، منصرف، طلبيات الفروع، استلام من مصانع) عشان صاحب النظام يشوف أي حركة يسجّلها المدير من غير ما يعمل ريفريش يدوي
-      const liveTabs = ['count','in','out','branchorders','inbox','dailystock'];
+      const liveTabs = ['count','in','out','branchorders','inbox','dailystock','korders'];
       // لو المستخدم واقف في أي خانة (بيختار صنف أو بيكتب كمية/سعر) ما نحدّثش الشاشة خالص — كانت بتمسح الصنف اللي اختاره
       const ae=document.activeElement, inField = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select';
       if(liveTabs.includes(tab) && !typing && !inField && !SUBMITTING && !DB.busy && !ui.modal){
