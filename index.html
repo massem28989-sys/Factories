@@ -2724,6 +2724,24 @@ function recipeCost(r){
 /* ================================================================
    RENDER
    ================================================================ */
+/* ---------- الحفاظ على بيانات فورم الوارد/المنصرف لو الشاشة اتحدثت (تحديث تلقائي، إضافة مورد…) ---------- */
+const MOVE_FIELDS=['m-item','m-packs','m-unitmode','m-price','m-party','m-date','m-proddate','m-temp','m-expdate','m-retprice'];
+function captureMoveDraft(){
+  if(!['in','out'].includes(tab) || !document.getElementById('m-item')) return null;
+  const d={__tab:tab, __focus:(document.activeElement&&document.activeElement.id)||''};
+  MOVE_FIELDS.forEach(id=>{ const e=document.getElementById(id); if(e) d[id]=e.value; });
+  return (d['m-item']||d['m-packs']||d['m-price']) ? d : null;
+}
+function restoreMoveDraft(d, skip){
+  if(!d || d.__tab!==tab) return;
+  const sel=document.getElementById('m-item'); if(!sel) return;
+  const setVal=(id)=>{ const e=document.getElementById(id); if(!e || d[id]===undefined || (skip||[]).includes(id)) return;
+    if(e.tagName==='SELECT' && ![...e.options].some(o=>o.value===d[id])) return; e.value=d[id]; };
+  if(d['m-item'] && [...sel.options].some(o=>o.value===d['m-item'])){ sel.value=d['m-item']; sel.dispatchEvent(new Event('change')); }
+  ['m-unitmode','m-packs','m-price','m-party','m-date','m-proddate','m-temp','m-expdate','m-retprice'].forEach(setVal);
+  const p=document.getElementById('m-packs'); if(p) p.dispatchEvent(new Event('input'));
+  if(d.__focus){ const f=document.getElementById(d.__focus); if(f) f.focus(); }
+}
 function render(){
   const tt=totals();
   const isMgr=ROLE==='manager';
@@ -7174,12 +7192,16 @@ async function act(a,d){
   if(a==='add-supplier'){
     const name=prompt('اسم المورد الجديد:'); if(!name||!name.trim()) return;
     if(!S.suppliers.includes(name.trim())) S.suppliers.push(name.trim());
-    await saveMain(); toast('اتضاف المورد'); return render();
+    const dr=captureMoveDraft();
+    await saveMain(); toast('اتضاف المورد'); render(); restoreMoveDraft(dr,['m-party']);
+    const pp=$('#m-party'); if(pp) pp.value=name.trim(); return;
   }
   if(a==='add-branch'){
     const name=prompt('اسم الفرع الجديد:'); if(!name||!name.trim()) return;
     if(!S.branches.includes(name.trim())) S.branches.push(name.trim());
-    await saveMain(); toast('اتضاف الفرع'); return render();
+    const dr=captureMoveDraft();
+    await saveMain(); toast('اتضاف الفرع'); render(); restoreMoveDraft(dr,['m-party']);
+    const pp=$('#m-party'); if(pp) pp.value=name.trim(); return;
   }
   if(a==='add-move'){
     const id=$('#m-item').value, qty=+$('#m-qty').value;
@@ -7616,7 +7638,15 @@ async function boot(){
       // كان التحديث التلقائي مقصور على تبويب الجرد بس — وسّعناه لكل الشاشات اللي بتعتمد على بيانات حية
       // (وارد، منصرف، طلبيات الفروع، استلام من مصانع) عشان صاحب النظام يشوف أي حركة يسجّلها المدير من غير ما يعمل ريفريش يدوي
       const liveTabs = ['count','in','out','branchorders','inbox','dailystock'];
-      if(liveTabs.includes(tab) && !typing && !DB.busy && !ui.modal){ await pullAll(true); render(); }
+      // لو المستخدم واقف في أي خانة (بيختار صنف أو بيكتب كمية/سعر) ما نحدّثش الشاشة خالص — كانت بتمسح الصنف اللي اختاره
+      const ae=document.activeElement, inField = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select';
+      if(liveTabs.includes(tab) && !typing && !inField && !DB.busy && !ui.modal){
+        const draft=captureMoveDraft();
+        await pullAll(true);
+        const ae2=document.activeElement; // ممكن يكون بدأ يكتب وإحنا بنسحب
+        if(ae2 && /^(INPUT|SELECT|TEXTAREA)$/.test(ae2.tagName) && ae2.id!=='lang-select') return;
+        render(); restoreMoveDraft(draft);
+      }
     }, 25000);
   }
 }
