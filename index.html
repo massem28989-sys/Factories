@@ -2036,11 +2036,20 @@ async function shrinkInvoiceImage(file){
   }catch(e){ return file; }
 }
 let SUBMITTING = 0; // طول ما فيه حفظ/رفع شغال، التحديث التلقائي بيستنى — عشان ما يستبدلش الحركة وهي بتترفع صورتها
+function storageSlug(id){
+  const known = {'مصنع-الفروج':'farooj'};
+  if(known[id]) return known[id];
+  if(/^[A-Za-z0-9_-]+$/.test(id)) return id;
+  let h=5381; for(const ch of String(id)) h=((h*33) ^ ch.codePointAt(0))>>>0;
+  return 'fac-'+h.toString(36);
+}
 async function uploadInvoiceImage(file, moveId){
   if(!DB.on) throw new Error('لازم تكون متصل بالقاعدة عشان ترفع صورة');
   file = await shrinkInvoiceImage(file);
-  const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
-  const path = `${FACTORY}/${moveId}-${Date.now()}.${ext}`;
+  const ext = ((file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,''))||'jpg';
+  // مهم: Supabase Storage بيرفض أي اسم ملف فيه حروف عربي ("Invalid key") — واسم مصنع الفروج "مصنع-الفروج" عربي،
+  // فكل صور الفروج كانت بتفشل. بنستخدم اسم فولدر إنجليزي ثابت لكل مصنع
+  const path = `${storageSlug(FACTORY)}/${String(moveId).replace(/[^A-Za-z0-9_-]/g,'')}-${Date.now()}.${ext}`;
   const base = DB.url.replace(/\/+$/,'');
   const up = tok => fetch(`${base}/storage/v1/object/${INVOICE_BUCKET}/${encodeURIComponent(path)}`,{
     method:'POST',
@@ -6721,7 +6730,7 @@ async function act(a,d){
       await saveTx();
       INV_SEL.clear();
       toast(`اترفعت الصورة واترربطت بـ${ids.length} حركة`);
-    }catch(e){ toast('حصل خطأ أثناء الرفع: '+e.message,1); }
+    }catch(e){ render(); setTimeout(()=>alert('الصورة ما اترفعتش ❌\n\nالسبب: '+e.message+'\n\nلو المشكلة فضلت، ابعت السبب ده للي بيظبط النظام.'),100); return; }
     return render();
   }
   if(a==='inv-del'){
