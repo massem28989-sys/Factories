@@ -2019,8 +2019,26 @@ let RI_PARSED = [];
 // عشان الحفظ يفضل خفيف وسريع
 const INVOICE_BUCKET = 'invoices';
 
+/* تصغير صورة الفاتورة قبل الرفع: صور كاميرا الموبايل بتبقى 4–10 ميجا، وده بيخلي الرفع بطيء ويفشل على نت ضعيف.
+   بنصغرها لـ 1800 بكسل (الكلام بيفضل مقروء) وجودة 82% — غالبًا بتنزل لأقل من 400 كيلو */
+async function shrinkInvoiceImage(file){
+  try{
+    if(!file || !/^image\/(jpeg|jpg|png|webp)$/i.test(file.type||'') || file.size < 450*1024) return file;
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    const MAX=1800, sc=Math.min(1, MAX/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*sc); c.height=Math.round(img.naturalHeight*sc);
+    const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise(res=>c.toBlob(res,'image/jpeg',0.82));
+    if(!blob || blob.size >= file.size) return file;
+    return new File([blob], (file.name||'invoice').replace(/\.[^.]+$/,'')+'.jpg', {type:'image/jpeg'});
+  }catch(e){ return file; }
+}
+let SUBMITTING = 0; // طول ما فيه حفظ/رفع شغال، التحديث التلقائي بيستنى — عشان ما يستبدلش الحركة وهي بتترفع صورتها
 async function uploadInvoiceImage(file, moveId){
   if(!DB.on) throw new Error('لازم تكون متصل بالقاعدة عشان ترفع صورة');
+  file = await shrinkInvoiceImage(file);
   const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
   const path = `${FACTORY}/${moveId}-${Date.now()}.${ext}`;
   const base = DB.url.replace(/\/+$/,'');
@@ -5328,6 +5346,10 @@ function bind(){
     syncSearchBox();
     refreshUnitMode(); refreshPrice();
     const mp=$('#m-packs'); if(mp) mp.oninput=updateConv;
+    const mi=$('#m-invoice'), mih=$('#m-invoice-hint');
+    if(mi && mih) mi.onchange=()=>{ const f=mi.files&&mi.files[0];
+      mih.innerHTML = f ? `✓ اتختارت: <b>${esc(f.name)}</b> (${(f.size/1024/1024).toFixed(1)} ميجا) — هتترفع لما تدوس «${t(isInMoveTab()?'add_in':'record_out_btn')}»` : 'صوّر الفاتورة أو اختار صورة من جهازك';
+      mih.style.color = f ? 'var(--green)' : ''; };
     const mu=$('#m-unitmode'); if(mu) mu.onchange=()=>{ updateConv(); refreshPrice(); };
   }
   root.querySelectorAll('[data-bocell]').forEach(inp=>inp.onchange=async e=>{
@@ -6396,6 +6418,8 @@ function boMatrixHtml(itemsList, title){
   </div>`;
 }
 
+function isInMoveTab(){ return tab==='in'; }
+function addMoveAction(d){ return act('__add-move-inner', d); }
 async function act(a,d){
   if(a==='mv-toggle-edit'){ ui.mvEdit=!ui.mvEdit; if(!ui.mvEdit) mvSel.clear(); return render(); }
   if(a==='mv-export'){
@@ -7204,6 +7228,10 @@ async function act(a,d){
     const pp=$('#m-party'); if(pp) pp.value=name.trim(); return;
   }
   if(a==='add-move'){
+    SUBMITTING++;
+    try{ return await addMoveAction(d); } finally { SUBMITTING--; }
+  }
+  if(a==='__add-move-inner'){
     const id=$('#m-item').value, qty=+$('#m-qty').value;
     if(!id) return toast('اختار الصنف',1);
     if(!qty||qty<=0) return toast('اكتب كمية صحيحة',1);
@@ -7211,7 +7239,7 @@ async function act(a,d){
     const date=$('#m-date').value||today();
     const prodDate = $('#m-proddate') ? $('#m-proddate').value : '';
     const tempEl = $('#m-temp'); const temp = (tempEl && tempEl.value!=='') ? +tempEl.value : null;
-    let m, autoMsg='';
+    let m, autoMsg='', invoiceFailMsg='';
     if(isIn){
       const expDate = $('#m-expdate') ? $('#m-expdate').value : '';
       // السعر المكتوب ممكن يكون سعر الوحدة البديلة كاملة (زي الكرتونة) لو المستخدم مختار وضعها —
@@ -7234,11 +7262,20 @@ async function act(a,d){
       // رفع صورة الفاتورة لو اتحطت — الحركة بتتسجل عادي حتى لو الرفع فشل
       const invEl = $('#m-invoice');
       if(invEl && invEl.files && invEl.files[0]){
+        const file = invEl.files[0];
+        const btn = document.querySelector('[data-act="add-move"]'); if(btn){ btn.disabled=true; btn.textContent='بيرفع صورة الفاتورة…'; }
         try{
           toast('بيرفع صورة الفاتورة…');
-          m.invoice = await uploadInvoiceImage(invEl.files[0], m.id);
+          const path = await uploadInvoiceImage(file, m.id);
+          // بنربط الصورة بالحركة اللي في القايمة فعلًا (لو القايمة اتحدثت من السيرفر أثناء الرفع، m القديمة مبقتش هي اللي بتتحفظ)
+          let cur = S.moves.find(x=>x.id===m.id);
+          if(!cur){ S.moves.push(m); cur=m; }
+          cur.invoice = path; m = cur;
           autoMsg += ' + اترفعت صورة الفاتورة';
-        }catch(e){ autoMsg += ' — بس صورة الفاتورة ما اترفعتش: '+e.message; }
+        }catch(e){
+          invoiceFailMsg = e.message;
+          autoMsg += ' — بس صورة الفاتورة ما اترفعتش';
+        }
       }
     }else{
       const lockedMode = S.dispatchOnlyMode && S.restrictDispatchTo;
@@ -7266,7 +7303,10 @@ async function act(a,d){
     }
     await saveTx(); toast((isIn?'الوارد اتسجل':'المنصرف اتسجل')+autoMsg);
     ui.modal = receiptModal(m);
-    return render();
+    render();
+    if(invoiceFailMsg) setTimeout(()=>alert('الوارد اتسجل، بس صورة الفاتورة ما اترفعتش ❌\n\nالسبب: '+invoiceFailMsg+
+      '\n\nتقدر ترفعها تاني من «أرشيف الفواتير»: حدد الحركة دي من «ناقصها صورة» وارفع الصورة.'),150);
+    return;
   }
   if(a==='toggle-bulk'){ ui.bulk.on=!ui.bulk.on; return render(); }
   if(a==='toggle-bulk-in'){ ui.bulkIn.on=!ui.bulkIn.on; return render(); }
@@ -7640,11 +7680,11 @@ async function boot(){
       const liveTabs = ['count','in','out','branchorders','inbox','dailystock'];
       // لو المستخدم واقف في أي خانة (بيختار صنف أو بيكتب كمية/سعر) ما نحدّثش الشاشة خالص — كانت بتمسح الصنف اللي اختاره
       const ae=document.activeElement, inField = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select';
-      if(liveTabs.includes(tab) && !typing && !inField && !DB.busy && !ui.modal){
+      if(liveTabs.includes(tab) && !typing && !inField && !SUBMITTING && !DB.busy && !ui.modal){
         const draft=captureMoveDraft();
         await pullAll(true);
         const ae2=document.activeElement; // ممكن يكون بدأ يكتب وإحنا بنسحب
-        if(ae2 && /^(INPUT|SELECT|TEXTAREA)$/.test(ae2.tagName) && ae2.id!=='lang-select') return;
+        if((ae2 && /^(INPUT|SELECT|TEXTAREA)$/.test(ae2.tagName) && ae2.id!=='lang-select') || SUBMITTING) return;
         render(); restoreMoveDraft(draft);
       }
     }, 25000);
