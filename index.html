@@ -597,6 +597,16 @@ html[data-login-split],html[data-login-split] body{background:#1a0f0a}
   .lsplit.picked .lside.on{align-items:flex-end}
 }
 
+/* وضع تعديل الحركات: أعمدة أضيق عشان كل الخانات (لحد المورد) تبان من غير مسطرة */
+table.mvedit th,table.mvedit td{padding-inline:5px}
+table.mvedit input[type=date]{width:122px;padding:4px 4px!important}
+table.mvedit input[data-mvqty]{width:64px!important}
+table.mvedit input[data-mvprice]{width:62px!important}
+table.mvedit input[data-mvtemp]{width:46px!important}
+table.mvedit input[data-mvparty]{width:108px!important}
+table.mvedit input[data-mvitem]{min-width:130px!important}
+table.mvedit td .btn.sm{padding-inline:7px}
+
 </style>
  
 <script>
@@ -4091,23 +4101,29 @@ function viewMove(dir){
         <button class="btn sm" data-act="mv-clear-sel">${t('clear_selection')}</button>
       </div>`:''}
     </div>
-    <div class="tblwrap"><table class="gridcols">
+    <div class="tblwrap"><table class="gridcols${ui.mvEdit?' mvedit':''}">
       <thead><tr>
         ${ui.mvEdit?`<th style="width:30px"><input type="checkbox" data-act="mv-sel-all" ${shownMoves.length&&mvSel.size===shownMoves.length?'checked':''}></th>`:''}
         <th>${t('th_date')}</th><th>${t('th_item')}</th><th class="n">${t('th_qty')}</th>
         <th>${t('th_proddate')}</th><th class="n">${t('th_temp')}</th>${isIn?'<th>الصلاحية</th>':''}
         ${isIn?`<th class="n">${t('th_unitprice')}</th><th class="n">${t('th_total')}</th><th>${t('th_supplier')}</th>`:`<th class="n">سعر الوحدة</th><th>${t('th_dispense_to')}</th><th>${t('th_branch_note')}</th>`}
         <th></th></tr></thead>
+      ${ui.mvEdit?`<datalist id="dl-mv-items">${S.items.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${esc(i.name)}">${esc(i.cat||'')} · ${esc(i.unit||'')}</option>`).join('')}</datalist>
+        <datalist id="dl-mv-sup">${[...new Set([...(isIn?S.suppliers:S.branches),...S.moves.filter(x=>x.dir===(isIn?'in':'out')).map(x=>x.party)].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar')).map(p=>`<option value="${esc(p)}"></option>`).join('')}</datalist>`:''}
       <tbody>${shownMoves.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
         return `<tr>
         ${ui.mvEdit?`<td><input type="checkbox" data-mvsel="${m.id}" ${mvSel.has(m.id)?'checked':''}></td>`:''}
         <td>${ui.mvEdit?`<input type="date" value="${m.date}" data-mvdate="${m.id}" style="padding:4px 6px;font-size:12px">`:`<span class="n">${m.date}</span>`}</td>
-        <td><div class="iname">${esc(it.name)}</div>${m.runId?`<span class="hint"> ${t('auto_line')}</span>`:''}</td>
+        <td>${ui.mvEdit && ROLE==='owner' && !m.runId && !m.notifyId
+            ? `<input type="text" list="dl-mv-items" value="${esc(it.name)}" data-mvitem="${m.id}" title="اكتب أو اختار الصنف" style="padding:4px 6px;font-size:12px;width:100%;min-width:150px">`
+            : `<div class="iname">${esc(it.name)}</div>`}${m.runId?`<span class="hint"> ${t('auto_line')}</span>`:''}</td>
         <td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.qty}" data-mvqty="${m.id}" style="padding:4px 6px;font-size:12px;width:78px;text-align:center"> <span class="chip">${esc(it.unit)}</span>`:`${fmt(m.qty)} <span class="chip">${esc(it.unit)}</span>`}</td>
         <td>${ui.mvEdit?`<input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.prodDate?`<span class="n">${m.prodDate}</span>`:'<span class="hint">—</span>')}</td>
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
         ${isIn?`<td>${ui.mvEdit?`<input type="date" value="${m.expDate||''}" data-mvexp="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.expDate?`<span class="n">${m.expDate}</span>`:'<span class="hint">—</span>')}</td>`:''}
-        ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${esc(m.party||'—')}</td>`
+        ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${ui.mvEdit
+                ? `<input type="text" list="dl-mv-sup" value="${esc(m.party||'')}" data-mvparty="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:120px">`
+                : esc(m.party||'—')}</td>`
               :`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:(m.price>0?money(m.price):'<span class="hint">—</span>')}</td>
                 <td>${ui.mvEdit?`<select data-mvreason="${m.id}" style="padding:4px 6px;font-size:12px;min-width:130px">
                     ${[...new Set([...outReasons(), m.reason].filter(Boolean))].map(r=>`<option value="${esc(r)}" ${m.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}
@@ -5217,6 +5233,18 @@ function purchaseSuggestions(){
   }).filter(Boolean).sort((a,b)=>(a.book/a.it.min)-(b.book/b.it.min));
 }
 
+/* المورد الافتراضي للصنف: أحدث مورد اتعامل معاه — سواء في طلب شراء قبل كده أو في وارد الشهر ده.
+   طلبات الشراء محفوظة على طول (مش بتتمسح مع الإقفال)، فالنظام بيفتكر المورد حتى في أول يوم في الشهر */
+function lastSupplierOf(itemId){
+  let best='', at='';
+  for(const r of (PURCHASE_REQUESTS||[])){
+    if(r.itemId===itemId && r.supplier && S.suppliers.includes(r.supplier) && String(r.createdAt||'')>at){ best=r.supplier; at=String(r.createdAt||''); }
+  }
+  for(const m of S.moves){
+    if(m.dir==='in' && m.itemId===itemId && m.party && S.suppliers.includes(m.party) && String(m.date||'')+'T99'>at){ best=m.party; at=String(m.date||'')+'T99'; }
+  }
+  return best;
+}
 function viewPurchaseRequests(){
   if(!purReqLoaded && DB.on) fetchPurchaseRequests().then(render);
   const q=(ui.q||'').trim().toLowerCase();
@@ -5257,13 +5285,24 @@ function viewPurchaseRequests(){
           <input type="text" id="pr-item" list="pr-items-list" placeholder="اكتب اسم الصنف…" style="width:100%">
           <datalist id="pr-items-list">${S.items.map(i=>`<option value="${esc(i.name)}">${esc(i.cat)} · ${esc(i.unit)}</option>`).join('')}</datalist>
         </div>
-        <div style="flex:1;min-width:100px">
+        <div style="flex:1;min-width:130px">
           <label class="f">الكمية</label>
-          <input type="number" step="any" min="0" id="pr-qty" style="width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="number" step="any" min="0" id="pr-qty" style="width:100%;min-width:0">
+            <span class="chip" id="pr-unit" style="white-space:nowrap;min-width:38px;text-align:center">—</span>
+          </div>
+          <div class="hint" id="pr-pack" style="margin-top:3px"></div>
         </div>
-        <div style="flex:2;min-width:160px">
+        <div style="flex:2;min-width:170px">
+          <label class="f">المورد</label>
+          <select id="pr-sup" style="width:100%">
+            <option value="">— اختار المورد —</option>
+            ${S.suppliers.slice().sort((a,b)=>a.localeCompare(b,'ar')).map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="flex:2;min-width:150px">
           <label class="f">ملاحظة <span class="hint">(اختياري)</span></label>
-          <input type="text" id="pr-note" placeholder="مثلاً: المورد المفضّل" style="width:100%">
+          <input type="text" id="pr-note" placeholder="مثلاً: مستعجل" style="width:100%">
         </div>
         <button class="btn p" data-act="pur-create">إرسال الطلب</button>
       </div>
@@ -5274,34 +5313,36 @@ function viewPurchaseRequests(){
     <h2>طلبات محتاجة موافقة <em>${pending.length}</em></h2>
     <div class="pad"><input type="text" class="grow" id="q" placeholder="دور باسم الصنف…" value="${esc(ui.q||'')}" style="width:100%"></div>
     <div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>ملاحظة</th><th>طلبها</th><th>التاريخ</th><th></th></tr></thead>
+      <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>ملاحظة</th><th>طلبها</th><th>التاريخ</th><th></th></tr></thead>
       <tbody>${pending.length? pending.map(r=>`<tr>
         <td><div class="iname">${esc(r.itemName)}</div></td>
         <td class="n">${fmt(r.qty)} ${esc(r.unit||'')}</td>
+        <td>${r.supplier?esc(r.supplier):'<span class="hint">—</span>'}</td>
         <td>${esc(r.note||'—')}</td>
         <td>${esc(r.requestedBy||'-')}</td>
         <td style="font-size:12px">${r.createdAt?new Date(r.createdAt).toLocaleString('ar-EG'):'-'}</td>
         <td style="white-space:nowrap">${ROLE==='owner'?`
           <button class="btn sm g" data-act="pur-decide" data-id="${r.id}" data-decision="approved">موافقة</button>
           <button class="btn sm danger" data-act="pur-decide" data-id="${r.id}" data-decision="rejected">رفض</button>`:'<span class="hint">مستني صاحب النظام</span>'}</td>
-      </tr>`).join('') : `<tr><td colspan="6" class="empty">مفيش طلبات محتاجة موافقة</td></tr>`}</tbody>
+      </tr>`).join('') : `<tr><td colspan="7" class="empty">مفيش طلبات محتاجة موافقة</td></tr>`}</tbody>
     </table></div>
   </div>
 
   <div class="panel">
     <h2>سجل الطلبات <em>${others.length}</em></h2>
     <div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>طلبها</th><th>الحالة</th><th>آخر تحديث</th></tr></thead>
+      <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>طلبها</th><th>الحالة</th><th>آخر تحديث</th></tr></thead>
       <tbody>${others.length? others.map(r=>{
         const labels={approved:'موافق عليه — مستني التوريد',rejected:'مرفوض',fulfilled:'اتورّد ✓'};
         const cls={approved:'b',rejected:'r',fulfilled:'g'};
         return `<tr>
         <td><div class="iname">${esc(r.itemName)}</div></td>
         <td class="n">${fmt(r.qty)} ${esc(r.unit||'')}</td>
+        <td>${r.supplier?esc(r.supplier):'<span class="hint">—</span>'}</td>
         <td>${esc(r.requestedBy||'-')}</td>
         <td><span class="chip ${cls[r.status]||''}">${labels[r.status]||r.status}</span></td>
         <td style="font-size:12px">${(r.fulfilledAt||r.decidedAt||r.createdAt)?new Date(r.fulfilledAt||r.decidedAt||r.createdAt).toLocaleString('ar-EG'):'-'}</td>
-      </tr>`;}).join('') : `<tr><td colspan="5" class="empty">لسه مفيش سجل</td></tr>`}</tbody>
+      </tr>`;}).join('') : `<tr><td colspan="6" class="empty">لسه مفيش سجل</td></tr>`}</tbody>
     </table></div>
   </div>`;
 }
@@ -5442,6 +5483,12 @@ function receiptModal(m){
    EVENTS
    ================================================================ */
 function bind(){
+  { const pi=document.getElementById('pr-item');
+    if(pi) pi.oninput=()=>{ const norm=t=>String(t||'').trim().toLowerCase(); const it=S.items.find(i=>norm(i.name)===norm(pi.value));
+      const u=document.getElementById('pr-unit'), pk=document.getElementById('pr-pack'), sp=document.getElementById('pr-sup');
+      if(u) u.textContent = it ? (it.unit||'—') : '—';
+      if(pk) pk.textContent = it && it.packSize>0 && it.packUnit ? `1 ${it.packUnit} = ${fmt(it.packSize)} ${it.unit}` : '';
+      if(it && sp && !sp.value){ const ls=lastSupplierOf(it.id); if(ls) sp.value=ls; } }; }
   document.querySelectorAll('[data-koitem]').forEach(c=>c.onchange=()=>{ if(!KO.sel) KO.sel=new Set(KO.cfg.items); c.checked?KO.sel.add(c.dataset.koitem):KO.sel.delete(c.dataset.koitem);
     const h=c.closest('.panel').querySelector('h2 em'); if(h) h.textContent=KO.sel.size+' صنف'; });
   { const kq=document.getElementById('ko-q'); if(kq) kq.oninput=()=>{ KO.q=kq.value; const p=kq.selectionStart; render(); const n=document.getElementById('ko-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } }; }
@@ -5924,7 +5971,24 @@ function bind(){
   });
   root.querySelectorAll('[data-mvparty]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvparty); if(!m) return;
-    m.party=e.target.value.trim(); await saveTx(); toast('اتعدلت الجهة'); render();
+    const v=e.target.value.trim();
+    if(m.dir==='in' && v && !S.suppliers.includes(v)){
+      if(!confirm(`"${v}" مش موجود في قايمة الموردين. تضيفه كمورد جديد؟`)) return render();
+      S.suppliers.push(v); await saveMain();
+    }
+    m.party=v; await saveTx(); toast(m.dir==='in'?'اتعدل المورد':'اتعدلت الجهة'); render();
+  });
+  root.querySelectorAll('[data-mvitem]').forEach(inp=>inp.onchange=async e=>{
+    if(ROLE!=='owner') return;
+    const m=S.moves.find(x=>x.id===e.target.dataset.mvitem); if(!m) return;
+    const name=e.target.value.trim(); const old=item(m.itemId);
+    const norm=t=>String(t||'').trim().toLowerCase().replace(/\s+/g,' ');
+    const nu=S.items.find(i=>norm(i.name)===norm(name));
+    if(!nu){ toast('اختار الصنف من القايمة — الاسم ده مش موجود',1); return render(); }
+    if(old && nu.id===old.id) return;
+    const unitMsg = old && old.unit!==nu.unit ? `\n\nخد بالك: الوحدة هتتغير من "${old.unit}" لـ"${nu.unit}" والكمية هتفضل ${fmt(m.qty)} — عدّلها لو محتاج.` : '';
+    if(!confirm(`تغيير الصنف في الحركة دي:\n"${old?old.name:'—'}" ← "${nu.name}"\n\nرصيد الصنفين هيتظبط تلقائي.${unitMsg}`)) return render();
+    m.itemId=nu.id; await saveTx(); toast('اتعدل الصنف'); render();
   });
   root.querySelectorAll('[data-mvexp]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvexp); if(!m) return;
@@ -7040,7 +7104,7 @@ async function act(a,d){
     if(!picks.length) return toast('محددتش أصناف بكمية صحيحة',1);
     if(!confirm(`هيتعمل ${picks.length} طلب شراء (هيستنوا موافقة صاحب النظام). تكمل؟`)) return;
     const by = ROLE==='owner'?'صاحب النظام':'مدير المصنع';
-    picks.forEach(({it,q})=>PURCHASE_REQUESTS.push({ id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(q),
+    picks.forEach(({it,q})=>PURCHASE_REQUESTS.push({ id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(q), supplier:lastSupplierOf(it.id),
       note:'اقتراح تلقائي — تحت الحد الأدنى', status:'pending', requestedBy:by, createdAt:new Date().toISOString() }));
     const ok=await savePurchaseRequests();
     if(!ok){ PURCHASE_REQUESTS.splice(-picks.length); return toast('حصل خطأ أثناء الحفظ، حاول تاني',1); }
@@ -7048,7 +7112,7 @@ async function act(a,d){
     return render();
   }
   if(a==='pur-create'){
-    const nameEl=$('#pr-item'), qtyEl=$('#pr-qty'), noteEl=$('#pr-note');
+    const nameEl=$('#pr-item'), qtyEl=$('#pr-qty'), noteEl=$('#pr-note'), supEl=$('#pr-sup');
     const name = nameEl? nameEl.value.trim() : '';
     const qty = qtyEl? +qtyEl.value : 0;
     if(!name) return toast('اكتب اسم الصنف',1);
@@ -7056,14 +7120,16 @@ async function act(a,d){
     const norm=s=>String(s||'').trim().toLowerCase();
     const it = S.items.find(i=>norm(i.name)===norm(name));
     if(!it) return toast('الصنف ده مش موجود في كارت الأصناف — ضيفه الأول',1);
-    const req = { id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(qty),
+    const supplier = supEl? supEl.value : '';
+    if(!supplier && !confirm('ما اخترتش مورد. تبعت الطلب من غير مورد؟')) return;
+    const req = { id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(qty), supplier,
       note: noteEl?noteEl.value.trim():'', status:'pending',
       requestedBy: ROLE==='owner'?'صاحب النظام':'مدير المصنع', createdAt:new Date().toISOString() };
     PURCHASE_REQUESTS.push(req);
     const ok = await savePurchaseRequests();
     if(!ok) return toast('حصل خطأ أثناء الإرسال، حاول تاني',1);
     toast('اتبعت طلب الشراء');
-    if(nameEl) nameEl.value=''; if(qtyEl) qtyEl.value=''; if(noteEl) noteEl.value='';
+    if(nameEl) nameEl.value=''; if(qtyEl) qtyEl.value=''; if(noteEl) noteEl.value=''; if(supEl) supEl.value='';
     return render();
   }
   if(a==='pur-decide'){
