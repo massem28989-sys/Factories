@@ -5282,20 +5282,49 @@ let SUPPLIER_PHONES = {}; // {اسم المورد: رقم الواتساب}
 let SUPPLIER_ITEM_NAMES = {}; // {'مورد|صنف': {name, code}} — اسم/كود الصنف زي ما هو في فاتورة المورد
 let purReqLoaded = false;
 
+/* طلبات الشراء محفوظة كلها في صف واحد. قبل كده كل حفظ كان بيكتب القايمة اللي على الجهاز فوق اللي على السيرفر —
+   فلو جهاز (أو صفحة مفتوحة من الصبح) شايل نسخة قديمة، كان بيرجّع الطلبات لحالتها القديمة (موافقة/أسماء/تعديلات بتضيع).
+   دلوقتي: كل حفظ بيجيب أحدث نسخة من السيرفر ويدمج سطر سطر — اللي اتغير على الجهاز ده بس هو اللي بيتكتب */
+let PR_BASE = new Map();   // id → شكل الطلب ساعة ما اتحمّل (عشان نعرف إيه اللي اتغير هنا)
+const _prSig = r => JSON.stringify(r, Object.keys(r).filter(k=>k!=='_u').sort());
+function _prRemember(){ PR_BASE = new Map(PURCHASE_REQUESTS.map(r=>[r.id,_prSig(r)])); }
+async function _prFetchRaw(){
+  const rows = await sb('stock_settings?'+fEq()+'&k=eq.purchase_requests&select=v',{prefer:'return=representation'});
+  return (rows && rows[0] && rows[0].v) || {};
+}
 async function fetchPurchaseRequests(){
   if(!DB.on) return;
   try{
-    const rows = await sb('stock_settings?'+fEq()+'&k=eq.purchase_requests&select=v',{prefer:'return=representation'});
-    PURCHASE_REQUESTS = (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
-    BUY_UNITS = (rows && rows[0] && rows[0].v && rows[0].v.buyUnits) || {};
-    SUPPLIER_PHONES = (rows && rows[0] && rows[0].v && rows[0].v.supplierPhones) || {};
-    SUPPLIER_ITEM_NAMES = (rows && rows[0] && rows[0].v && rows[0].v.supplierItemNames) || {};
+    const v = await _prFetchRaw();
+    PURCHASE_REQUESTS = v.list || [];
+    BUY_UNITS = v.buyUnits || {};
+    SUPPLIER_PHONES = v.supplierPhones || {};
+    SUPPLIER_ITEM_NAMES = v.supplierItemNames || {};
+    _prRemember(); PR_FETCHED_AT=Date.now();
     purReqLoaded = true;
   }catch(e){ PURCHASE_REQUESTS = []; }
 }
+let PR_FETCHED_AT = 0;
 async function savePurchaseRequests(){
   try{
-    await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'purchase_requests',v:{list:PURCHASE_REQUESTS, buyUnits:BUY_UNITS, supplierPhones:SUPPLIER_PHONES, supplierItemNames:SUPPLIER_ITEM_NAMES}}]});
+    // 1) نعلّم اللي اتغير على الجهاز ده
+    const now=Date.now();
+    for(const r of PURCHASE_REQUESTS){ const b=PR_BASE.get(r.id); if(b===undefined || b!==_prSig(r)) r._u=now; }
+    // 2) نجيب أحدث نسخة ونِدمج: لكل طلب، الأحدث تعديلًا يكسب
+    let merged = PURCHASE_REQUESTS, maps={buyUnits:BUY_UNITS, supplierPhones:SUPPLIER_PHONES, supplierItemNames:SUPPLIER_ITEM_NAMES};
+    if(DB.on){
+      try{
+        const v=await _prFetchRaw(); const remote=v.list||[];
+        const byId=new Map(remote.map(r=>[r.id,r]));
+        for(const r of PURCHASE_REQUESTS){ const rr=byId.get(r.id); if(!rr || (+r._u||0) >= (+rr._u||0)) byId.set(r.id,r); }
+        merged=[...byId.values()].sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+        maps={ buyUnits:{...(v.buyUnits||{}),...BUY_UNITS}, supplierPhones:{...(v.supplierPhones||{}),...SUPPLIER_PHONES}, supplierItemNames:{...(v.supplierItemNames||{}),...SUPPLIER_ITEM_NAMES} };
+      }catch(e){}
+    }
+    await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'purchase_requests',v:{list:merged, ...maps}}]});
+    PURCHASE_REQUESTS.splice(0,PURCHASE_REQUESTS.length,...merged);
+    BUY_UNITS=maps.buyUnits; SUPPLIER_PHONES=maps.supplierPhones; SUPPLIER_ITEM_NAMES=maps.supplierItemNames;
+    _prRemember(); PR_FETCHED_AT=Date.now();
     return true;
   }catch(e){ return false; }
 }
@@ -9155,12 +9184,13 @@ async function boot(){
       const typing = document.activeElement && document.activeElement.hasAttribute('data-count');
       // كان التحديث التلقائي مقصور على تبويب الجرد بس — وسّعناه لكل الشاشات اللي بتعتمد على بيانات حية
       // (وارد، منصرف، طلبيات الفروع، استلام من مصانع) عشان صاحب النظام يشوف أي حركة يسجّلها المدير من غير ما يعمل ريفريش يدوي
-      const liveTabs = ['count','in','out','branchorders','inbox','dailystock','korders'];
+      const liveTabs = ['count','in','out','branchorders','inbox','dailystock','korders','purchase'];
       // لو المستخدم واقف في أي خانة (بيختار صنف أو بيكتب كمية/سعر) ما نحدّثش الشاشة خالص — كانت بتمسح الصنف اللي اختاره
       const ae=document.activeElement, inField = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select';
       if(liveTabs.includes(tab) && !typing && !inField && !SUBMITTING && !DB.busy && !ui.modal){
         const draft=captureMoveDraft();
         await pullAll(true);
+        if((tab==='purchase'||tab==='in') && Date.now()-PR_FETCHED_AT>30000){ try{ await fetchPurchaseRequests(); }catch(e){} }
         const ae2=document.activeElement; // ممكن يكون بدأ يكتب وإحنا بنسحب
         if((ae2 && /^(INPUT|SELECT|TEXTAREA)$/.test(ae2.tagName) && ae2.id!=='lang-select') || SUBMITTING) return;
         render(); restoreMoveDraft(draft);
