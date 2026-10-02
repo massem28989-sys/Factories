@@ -938,7 +938,7 @@ const TAB_GROUPS_OWNER = [
   { name:'الإعدادات',tabs:[['fac','المصانع'],['users','المستخدمين'],['backups','النسخ الاحتياطية'],['sec','الصلاحيات والأقفال']] },
 ];
 const TABS_OWNER = TAB_GROUPS_OWNER.flatMap(g=>g.tabs);
-const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[['korders','طلبيات الفروع']])];
+const TABS_MANAGER = [['dailystock','الجرد اليومي'],['count','تسجيل الجرد'],['in','وارد'],['out','منصرف'],['invoices','أرشيف الفواتير'],['inbox','استلام من مصانع'],['purchase','طلبات الشراء'],...(BRANCH_APP_CONFIG[FACTORY]?[['branchorders','طلبيات الفروع']]:[['korders','طلبيات الفروع']])];
 const TABS = ROLE==='manager'? TABS_MANAGER : TABS_OWNER;
 const TAB_GROUPS = ROLE==='manager'? null : TAB_GROUPS_OWNER;
 function groupOfTab(k){ return TAB_GROUPS ? (TAB_GROUPS.find(g=>g.tabs.some(t=>t[0]===k))||{}).name : null; }
@@ -2686,10 +2686,10 @@ function viewInvoices(){
 
   <div class="panel"><div class="pad">
     <div class="hint">حدد كذا صنف من نفس الفاتورة (لو الفاتورة فيها أكتر من منتج)، وارفع صورة واحدة بس — هتتربط بكل الحركات المحددة مرة واحدة. ده بيشتغل مع الحركات القديمة كمان.</div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px">
+    ${ROLE!=='manager'?`    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px">
       <div class="hint" style="flex:1;min-width:220px;line-height:1.7">مع كل إقفال شهر، صور فواتيره بتنزل في ملف <b>ZIP</b> على جهازك، والصور اللي عدّى عليها أكتر من <b>${INV_KEEP_MONTHS} شهور</b> بتتمسح من السيرفر عشان المساحة. احفظ ملفات الـ<bdi>ZIP</bdi> لمدة 5 سنين لأنها فواتير ضريبية.</div>
-      ${S.closed.length?`<button class="btn sm" data-act="inv-archive-run">أرشِف الشهور المقفولة دلوقتي</button>`:''}
-    </div>
+      ${S.closed.length && ROLE!=='manager'?`<button class="btn sm" data-act="inv-archive-run">أرشِف الشهور المقفولة دلوقتي</button>`:''}
+    </div>`:''}
     <div class="bar" style="margin-top:10px">
       <input type="text" class="grow" id="inv-q" placeholder="دور باسم الصنف أو المورد…" value="${esc(invQ)}">
       ${chip('all','الكل',inMoves.length)}
@@ -2739,7 +2739,7 @@ function invoiceViewModal(moveId){
     </div>
     <div class="foot">
       <a class="btn p" href="${invoiceImageUrl(m.invoice)}" target="_blank" rel="noopener">فتح بالحجم الكامل</a>
-      <button class="btn danger" data-act="inv-del" data-id="${m.id}">حذف الصورة</button>
+      ${ROLE!=='manager'?`<button class="btn danger" data-act="inv-del" data-id="${m.id}">حذف الصورة</button>`:''}
       <button class="btn" data-close="1">قفل</button>
     </div>
   </div></div>`;
