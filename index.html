@@ -624,6 +624,15 @@ table.mvedit td .btn.sm{padding-inline:7px}
 @media(max-width:560px){.prbtns{flex-direction:column;align-items:stretch}}
 
 th .th-arr{font-size:10px;opacity:.8}
+/* جدول الوصفات على شاشات أضيق (لابتوب صغير/تابلت عرضي): الزراير فوق بعض عشان ما يحصلش سكرول بالعرض */
+@media(max-width:1180px){
+  table.rectbl th:nth-child(6){width:84px}
+  table.rectbl .rec-act{white-space:normal}
+  table.rectbl .rec-act .btn{display:block;width:100%;margin:0 0 4px;padding-inline:4px}
+  table.rectbl th:nth-child(3),table.rectbl th:nth-child(4),table.rectbl th:nth-child(5){width:70px}
+  table.rectbl th:nth-child(1){width:24%}
+}
+
 </style>
  
 <script>
@@ -1707,11 +1716,35 @@ async function addFactory(id,name){
 /* ================= إشعارات النقل بين المصانع ================= */
 // بنستخدم جدول stock_settings كصندوق بريد: كل مصنع ليه صف بمفتاح 'incoming_notify' فيه قائمة الإشعارات الواردة له.
 // المصنع المرسل بيكتب في صف المصنع المستلم مباشرة (من غير ما يحتاج يدخل حسابه).
+async function fetchFactoryInboxStrict(factoryId){
+  const rows = await sb(`stock_settings?factory=eq.${encodeURIComponent(factoryId)}&k=eq.incoming_notify&select=v`,{prefer:'return=representation'});
+  return (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
+}
 async function fetchFactoryInbox(factoryId){
+  try{ return await fetchFactoryInboxStrict(factoryId); }catch(e){ return []; }
+}
+// أي تعديل على صندوق الوارد بيتعمل على النسخة اللي على السيرفر *دلوقتي* — مش على نسخة قديمة في الجهاز.
+// قبل كده الجهاز اللي فاتح البرنامج من امبارح كان بيحفظ نسخته القديمة فوق الكل:
+// يمسح إشعارات جديدة وصلت بعده، ويرجّع إشعارات اتسلمت كأنها لسه مستنية.
+const _inboxRank = s => s==='received'?2 : s==='processing'?1 : 0;
+async function updateFactoryInbox(factoryId, mutate){
+  const list = await fetchFactoryInboxStrict(factoryId); // لو القراءة فشلت مانكتبش حاجة خالص (عشان مانمسحش الصندوق)
+  const out = mutate(list);
+  await sb('stock_settings',{...UPSERT,body:[{factory:factoryId,k:'incoming_notify',v:{list}}]});
+  return {list, out};
+}
+// بيحفظ تغيير إشعار واحد عندي (اتسلم/اطّلعت/اتشال) بالدمج مع نسخة السيرفر
+async function commitMyInbox(id, patch, remove){
   try{
-    const rows = await sb(`stock_settings?factory=eq.${encodeURIComponent(factoryId)}&k=eq.incoming_notify&select=v`,{prefer:'return=representation'});
-    return (rows && rows[0] && rows[0].v && rows[0].v.list) || [];
-  }catch(e){ return []; }
+    const {list} = await updateFactoryInbox(FACTORY, list=>{
+      const i=list.findIndex(x=>x.id===id);
+      if(remove){ if(i>-1) list.splice(i,1); return; }
+      if(i>-1){ if(_inboxRank(patch.status)>=_inboxRank(list[i].status)) Object.assign(list[i], patch); }
+      else { const loc=MY_INBOX.find(x=>x.id===id); if(loc) list.unshift({...loc, ...patch}); }
+    });
+    MY_INBOX = list;
+    return true;
+  }catch(e){ return false; }
 }
 async function saveFactoryInbox(factoryId, list){
   try{
@@ -1720,29 +1753,50 @@ async function saveFactoryInbox(factoryId, list){
   }catch(e){ return false; }
 }
 async function notifyFactory(toFactoryId, payload){
-  const list = await fetchFactoryInbox(toFactoryId);
   const notifId = uid('nt');
-  list.unshift({id:notifId, ...payload, status:'pending', createdAt:new Date().toISOString()});
-  const ok = await saveFactoryInbox(toFactoryId, list);
-  return ok ? notifId : null;
+  for(let attempt=0; attempt<3; attempt++){
+    try{
+      await updateFactoryInbox(toFactoryId, list=>{ list.unshift({id:notifId, ...payload, status:'pending', createdAt:new Date().toISOString()}); });
+      // نتأكد إنه اتكتب فعلًا
+      const chk = await fetchFactoryInboxStrict(toFactoryId);
+      if(chk.some(n=>n.id===notifId)) return notifId;
+    }catch(e){}
+    await new Promise(r=>setTimeout(r, 800*(attempt+1)));
+  }
+  return null;
 }
 // بيلغي إشعار عند مصنع تاني (بس لو لسه معلّق ومحدش استلمه)، وبيرجّع حالته عشان المستخدم يعرف حصل إيه بالظبط
 async function retractFactoryNotification(toFactoryId, notifId){
   if(!toFactoryId || !notifId) return 'none';
-  const list = await fetchFactoryInbox(toFactoryId);
-  const idx = list.findIndex(n=>n.id===notifId);
-  if(idx===-1) return 'none';
-  if(list[idx].status!=='pending') return 'received';
-  list.splice(idx,1);
-  await saveFactoryInbox(toFactoryId, list);
-  return 'retracted';
+  try{
+    const {out} = await updateFactoryInbox(toFactoryId, list=>{
+      const idx = list.findIndex(n=>n.id===notifId);
+      if(idx===-1) return 'none';
+      if(list[idx].status!=='pending') return 'received';
+      list.splice(idx,1); return 'retracted';
+    });
+    return out;
+  }catch(e){ return 'none'; }
 }
 
 let MY_INBOX = [];
-async function loadMyInbox(){
-  MY_INBOX = await fetchFactoryInbox(FACTORY);
-  render();
+let INBOX_FETCHED_AT = 0;
+async function loadMyInbox(silent){
+  try{
+    const list = await fetchFactoryInboxStrict(FACTORY);
+    const changed = JSON.stringify(list)!==JSON.stringify(MY_INBOX);
+    MY_INBOX = list; INBOX_FETCHED_AT = Date.now();
+    if(!silent || changed){
+      const ae=document.activeElement;
+      if(silent && ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select') return;
+      if(silent && (ui.modal || SUBMITTING)) return;
+      render();
+    }
+  }catch(e){ if(!silent) toast('تعذر تحميل الإشعارات — تأكد من النت ودوس تحديث',1); }
 }
+// تحديث تلقائي للإشعارات لكل المستخدمين (مش الأونر بس) كل دقيقة، وأول ما الشاشة ترجع قدامك
+setInterval(()=>{ if(DB.on && !document.hidden) loadMyInbox(true); }, 60000);
+document.addEventListener('visibilitychange', ()=>{ if(DB.on && !document.hidden && Date.now()-INBOX_FETCHED_AT>15000) loadMyInbox(true); });
 function pendingInboxCount(){ return MY_INBOX.filter(n=>n.status==='pending').length; }
 
 // مقياس تشابه بسيط بين اسمين (0 لحد 1) — بيستخدم أطول جزء مشترك بعد تنظيف النص
@@ -1851,6 +1905,24 @@ async function receiveInboxNotification(notifId){
     if(!confirm(`المصنع المرسل أعلن ${fmt(declaredQty)} ${esc(n.unit||it.unit)}، وانت كاتب ${fmt(actualQty)}.\n\nهيتسجل الرقم اللي كتبته إنت (${fmt(actualQty)}) في مخزنك، وهيوصل إشعار بالفرق للمصنع المرسل عشان يراجعه. تكمل؟`)) return;
   }
 
+  // نتأكد من السيرفر إن الإشعار لسه مستني فعلًا (ممكن يكون اتسلم من جهاز تاني أو الشاشة دي قديمة)
+  try{
+    const fresh = await fetchFactoryInboxStrict(FACTORY);
+    const fn = fresh.find(x=>x.id===notifId);
+    if(!fn || fn.status!=='pending' || S.moves.some(m=>m.inboxNotifId===notifId)){
+      MY_INBOX = fresh; render();
+      toast(`إشعار "${n.itemName}" ده ${fn?'اتسلم قبل كده':'اتشال'} — الشاشة كانت قديمة، اتحدّثت دلوقتي`,1);
+      return;
+    }
+  }catch(e){ toast('تعذر التأكد من الإشعار — تأكد من النت وحاول تاني',1); return; }
+  // حماية إضافية للإشعارات القديمة: لو فيه وارد متسجل لنفس الصنف من نفس المصنع من يوم الإشعار أو بعده، نسأل الأول
+  const prevIn = S.moves.filter(m=>m.dir==='in' && m.itemId===it.id && String(m.date||'')>=String(n.date||'') &&
+    arNorm(m.party||'') && arNorm(n.fromFactory||'') && (arNorm(m.party).includes(arNorm(n.fromFactory)) || arNorm(n.fromFactory).includes(arNorm(m.party))));
+  if(prevIn.length){
+    const lst = prevIn.slice(-3).map(m=>`• ${m.date}: ${fmt(m.qty)} ${it.unit}`).join('\n');
+    if(!confirm(`⚠️ انتبه: "${it.name}" متسجل له وارد من ${n.fromFactory} قبل كده:\n\n${lst}\n\nالإشعار ده بتاريخ ${n.date||'-'} بكمية ${fmt(n.qty)}. لو ده نفس الشحنة اللي استلمتها، دوس إلغاء واستخدم «تجاهل» — وإلا هتتسجل مرتين.\n\nتكمل الاستلام؟`)) return;
+  }
+
   n.status='processing'; render();
   try{
     // لو المطابقة كانت اقتراح تلقائي، نثبّتها دلوقتي عشان تفضل محفوظة للمرات الجاية
@@ -1860,13 +1932,13 @@ async function receiveInboxNotification(notifId){
       await saveMain();
     }
     // بنسجّل السعر المعروف عندك للصنف ده (لو موجود) بدل ما نسجّل صفر دايمًا — عشان قيمة المخزون متتأثرش غلط
-    const inMv={id:uid('m'), dir:'in', itemId:it.id, qty:actualQty, date:today(), price:+it.price||0, party:n.fromFactory||'مصنع تاني', reason:''};
+    const inMv={id:uid('m'), dir:'in', itemId:it.id, qty:actualQty, date:today(), price:+it.price||0, party:n.fromFactory||'مصنع تاني', reason:'', inboxNotifId:n.id};
     S.moves.push(inMv);
     await saveTx();
-    let prMsg=''; try{ const pm=await applyPurchaseReceipt(it.id, actualQty, n.fromFactory||'', inMv.id, today(), {anyDate:true}); if(pm.length) prMsg=' + '+pm.join(' · '); }catch(e){}
+    let prMsg=''; try{ const pm=await applyPurchaseReceipt(it.id, actualQty, n.fromFactory||'', inMv.id, today(), {anyDate:true}); if(pm.length) prMsg=' + طلب شراء "'+it.name+'": '+pm.join(' · '); }catch(e){}
 
     n.status='received'; n.receivedAt=new Date().toISOString(); n.matchedItemId=it.id; n.actualQty=actualQty;
-    await saveFactoryInbox(FACTORY, MY_INBOX);
+    await commitMyInbox(n.id, {status:'received', receivedAt:n.receivedAt, matchedItemId:it.id, actualQty});
 
     // لو فيه فرق بين المُعلن والفعلي، نبلّغ المصنع المرسل تلقائي عشان يراجع الفرق من عنده
     if(hasDiscrepancy && n.fromFactoryId){
@@ -7233,7 +7305,7 @@ function bind(){
     // عشان المصنع التاني ميستلمش رقم قديم لو لسه معلّق، أو يعرف إن الرقم اتغيّر لو كان استلم بالفعل
     if(m.reason==='صرف لمصنع تاني' && m.notifyId && m.notifyFactory){
       try{
-        const list = await fetchFactoryInbox(m.notifyFactory);
+        const list = await fetchFactoryInboxStrict(m.notifyFactory);
         const n = list.find(x=>x.id===m.notifyId);
         if(n){
           if(n.status==='pending'){
@@ -8696,7 +8768,7 @@ async function act(a,d){
   if(a==='inbox-ack-discrepancy'){
     const n = MY_INBOX.find(x=>x.id===d.id); if(!n) return;
     n.status='received'; n.acknowledgedAt=new Date().toISOString();
-    await saveFactoryInbox(FACTORY, MY_INBOX);
+    await commitMyInbox(n.id, {status:'received', acknowledgedAt:n.acknowledgedAt});
     toast('اتعلّم إنك اطّلعت على البلاغ');
     return render();
   }
@@ -8709,7 +8781,7 @@ async function act(a,d){
     m.qty = n.actualQty;
     await saveTx();
     n.status='received'; n.acknowledgedAt=new Date().toISOString(); n.corrected=true;
-    await saveFactoryInbox(FACTORY, MY_INBOX);
+    await commitMyInbox(n.id, {status:'received', acknowledgedAt:n.acknowledgedAt, corrected:true});
     toast(`اتصحّحت الحركة — الرصيد رجع لمخزونك`);
     return render();
   }
@@ -8718,7 +8790,7 @@ async function act(a,d){
     if(!n) return;
     if(!confirm(`تجاهل إشعار "${n.itemName}" (${fmt(n.qty)} ${n.unit||''}) من ${n.fromFactory||'مصنع تاني'}؟\n\nاستخدم ده لو المصنع المرسل ألغى التحويل أو بعته بالغلط. الصنف مش هيتضاف لمخزنك.`)) return;
     MY_INBOX = MY_INBOX.filter(x=>x.id!==d.id);
-    await saveFactoryInbox(FACTORY, MY_INBOX);
+    await commitMyInbox(d.id, null, true);
     toast('اتشال الإشعار');
     return render();
   }
