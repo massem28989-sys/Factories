@@ -5652,7 +5652,7 @@ async function prNewBuyUnit(it){
 function prRecvLabel(r){
   const undo = (+r.receivedQty>0 && ROLE==='owner') ? ` <button class="btn sm" data-act="pr-unlink" data-id="${r.id}" title="لو الوارد ده اتخصم من الطلب ده بالغلط">↩ فك الخصم</button>` : '';
   if(r.status==='approved' && +r.receivedQty>0) return `<div class="hint" style="color:var(--blue)">وصل ${fmt(r.receivedQty)} من ${fmt(r.qty)} ${esc(r.unit||'')}${undo}</div>`;
-  if(r.status==='fulfilled' && r.closedShort) return `<div class="hint" style="color:var(--amber,#b07800)">اتقفل ناقص — وصل ${fmt(r.receivedQty)} من ${fmt(r.qty)} ${esc(r.unit||'')}${undo}</div>`;
+  if(r.status==='fulfilled' && (r.closedShort || (+r.receivedQty>0 && +r.receivedQty < (+r.qty||0)-0.0001))) return `<div class="hint" style="color:var(--amber,#b07800)">${r.autoTolerance||!r.closedShort?'اتقفل تلقائي (فرق أقل من 2%)':'اتقفل ناقص'} — وصل ${fmt(r.receivedQty)} من ${fmt(r.qty)} ${esc(r.unit||'')} · ناقص ${fmt(n2((+r.qty||0)-(+r.receivedQty||0)))}${undo}</div>`;
   if(r.status==='cancelled' && r.cancelReason) return `<div class="hint">${esc(r.cancelReason)}</div>`;
   if(r.status==='fulfilled' && undo) return `<div class="hint">${undo}</div>`;
   return '';
@@ -5749,7 +5749,12 @@ async function applyPurchaseReceipt(itemId, qty, supplier, moveId, moveDate, opt
     const take = Math.min(need, left); if(take<=0) continue;
     r.receivedQty = n2((+r.receivedQty||0)+take); left=n2(left-take);
     (r.moveIds=r.moveIds||[]).push(moveId); r.linkedMoveId=moveId;
-    if(r.receivedQty >= (+r.qty||0)*0.98){ r.status='fulfilled'; r.fulfilledAt=new Date().toISOString(); msgs.push('اتقفل طلب الشراء بتاعه ✓'); }
+    if(r.receivedQty >= (+r.qty||0)*0.98){
+      r.status='fulfilled'; r.fulfilledAt=new Date().toISOString();
+      const short=n2((+r.qty||0)-r.receivedQty);
+      if(short>0.0001){ r.closedShort=true; r.autoTolerance=true; msgs.push(`اتقفل طلب الشراء — وصل ${fmt(r.receivedQty)} من ${fmt(r.qty)} ${r.unit||''} (ناقص ${fmt(short)} فرق وزن بسيط أقل من 2%)`); }
+      else msgs.push('اتقفل طلب الشراء بتاعه ✓');
+    }
     else msgs.push(`وصل ${fmt(r.receivedQty)} من ${fmt(r.qty)} ${r.unit||''} من طلب الشراء — الباقي لسه مستني`);
   }
   if(msgs.length) await savePurchaseRequests();
@@ -6539,8 +6544,8 @@ function viewPurchaseRequests(){
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>طلبها</th><th>الحالة</th><th>آخر تحديث</th></tr></thead>
       <tbody>${others.length? others.map(r=>{
-        const labels={approved:(+r.receivedQty>0?'وصل جزء — مستني الباقي':'موافق عليه — مستني التوريد'),rejected:'مرفوض',fulfilled:'اتورّد ✓'};
-        const cls={approved:'b',rejected:'r',fulfilled:'g'};
+        const labels={approved:(+r.receivedQty>0?'وصل جزء — مستني الباقي':'موافق عليه — مستني التوريد'),rejected:'مرفوض',fulfilled:'اتورّد ✓',cancelled:'اتلغى'};
+        const cls={approved:'b',rejected:'r',fulfilled:'g',cancelled:''};
         return `<tr>
         <td><div class="iname">${esc(r.itemName)}</div></td>
         <td class="n">${prQtyLabel(r)}</td>
