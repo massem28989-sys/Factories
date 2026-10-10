@@ -4413,7 +4413,7 @@ function viewMove(dir){
 
   <div class="panel">
     <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
-      ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:''}
+      ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:`<button class="btn sm p" data-act="print-in-open" style="margin-inline-start:auto">🖨️ طباعة فاتورة استلام (كذا صنف)</button>`}
       ${isIn&&ROLE==='owner'?`<button class="btn sm" data-act="in-recovery-open">استيراد وارد بالجملة</button>`:''}
       ${isIn&&ROLE==='owner'&&zeroPriceInMoves().length?`<button class="btn sm danger" data-act="fix-zero-prices">صحّح ${zeroPriceInMoves().length} حركة سعرها صفر</button>`:''}
       ${ROLE==='owner'&&DB.on?`<button class="btn sm" data-act="db-pull-quiet" ${isIn?'style="margin-inline-start:auto"':''} title="اسحب أحدث حركات مسجّلة من القاعدة">${DB.busy?'بيحدّث…':'🔄 تحديث دلوقتي'}</button>`:''}
@@ -5206,11 +5206,13 @@ function bulkReceiptModal(moves, date, party, reason){
   const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
   const num = 'DOC-'+Date.now().toString().slice(-6);
   const isIn = moves.length && moves[0].dir==='in';
-  const rowsHtml = moves.map(m=>{ const it=item(m.itemId)||{name:'—',unit:''};
-    return `<tr><td style="padding:4px 0">${esc(it.name)}</td><td style="padding:4px 0" class="n">${fmt(m.qty)} ${esc(it.unit)}</td></tr>`;
+  const withPrice = isIn && moves.some(m=>+m.price>0);
+  const grand = moves.reduce((t,m)=>t+(+m.qty||0)*(+m.price||0),0);
+  const rowsHtml = moves.map((m,i)=>{ const it=item(m.itemId)||{name:'—',unit:''};
+    return `<tr style="border-bottom:1px dotted var(--line)">${withPrice?`<td style="padding:5px 0;color:var(--muted)">${i+1}</td>`:''}<td style="padding:5px 0">${esc(it.name)}</td><td style="padding:5px 4px;white-space:nowrap" class="n">${fmt(m.qty)} ${esc(it.unit)}</td>${withPrice?`<td class="n" style="padding:5px 4px">${fmtP(+m.price||0)}</td><td class="n" style="padding:5px 0;font-weight:600">${money((+m.qty||0)*(+m.price||0))}</td>`:''}</tr>`;
   }).join('');
-  return `<div class="modal" data-close="1"><div class="box" style="max-width:460px">
-    <h3>${t('receipt_bulk')} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:${withPrice?640:460}px">
+    <h3>${isIn?(LANG==='en'?'Goods Received Note':'إيصال استلام'):t('receipt_bulk')} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
     <div class="pad receipt">
       <div style="text-align:center;margin-bottom:10px">
         ${FACTORY_LOGOS[FACTORY]?`<img src="${FACTORY_LOGOS[FACTORY]}" style="width:44px;height:44px;object-fit:contain">`:''}
@@ -5223,10 +5225,10 @@ function bulkReceiptModal(moves, date, party, reason){
         ${party?`<tr><td style="padding:4px 0;color:var(--muted)">${reason==='صرف للفروع'?t('branch'):t('r_note')}</td><td style="padding:4px 0">${esc(party)}</td></tr>`:''}`}
       </table>
       <table style="width:100%;border-collapse:collapse;border-top:1px dashed var(--line);padding-top:6px">
-        <thead><tr><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_item')}</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_qty')}</th></tr></thead>
+        <thead><tr>${withPrice?'<th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">#</th>':''}<th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_item')}</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_qty')}</th>${withPrice?'<th style="text-align:start;padding:4px 4px;color:var(--muted);font-weight:600;font-size:12px">سعر الوحدة</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">الإجمالي</th>':''}</tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <div style="text-align:end;margin-top:6px;font-weight:600">${t('r_total_items')}: ${moves.length}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;font-weight:600"><span>${t('r_total_items')}: ${moves.length}</span>${withPrice?`<span style="font-size:15px">الإجمالي: ${money(grand)} ${t('currency')}</span>`:''}</div>
       <div style="display:flex;justify-content:space-between;margin-top:26px;padding-top:14px;border-top:1px dashed var(--line)">
         <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">${t('r_signer')}</div></div>
         <div style="text-align:center;flex:1"><div style="border-top:1px solid var(--ink);width:80%;margin:24px auto 4px"></div><div class="hint">${t('r_receiver')}</div></div>
@@ -5234,6 +5236,44 @@ function bulkReceiptModal(moves, date, party, reason){
     </div>
     <div class="foot"><button class="btn p" data-act="do-print">${t('r_print')}</button><button class="btn" data-close="1">${t('r_close')}</button></div>
   </div></div>`;
+}
+/* ================= طباعة فاتورة استلام فيها كذا صنف ================= */
+function printInPickerModal(){
+  const ins=S.moves.filter(m=>m.dir==='in');
+  const sups=[...new Set(ins.map(m=>m.party).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar'));
+  const lastDate = ins.map(m=>m.date).filter(Boolean).sort().pop() || today();
+  const pi=ui.printIn||(ui.printIn={date:lastDate, party:'', off:{}});
+  const list=ins.filter(m=>m.date===pi.date && (!pi.party || m.party===pi.party));
+  const daySups=[...new Set(ins.filter(m=>m.date===pi.date).map(m=>m.party).filter(Boolean))];
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:620px">
+    <h3>🖨️ طباعة فاتورة استلام</h3>
+    <div class="pad">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:150px"><label class="f">التاريخ</label><input type="date" id="pi-date" value="${esc(pi.date)}" style="width:100%"></div>
+        <div style="flex:2;min-width:200px"><label class="f">المورد</label><select id="pi-party" style="width:100%">
+          <option value="">— كل الموردين في اليوم ده —</option>
+          ${sups.map(sp=>`<option value="${esc(sp)}" ${pi.party===sp?'selected':''}>${esc(sp)}${daySups.includes(sp)?' ●':''}</option>`).join('')}
+        </select></div>
+      </div>
+      <div class="hint" style="margin:6px 0">● = المورد ده ليه وارد في التاريخ المختار. شيل العلامة من أي صنف مش في الفاتورة دي.</div>
+      <div class="tblwrap" style="max-height:44vh;border:1px solid var(--line);border-radius:10px"><table>
+        <thead><tr><th style="width:34px"><input type="checkbox" id="pi-all" ${list.every(m=>!pi.off[m.id])?'checked':''}></th><th>الصنف</th><th class="n">الكمية</th><th class="n">السعر</th><th>المورد</th></tr></thead>
+        <tbody>${list.length?list.map(m=>{ const it=item(m.itemId)||{name:'—',unit:''}; return `<tr>
+          <td><input type="checkbox" data-pim="${m.id}" ${pi.off[m.id]?'':'checked'}></td>
+          <td class="iname" style="font-size:13px">${esc(it.name)}</td><td class="n">${fmt(m.qty)} ${esc(it.unit)}</td>
+          <td class="n">${fmtP(+m.price||0)}</td><td style="font-size:12px">${esc(m.party||'—')}</td></tr>`; }).join('')
+          :`<tr><td colspan="5" class="empty">مفيش وارد${pi.party?' من المورد ده':''} في اليوم ده</td></tr>`}</tbody></table></div>
+    </div>
+    <div class="foot"><button class="btn p" data-act="print-in-go">اعرض الفاتورة (${list.filter(m=>!pi.off[m.id]).length} صنف)</button><button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+function printInBind(){
+  const pi=ui.printIn; if(!pi) return;
+  const d=$('#pi-date'), p=$('#pi-party'), all=$('#pi-all');
+  if(d) d.onchange=()=>{ pi.date=d.value; pi.off={}; ui.modal=printInPickerModal(); render(); printInBind(); };
+  if(p) p.onchange=()=>{ pi.party=p.value; pi.off={}; ui.modal=printInPickerModal(); render(); printInBind(); };
+  document.querySelectorAll('[data-pim]').forEach(c=>c.onchange=()=>{ if(c.checked) delete pi.off[c.dataset.pim]; else pi.off[c.dataset.pim]=1; ui.modal=printInPickerModal(); render(); printInBind(); });
+  if(all) all.onchange=()=>{ const ids=S.moves.filter(m=>m.dir==='in' && m.date===pi.date && (!pi.party||m.party===pi.party)).map(m=>m.id); pi.off={}; if(!all.checked) ids.forEach(id=>pi.off[id]=1); ui.modal=printInPickerModal(); render(); printInBind(); };
 }
 /* ================= فاتورة مجمّعة لفرع (كل الأصناف في مستند واحد) ================= */
 function consolidatedInvoicePickerModal(){
@@ -5394,6 +5434,7 @@ let PURCHASE_REQUESTS = [];
 let BUY_UNITS = {}; // {itemId:{unit:'كرتونة', size:360}} — وحدة الشراء من المورد، منفصلة عن وحدة الجرد
 let SUPPLIER_PHONES = {}; // {اسم المورد: رقم الواتساب}
 let SUPPLIER_INFO = {}; // {اسم المورد عندنا: {en, ar}} — اسمه الرسمي زي ما هو في فاتورته
+let MAIL_CFG = {}; // {cc:'ايميلات مدير المشتريات', app:'mailto'|'gmail'|'outlook'}
 let SUPPLIER_ITEM_NAMES = {}; // {'مورد|صنف': {name, code}} — اسم/كود الصنف زي ما هو في فاتورة المورد
 let purReqLoaded = false;
 
@@ -5416,6 +5457,7 @@ async function fetchPurchaseRequests(){
     SUPPLIER_PHONES = v.supplierPhones || {};
     SUPPLIER_ITEM_NAMES = v.supplierItemNames || {};
     SUPPLIER_INFO = v.supplierInfo || {};
+    MAIL_CFG = v.mailCfg || {};
     _prRemember(); PR_FETCHED_AT=Date.now();
     purReqLoaded = true;
   }catch(e){ PURCHASE_REQUESTS = []; }
@@ -5427,19 +5469,19 @@ async function savePurchaseRequests(){
     const now=Date.now();
     for(const r of PURCHASE_REQUESTS){ const b=PR_BASE.get(r.id); if(b===undefined || b!==_prSig(r)) r._u=now; }
     // 2) نجيب أحدث نسخة ونِدمج: لكل طلب، الأحدث تعديلًا يكسب
-    let merged = PURCHASE_REQUESTS, maps={buyUnits:BUY_UNITS, supplierPhones:SUPPLIER_PHONES, supplierItemNames:SUPPLIER_ITEM_NAMES, supplierInfo:SUPPLIER_INFO};
+    let merged = PURCHASE_REQUESTS, maps={buyUnits:BUY_UNITS, supplierPhones:SUPPLIER_PHONES, supplierItemNames:SUPPLIER_ITEM_NAMES, supplierInfo:SUPPLIER_INFO, mailCfg:MAIL_CFG};
     if(DB.on){
       try{
         const v=await _prFetchRaw(); const remote=v.list||[];
         const byId=new Map(remote.map(r=>[r.id,r]));
         for(const r of PURCHASE_REQUESTS){ const rr=byId.get(r.id); if(!rr || (+r._u||0) >= (+rr._u||0)) byId.set(r.id,r); }
         merged=[...byId.values()].sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
-        maps={ buyUnits:{...(v.buyUnits||{}),...BUY_UNITS}, supplierPhones:{...(v.supplierPhones||{}),...SUPPLIER_PHONES}, supplierItemNames:{...(v.supplierItemNames||{}),...SUPPLIER_ITEM_NAMES}, supplierInfo:{...(v.supplierInfo||{}),...SUPPLIER_INFO} };
+        maps={ buyUnits:{...(v.buyUnits||{}),...BUY_UNITS}, supplierPhones:{...(v.supplierPhones||{}),...SUPPLIER_PHONES}, supplierItemNames:{...(v.supplierItemNames||{}),...SUPPLIER_ITEM_NAMES}, supplierInfo:{...(v.supplierInfo||{}),...SUPPLIER_INFO}, mailCfg:{...(v.mailCfg||{}),...MAIL_CFG} };
       }catch(e){}
     }
     await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'purchase_requests',v:{list:merged, ...maps}}]});
     PURCHASE_REQUESTS.splice(0,PURCHASE_REQUESTS.length,...merged);
-    BUY_UNITS=maps.buyUnits; SUPPLIER_PHONES=maps.supplierPhones; SUPPLIER_ITEM_NAMES=maps.supplierItemNames; SUPPLIER_INFO=maps.supplierInfo||{};
+    BUY_UNITS=maps.buyUnits; SUPPLIER_PHONES=maps.supplierPhones; SUPPLIER_ITEM_NAMES=maps.supplierItemNames; SUPPLIER_INFO=maps.supplierInfo||{}; MAIL_CFG=maps.mailCfg||{};
     _prRemember(); PR_FETCHED_AT=Date.now();
     return true;
   }catch(e){ return false; }
@@ -5994,6 +6036,7 @@ async function poImage(rs, lang){
   x.fillStyle=B.color; x.fillRect(0,H-18,W,18);
   return await new Promise(res=>c.toBlob(res,'image/png'));
 }
+function poMarkSent(){ const at=new Date().toISOString(); PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===window.__poKey && (r.status==='approved'||r.status==='pending')).forEach(r=>{ r.sentToSupplierAt=at; r.sentAs='image'; }); savePurchaseRequests(); }
 async function poPreview(key){
   const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && (r.status==='approved'||r.status==='pending'));
   if(!rs.length) return toast('الطلب ده مبقاش مفتوح',1);
@@ -6074,7 +6117,125 @@ function prWaText(rs){
 function prWaButton(key, supplier){
   const has=!!SUPPLIER_PHONES[supplier];
   const isGroup=SUPPLIER_PHONES[supplier]==='group';
-  return `<button class="btn sm" data-act="po-img" data-k="${key}" title="أمر شراء كصورة بلوجو المصنع">🧾 صورة</button> <button class="btn sm" data-act="pr-wa" data-k="${key}" style="background:#25D366;border-color:#25D366;color:#fff" title="${has?'':'هيطلب منك رقم المورد أول مرة'}">📲 ${isGroup?'واتساب (جروب المورد)':'واتساب للمورد'}</button>${has?`<button class="btn sm" data-act="pr-wa-phone" data-s="${esc(supplier)}" title="تغيير رقم المورد" style="padding-inline:7px">✎</button>`:''}`;
+  return `<button class="btn sm" data-act="pr-wa-img" data-k="${key}" style="background:#25D366;border-color:#25D366;color:#fff" title="يبعت أمر الشراء كصورة على الواتساب">📲 ${isGroup?'صورة للجروب':'صورة واتساب'}</button> <button class="btn sm" data-act="po-img" data-k="${key}" title="معاينة الصورة وتعديل أسماء الأصناف">👁️</button> <button class="btn sm" data-act="pr-mail" data-k="${key}" title="${(SUPPLIER_INFO[supplier]||{}).email?'ابعته إيميل للمورد'+(MAIL_CFG.cc?' (ونسخة لمدير المشتريات)':''):'إيميل — هيطلب منك إيميل المورد أول مرة'}" style="padding-inline:7px">📧</button> <button class="btn sm" data-act="pr-wa" data-k="${key}" title="ابعته كرسالة واتساب مكتوبة بدل الصورة" style="padding-inline:7px">✉️</button>${has?`<button class="btn sm" data-act="pr-wa-phone" data-s="${esc(supplier)}" title="تغيير رقم المورد" style="padding-inline:7px">✎</button>`:''}`;
+}
+/* إرسال أمر الشراء كصورة بضغطة واحدة:
+   - الموبايل: بيفتح قايمة المشاركة والصورة جاهزة فيها → اختار واتساب → جروب المورد → إرسال
+   - الكمبيوتر: بينسخ الصورة، ولو المورد ليه رقم بيفتح الشات بتاعه — دوس Ctrl+V وإرسال */
+async function prWaImg(key){
+  const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && (r.status==='approved'||r.status==='pending'));
+  if(!rs.length) return toast('الطلب ده مبقاش مفتوح',1);
+  const lang=poLang(), name=poNumber(rs)+'.png';
+  const sup=prLabel(rs), phone=SUPPLIER_PHONES[sup];
+  const blobP=poImage(rs, lang); // بنبدأ نرسم الصورة فورًا وهي لسه جوه ضغطة الزرار
+  const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints>1 && /Macintosh/.test(navigator.userAgent));
+  let sent=false;
+  if(mobile && navigator.share){
+    try{
+      const blob=await blobP; const f=new File([blob],name,{type:'image/png'});
+      if(navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f]}); sent=true; }
+    }catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  if(!sent){
+    let copied=false;
+    try{ await navigator.clipboard.write([new ClipboardItem({'image/png':blobP})]); copied=true; }catch(e){}
+    if(copied){
+      if(phone && phone!=='group'){
+        const url='https://wa.me/'+phone; const w=window.open(url,'_blank');
+        toast(w?'الصورة اتنسخت وفتحنا شات المورد — دوس Ctrl+V وبعدين إرسال':'الصورة اتنسخت — افتح شات المورد ودوس Ctrl+V');
+      } else toast(`الصورة اتنسخت ✓ — افتح ${sup?'جروب "'+sup+'"':'جروب المورد'} في الواتساب ودوس Ctrl+V وبعدين إرسال`);
+      sent=true;
+    } else {
+      // آخر حل: تنزيل الصورة
+      const blob=await blobP; const u=URL.createObjectURL(blob); const l=document.createElement('a'); l.href=u; l.download=name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),30000);
+      toast('المتصفح ما سمحش بالنسخ — الصورة اتنزلت، ابعتها من الواتساب كمرفق',1); sent=true;
+    }
+  }
+  if(sent){ const at=new Date().toISOString(); rs.forEach(r=>{ r.sentToSupplierAt=at; r.sentAs='image'; }); await savePurchaseRequests(); render(); }
+}
+/* ================= دفتر الموردين: واتساب + إيميل + المسؤول، ونسخة (CC) لمدير المشتريات ================= */
+const _emails = t => String(t||'').split(/[\s,;،]+/).map(x=>x.trim()).filter(x=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+function supBookModal(){
+  const sups=[...new Set([...S.suppliers, ...Object.keys(SUPPLIER_PHONES), ...Object.keys(SUPPLIER_INFO)])].filter(Boolean).sort((a,b)=>a.localeCompare(b,'ar'));
+  const app=MAIL_CFG.app||'mailto';
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:980px">
+    <h3>📇 بيانات الموردين</h3>
+    <div class="pad" style="max-height:66vh;overflow:auto">
+      <div style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px;background:var(--soft,#fafafa)">
+        <label class="f">📧 إيميل مدير المشتريات (بيتحط في الـ CC في كل أمر شراء بيتبعت بالإيميل)</label>
+        <input type="text" id="sb-cc" dir="ltr" value="${esc(MAIL_CFG.cc||'')}" placeholder="purchasing@company.com, manager@company.com" style="width:100%">
+        <div class="hint" style="margin-top:4px">ممكن تكتب أكتر من إيميل وتفصل بينهم بفاصلة.</div>
+        <label class="f" style="margin-top:10px">الإيميل يفتح على</label>
+        <select id="sb-app" style="width:100%;max-width:340px">
+          <option value="mailto" ${app==='mailto'?'selected':''}>برنامج الإيميل اللي على الجهاز (Outlook / Mail)</option>
+          <option value="gmail" ${app==='gmail'?'selected':''}>Gmail على المتصفح</option>
+          <option value="outlook" ${app==='outlook'?'selected':''}>Outlook على المتصفح (Office 365)</option>
+        </select>
+      </div>
+      <div class="tblwrap" style="max-height:none;border:1px solid var(--line);border-radius:10px"><table>
+        <thead><tr><th>المورد</th><th>واتساب (رقم أو كلمة جروب)</th><th>الإيميل (To)</th><th>المسؤول</th><th>تليفون تاني</th></tr></thead>
+        <tbody>${sups.length?sups.map(sp=>{ const inf=SUPPLIER_INFO[sp]||{}, ph=SUPPLIER_PHONES[sp]||''; return `<tr data-sbrow="${esc(sp)}">
+          <td class="iname" style="font-size:13px">${esc(sp)}</td>
+          <td><input type="text" data-sb="wa" dir="ltr" value="${esc(ph==='group'?'جروب':ph)}" placeholder="0501234567" style="width:140px"></td>
+          <td><input type="text" data-sb="email" dir="ltr" value="${esc(inf.email||'')}" placeholder="sales@supplier.com" style="width:100%;min-width:200px"></td>
+          <td><input type="text" data-sb="contact" value="${esc(inf.contact||'')}" placeholder="اسم المندوب" style="width:120px"></td>
+          <td><input type="text" data-sb="phone2" dir="ltr" value="${esc(inf.phone2||'')}" placeholder="—" style="width:120px"></td></tr>`; }).join('')
+          :`<tr><td colspan="5" class="empty">مفيش موردين متسجلين</td></tr>`}</tbody></table></div>
+    </div>
+    <div class="foot"><button class="btn p" data-act="sup-book-save">حفظ</button><button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+async function supBookSave(){
+  const cc=($('#sb-cc')||{}).value||'';
+  const bad=String(cc).split(/[\s,;،]+/).filter(x=>x && !_emails(x).length);
+  if(bad.length) return toast('إيميل مش صحيح: '+bad.join(', '),1);
+  MAIL_CFG={...MAIL_CFG, cc:_emails(cc).join(', '), app:($('#sb-app')||{}).value||'mailto'};
+  let err='';
+  document.querySelectorAll('[data-sbrow]').forEach(tr=>{
+    const sp=tr.dataset.sbrow, g=k=>((tr.querySelector(`[data-sb="${k}"]`)||{}).value||'').trim();
+    const wa=g('wa'), em=g('email'), contact=g('contact'), phone2=g('phone2');
+    if(wa){ const ph=/جروب|جروپ|group/i.test(wa)?'group':waNormPhone(wa); if(ph!=='group' && ph.length<9) err=err||`رقم واتساب "${sp}" مش صحيح`; else SUPPLIER_PHONES[sp]=ph; }
+    else delete SUPPLIER_PHONES[sp];
+    if(em && !_emails(em).length) err=err||`إيميل "${sp}" مش صحيح`;
+    const nv={...(SUPPLIER_INFO[sp]||{})}; const set=(k,v)=>{ if(v) nv[k]=v; else delete nv[k]; };
+    set('email', _emails(em).join(', ')); set('contact',contact); set('phone2',phone2);
+    if(Object.keys(nv).length) SUPPLIER_INFO[sp]=nv; else delete SUPPLIER_INFO[sp];
+  });
+  if(err) return toast(err,1);
+  const ok=await savePurchaseRequests();
+  ui.modal=null; toast(ok?'اتحفظت بيانات الموردين':'اتحفظت على الجهاز بس — هتتزامن لما النت يرجع',ok?0:1); render();
+}
+// نص الإيميل: نفس رسالة الواتساب من غير علامات التنسيق (* و _)
+function prMailText(rs){
+  return prWaText(rs).replace(/[*_]/g,'').replace(/[‎‏]/g,'');
+}
+async function prMail(key){
+  const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && (r.status==='approved'||r.status==='pending'));
+  if(!rs.length) return toast('الطلب ده مبقاش مفتوح',1);
+  const targets=[...new Set([rs[0].sendTo, ...prSuppliers(rs)].filter(Boolean))];
+  let to=[...new Set(targets.flatMap(sp=>_emails((SUPPLIER_INFO[sp]||{}).email)))];
+  if(!to.length){
+    const sp=targets[0]||'';
+    const p=prompt(`اكتب إيميل ${sp?'"'+sp+'"':'المورد'} (هيتحفظ للمرة الجاية):`,''); if(p===null) return;
+    to=_emails(p); if(!to.length) return toast('الإيميل مش صحيح',1);
+    if(sp){ SUPPLIER_INFO[sp]={...(SUPPLIER_INFO[sp]||{}), email:to.join(', ')}; }
+  }
+  const cc=_emails(MAIL_CFG.cc);
+  const lang=poLang(), B=poBrand(lang);
+  const subject=`${lang==='en'?'Purchase Order':'أمر شراء'} ${poNumber(rs)} — ${B.title}`;
+  const body=prMailText(rs)+'\n\n'+(lang==='en'?'(The purchase order image is attached / pasted below)':'(صورة أمر الشراء مرفقة)')+'\n';
+  // بننسخ صورة أمر الشراء عشان تلزقها في الإيميل (Ctrl+V) — روابط الإيميل ما بتسمحش بإرفاق ملف تلقائي
+  let copied=false;
+  try{ await navigator.clipboard.write([new ClipboardItem({'image/png':poImage(rs,lang)})]); copied=true; }catch(e){}
+  const E=encodeURIComponent, app=MAIL_CFG.app||'mailto';
+  const url = app==='gmail' ? `https://mail.google.com/mail/?view=cm&fs=1&to=${E(to.join(','))}${cc.length?'&cc='+E(cc.join(',')):''}&su=${E(subject)}&body=${E(body)}`
+            : app==='outlook' ? `https://outlook.office.com/mail/deeplink/compose?to=${E(to.join(';'))}${cc.length?'&cc='+E(cc.join(';')):''}&subject=${E(subject)}&body=${E(body)}`
+            : `mailto:${to.map(E).join(',')}?${cc.length?'cc='+cc.map(E).join(',')+'&':''}subject=${E(subject)}&body=${E(body)}`;
+  if(app==='mailto'){ const l=document.createElement('a'); l.href=url; document.body.appendChild(l); l.click(); l.remove(); }
+  else { const w=window.open(url,'_blank'); if(!w) location.href=url; }
+  toast(`${copied?'صورة أمر الشراء اتنسخت — في الإيميل دوس Ctrl+V تحت الرسالة وبعدين إرسال. ':'ارفق صورة أمر الشراء من زرار 👁️ ← تنزيل. '}${cc.length?'مدير المشتريات في الـ CC ✓':'(مفيش CC — حطه من «بيانات الموردين»)'}`);
+  const at=new Date().toISOString(); rs.forEach(r=>{ r.sentToSupplierAt=at; r.sentAs='email'; });
+  await savePurchaseRequests(); render();
 }
 function prWaOpen(key){
   const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && (r.status==='approved'||r.status==='pending'));
@@ -6506,7 +6667,7 @@ function viewPurchaseRequests(){
 
   ${(()=>{ const gs=prOpenGroups(); if(!gs.length) return '';
     return `<div class="panel" style="border:2px solid #25D366">
-    <h2>📲 طلبات جاهزة تتبعت للمورد <em>${gs.length}</em></h2>
+    <h2>📲 طلبات جاهزة تتبعت للمورد <em>${gs.length}</em><button class="btn sm" data-act="sup-book" style="margin-inline-start:auto">📇 بيانات الموردين والإيميل</button></h2>
     <div class="tblwrap" style="max-height:none"><table><tbody>${gs.map(g=>`<tr style="${ui.prJustSent===g.key?'background:var(--brand-bg)':''}">
       <td><b>${g.supplier?esc(g.supplier):'<span class="hint">من غير مورد</span>'}</b>
         <div class="hint">${g.rs.length} صنف${g.rs[0].needDate?' · 🚚 التوصيل '+esc(g.rs[0].needDate):''}${g.note?' · '+esc(g.note):''}${g.rs[0].sentToSupplierAt?' · <span style="color:var(--green)">✓ اتبعت للمورد</span>':''}</div></td>
@@ -6540,7 +6701,7 @@ function viewPurchaseRequests(){
   </div>
 
   <div class="panel">
-    <h2>سجل الطلبات <em>${others.length}</em></h2>
+    <h2>سجل الطلبات <em>${others.length}</em><button class="btn sm" data-act="sup-book" style="margin-inline-start:auto">📇 بيانات الموردين</button></h2>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الصنف</th><th class="n">الكمية</th><th>المورد</th><th>طلبها</th><th>الحالة</th><th>آخر تحديث</th></tr></thead>
       <tbody>${others.length? others.map(r=>{
@@ -6551,7 +6712,7 @@ function viewPurchaseRequests(){
         <td class="n">${prQtyLabel(r)}</td>
         <td>${r.supplier?esc(r.supplier):'<span class="hint">—</span>'}</td>
         <td>${esc(r.requestedBy||'-')}</td>
-        <td><span class="chip ${cls[r.status]||''}">${labels[r.status]||r.status}</span>${prRecvLabel(r)}${r.status==='approved'?` <button class="btn sm p" data-act="pr-receive" data-k="${prGroupKey(r)}">استلام</button> ${prWaButton(prGroupKey(r), r.supplier||'')}`:''}${r.sentToSupplierAt?`<div class="hint">✓ اتبعت للمورد</div>`:''}</td>
+        <td><span class="chip ${cls[r.status]||''}">${labels[r.status]||r.status}</span>${prRecvLabel(r)}${r.status==='approved'?` <button class="btn sm p" data-act="pr-receive" data-k="${prGroupKey(r)}">استلام</button> ${prWaButton(prGroupKey(r), r.supplier||'')}`:''}${r.sentToSupplierAt?`<div class="hint">✓ اتبعت للمورد${r.sentAs==='image'?' (صورة)':r.sentAs==='email'?' (إيميل)':''}</div>`:''}</td>
         <td style="font-size:12px">${(r.fulfilledAt||r.decidedAt||r.createdAt)?new Date(r.fulfilledAt||r.decidedAt||r.createdAt).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-'}</td>
       </tr>`;}).join('') : `<tr><td colspan="6" class="empty">لسه مفيش سجل</td></tr>`}</tbody>
     </table></div>
@@ -8470,6 +8631,10 @@ async function act(a,d){
   if(a==='count-print-go'){ countPrintGo(); ui.modal=null; return render(); }
   if(a==='bi-inv-clear'){ BULKIN_FILE=null; return render(); }
   if(a==='pr-wa'){ prWaOpen(d.k); return; }
+  if(a==='pr-wa-img'){ return prWaImg(d.k); }
+  if(a==='pr-mail'){ return prMail(d.k); }
+  if(a==='sup-book'){ ui.modal=supBookModal(); return render(); }
+  if(a==='sup-book-save'){ return supBookSave(); }
   if(a==='pr-edit'){ prEditOpen(d.k); return; }
   if(a==='pk-open'){ ui.packEdit={q:'',onlyPR:d.v!=='all'}; ui.modal=packEditModal(); render(); packEditBind(); return; }
   if(a==='pk-close'){ ui.packEdit=null; ui.modal=null; return render(); }
@@ -8504,14 +8669,15 @@ async function act(a,d){
     rs.forEach(r=>{ const n=((document.querySelector(`[data-poname="${r.id}"]`)||{}).value||'').trim(), c=((document.querySelector(`[data-pocode="${r.id}"]`)||{}).value||'').trim();
       const k=supItemKey(r.supplier,r.itemId); if(n||c) SUPPLIER_ITEM_NAMES[k]={name:n,code:c}; else delete SUPPLIER_ITEM_NAMES[k]; });
     document.querySelectorAll('[data-supen]').forEach(inp=>{ const sp=inp.dataset.supen; const ar=((document.querySelector(`[data-supar="${CSS.escape(sp)}"]`)||{}).value||'').trim(), en=inp.value.trim();
-      if(en||ar) SUPPLIER_INFO[sp]={en,ar}; else delete SUPPLIER_INFO[sp]; });
+      const old=SUPPLIER_INFO[sp]||{}; const nv={...old,en,ar}; if(!en) delete nv.en; if(!ar) delete nv.ar;
+      if(Object.keys(nv).length) SUPPLIER_INFO[sp]=nv; else delete SUPPLIER_INFO[sp]; });
     ui.poNamesOpen=true; const ok=await savePurchaseRequests(); toast(ok?'اتحفظت أسماء الأصناف للمورد ده':'اتحفظت على الجهاز بس',ok?0:1);
     return poPreview(window.__poKey);
   }
-  if(a==='po-copy'){ try{ await navigator.clipboard.write([new ClipboardItem({'image/png':window.__poBlob})]); toast('الصورة اتنسخت — افتح جروب المورد ودوس Ctrl+V'); }
+  if(a==='po-copy'){ try{ await navigator.clipboard.write([new ClipboardItem({'image/png':window.__poBlob})]); toast('الصورة اتنسخت — افتح جروب المورد ودوس Ctrl+V'); poMarkSent(); }
     catch(e){ toast('المتصفح ما سمحش بالنسخ — استخدم «تنزيل» أو «مشاركة»',1); } return; }
   if(a==='po-share'){ try{ const f=new File([window.__poBlob],window.__poName,{type:'image/png'});
-      if(navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:window.__poName}); } else throw new Error('x'); }
+      if(navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:window.__poName}); poMarkSent(); } else throw new Error('x'); }
     catch(e){ if(e && e.name==='AbortError') return; toast('المشاركة مش متاحة هنا — استخدم «نسخ الصورة» أو «تنزيل»',1); } return; }
   if(a==='po-download'){ const u=URL.createObjectURL(window.__poBlob); const l=document.createElement('a'); l.href=u; l.download=window.__poName; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),30000); return; }
   if(a==='pr-wa-phone'){ const cur=SUPPLIER_PHONES[d.s]; const p=prompt(`"${d.s}" — اكتب رقم الواتساب، أو كلمة  جروب  لو بتبعتله على جروب:`, cur==='group'?'جروب':(cur||'')); if(p===null) return;
@@ -9240,6 +9406,13 @@ async function act(a,d){
     return render();
   }
   if(a==='print-consolidated-open'){ ui.modal = consolidatedInvoicePickerModal(); return render(); }
+  if(a==='print-in-open'){ ui.printIn=null; ui.modal = printInPickerModal(); render(); printInBind(); return; }
+  if(a==='print-in-go'){
+    const pi=ui.printIn||{}; const ms=S.moves.filter(m=>m.dir==='in' && m.date===pi.date && (!pi.party||m.party===pi.party) && !(pi.off||{})[m.id]);
+    if(!ms.length) return toast('اختار صنف واحد على الأقل',1);
+    const parties=[...new Set(ms.map(m=>m.party).filter(Boolean))];
+    ui.modal = bulkReceiptModal(ms, pi.date, parties.join(' / '), ''); return render();
+  }
   if(a==='print-settlement-open'){ ui.modal = settlementReceiptModal(); return render(); }
   if(a==='settlement-history-open'){
     let savedList = [];
