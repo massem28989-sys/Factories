@@ -5802,6 +5802,13 @@ async function applyPurchaseReceipt(itemId, qty, supplier, moveId, moveDate, opt
   if(msgs.length) await savePurchaseRequests();
   return msgs;
 }
+// منين جت الكمية اللي اتسجلت على الطلب قبل كده (حركات الوارد المربوطة بيه)
+function prLinkedInfo(r){
+  const ids=[...new Set([...(r.moveIds||[]), r.linkedMoveId].filter(Boolean))];
+  const ms=ids.map(id=>S.moves.find(m=>m.id===id)).filter(Boolean);
+  const det = ms.length ? ms.map(m=>`<bdi dir="ltr">${m.date}</bdi> · ${fmt(m.qty)} ${esc((item(m.itemId)||{}).unit||'')}${m.party?' · '+esc(m.party):''}`).join('<br>') : 'مش لاقي حركة الوارد المربوطة (ممكن اتمسحت أو من شهر تاني)';
+  return `<div style="font-size:11px;line-height:1.6;margin-top:2px">من: ${det}</div>${ROLE==='owner'?`<button class="btn sm" data-act="pr-unlink" data-id="${r.id}" style="margin-top:3px;font-size:11px;padding:2px 7px">↩ فك الخصم ده</button>`:'<div style="font-size:11px">لو غلط، الأونر يفك الخصم</div>'}`;
+}
 function openPurchaseFor(itemId){ return PURCHASE_REQUESTS.filter(r=>r.itemId===itemId && r.status==='approved'); }
 
 
@@ -6517,7 +6524,7 @@ function prReceiveModal(key){
           const pr=n2((+it.price||0)*size);
           return `<tr data-prr="${r.id}">
             <td><div class="iname">${esc(r.itemName)}</div>${size!==1?`<div class="hint">1 ${esc(U)} = ${fmt(size)} ${esc(r.unit||'')}</div>`:''}</td>
-            <td class="n">${fmtP(remain)} ${esc(U)}${+r.receivedQty>0?`<div class="hint">وصل قبل كده ${fmt(n2(r.receivedQty/size))}</div>`:''}</td>
+            <td class="n">${fmtP(remain)} ${esc(U)}${+r.receivedQty>0?`<div class="hint" style="color:var(--amber,#b07800)">وصل قبل كده ${fmt(n2(r.receivedQty/size))}${prLinkedInfo(r)}</div>`:''}</td>
             <td class="n"><input type="number" min="0" step="any" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:80px;text-align:center"> <span class="hint">${esc(U)}</span></td>
             <td><select data-prfrom="${r.id}" style="max-width:150px" title="لو الصنف ده جه من مكان تاني غير مورد الطلب (زي المخزن الرئيسي)">
               <option value="${esc(r.supplier||sup)}">${esc(r.supplier||sup||'—')}</option>
@@ -8660,7 +8667,9 @@ async function act(a,d){
     const r=PURCHASE_REQUESTS.find(x=>x.id===d.id); if(!r) return;
     if(!confirm(`فك خصم الوارد من طلب "${r.itemName}"؟\nالطلب هيرجع مفتوح بالكمية كاملة (${fmt(r.qty)} ${r.unit||''}) ومستني الاستلام.\nحركة الوارد نفسها مش هتتمسح — الربط بس اللي بيتشال.`)) return;
     r.receivedQty=0; r.moveIds=[]; r.linkedMoveId=null; if(r.status==='fulfilled'){ r.status='approved'; delete r.fulfilledAt; }
-    const ok=await savePurchaseRequests(); toast(ok?'الطلب رجع مفتوح بالكمية كاملة':'حصل خطأ، حاول تاني',ok?0:1); return render();
+    const ok=await savePurchaseRequests(); toast(ok?'الطلب رجع مفتوح بالكمية كاملة':'حصل خطأ، حاول تاني',ok?0:1);
+    if(ui.modal && ui.modal.includes('data-prr=') && ui.prRecvKey){ const m=prReceiveModal(ui.prRecvKey); ui.modal=m||null; render(); if(m) prReceiveBind(); return; }
+    return render();
   }
   if(a==='po-img'){ return poPreview(d.k); }
   if(a==='po-lang'){ PO_LANG=d.v; try{ localStorage.setItem('po-lang',d.v); }catch(e){} return poPreview(window.__poKey); }
@@ -8683,7 +8692,7 @@ async function act(a,d){
   if(a==='pr-wa-phone'){ const cur=SUPPLIER_PHONES[d.s]; const p=prompt(`"${d.s}" — اكتب رقم الواتساب، أو كلمة  جروب  لو بتبعتله على جروب:`, cur==='group'?'جروب':(cur||'')); if(p===null) return;
     const ph=/جروب|جروپ|group/i.test(p)?'group':waNormPhone(p); if(p && ph!=='group' && ph.length<9) return toast('الرقم مش صحيح',1);
     if(ph) SUPPLIER_PHONES[d.s]=ph; else delete SUPPLIER_PHONES[d.s]; await savePurchaseRequests(); toast('اتحفظ رقم المورد'); return render(); }
-  if(a==='pr-receive'){ const m=prReceiveModal(d.k); if(!m) return toast('الطلب ده مبقاش مفتوح',1); ui.modal=m; render(); prReceiveBind(); return; }
+  if(a==='pr-receive'){ const m=prReceiveModal(d.k); if(!m) return toast('الطلب ده مبقاش مفتوح',1); ui.prRecvKey=d.k; ui.modal=m; render(); prReceiveBind(); return; }
   if(a==='pr-receive-save'){ return prReceiveSave(d.k); }
   if(a==='pur-del-line'){ PR_CART.splice(+d.i,1); prCartSave(); return render(); }
   if(a==='pur-clear-cart'){ if(!confirm('مسح كل الأصناف من الطلب؟')) return; PR_CART=[]; prCartSave(); return render(); }
@@ -9281,8 +9290,9 @@ async function act(a,d){
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:unitPrice,party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
       if(m.price>0){ it.price=m.price; await saveMain(); }
-      // لو الصنف ده ليه طلب شراء موافق عليه ولسه مستني، نقفله تلقائي بربطه بالحركة دي
-      try{ const pm = await applyPurchaseReceipt(id, m.qty, m.party, m.id, m.date); if(pm.length) autoMsg += ' + '+pm.join(' · '); }catch(e){}
+      // الوارد العادي منفصل تمامًا عن طلبات الشراء — مابيخصمش منها. استلام طلب الشراء بيتم من زرار «استلام» في الطلب نفسه بس.
+      // بنكتفي بتنبيه لو فيه طلب مفتوح لنفس الصنف، عشان لو الوارد ده كان من الطلب فعلًا
+      { const op=openPurchaseFor(id); if(op.length) autoMsg += ` — ملحوظة: فيه طلب شراء مفتوح لـ"${it.name}" (${op.map(r=>fmt(Math.max(0,(+r.qty||0)-(+r.receivedQty||0)))+' '+(r.unit||'')+(r.supplier?' من '+r.supplier:'')).join('، ')}) ومااتخصمش منه. لو الوارد ده من الطلب، امسح الحركة دي واستلمه من «طلبات الشراء ← استلام»`; }
       // رفع صورة الفاتورة لو اتحطت — الحركة بتتسجل عادي حتى لو الرفع فشل
       const invEl = $('#m-invoice');
       if(invEl && invEl.files && invEl.files[0]){
@@ -9359,9 +9369,9 @@ async function act(a,d){
       finally{ SUBMITTING--; }
     }
     await saveTx(); await saveMain();
-    let closed=0, partial=0;
-    for(const m of moves){ try{ const pm=await applyPurchaseReceipt(m.itemId, m.qty, party, m.id, m.date); pm.forEach(x=>x.includes('اتقفل')?closed++:partial++); }catch(e){} }
-    toast(`اتسجّل وارد ${moves.length} صنف`+(closed?` + اتقفل ${closed} طلب شراء`:'')+(partial?` + ${partial} طلب وصل جزء منه`:'')+invMsg);
+    // الوارد بالجملة كمان منفصل عن طلبات الشراء — مابيخصمش منها
+    const withOpen=moves.filter(m=>openPurchaseFor(m.itemId).length).length;
+    toast(`اتسجّل وارد ${moves.length} صنف`+invMsg+(withOpen?` — ملحوظة: ${withOpen} صنف ليهم طلب شراء مفتوح ومااتخصمش منه`:''));
     ui.bulkIn.qty={}; ui.bulkIn.price={};
     ui.modal = bulkReceiptModal(moves, date, party, '');
     return render();
