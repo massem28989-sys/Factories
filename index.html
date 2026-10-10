@@ -2427,7 +2427,11 @@ async function koHash(branch,pin){
   try{ const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
   catch(e){ return 'h'+hsh(txt)+hsh(txt.split('').reverse().join('')); }
 }
-async function koGetCfg(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {items:v.items||[], pins:v.pins||{}, brands:v.brands||{}}; }
+async function koGetCfg(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {items:v.items||[], pins:v.pins||{}, brands:v.brands||{}, units:v.units||{}}; }
+/* وحدة طلب الفرع لكل صنف — منفصلة تمامًا عن وحدة كارت الأصناف (ما بتغيّرش الكارت).
+   units[itemId] = {unit:'علبة', size:2.5} → العلبة = 2.5 من وحدة الكارت. لو مفيش، الفرع بيطلب بوحدة الكارت */
+function koUnitOf(cfg, it){ const u=((cfg&&cfg.units)||{})[it.id]; const size=u&&+u.size>0?+u.size:1; return {unit:(u&&u.unit)||it.unit||'', size, base:it.unit||''}; }
+const koLineSize = l => +l.size>0 ? +l.size : 1;
 async function koSaveCfg(cfg){ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:KO_CFG_KEY,v:cfg}]}); }
 async function koList(branch){
   let q='stock_settings?'+fEq()+'&k=like.korder_o*&select=v';
@@ -2499,10 +2503,10 @@ function bpNewView(){
     <div class="cattabs">${cats.map(c=>`<button class="cattab ${BP.cat===c?'on':''}" data-bp="cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
     <div class="tblwrap" style="max-height:none"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
       ${shown.map(i=>`<tr${+BP.qty[i.id]>0?' style="background:var(--brand-bg)"':''}><td><div class="iname">${esc(i.name)}</div><div class="hint">${esc(i.cat||'')}</div></td>
-        <td class="n"><div style="display:flex;gap:6px;align-items:center;justify-content:flex-end"><input type="number" min="0" step="any" inputmode="decimal" data-bq="${i.id}" value="${BP.qty[i.id]||''}" style="width:78px;text-align:center"><span class="hint" style="min-width:34px">${esc(i.unit||'')}</span></div></td></tr>`).join('')||`<tr><td colspan="2" class="empty">مفيش أصناف مطابقة</td></tr>`}
+        <td class="n"><div style="display:flex;gap:6px;align-items:center;justify-content:flex-end"><input type="number" min="0" step="any" inputmode="decimal" data-bq="${i.id}" value="${BP.qty[i.id]||''}" style="width:78px;text-align:center"><span class="hint" style="min-width:34px">${esc(koUnitOf(BP.cfg,i).unit)}</span></div></td></tr>`).join('')||`<tr><td colspan="2" class="empty">مفيش أصناف مطابقة</td></tr>`}
     </tbody></table></div></div>
     <div class="panel"><h2>مراجعة وإرسال</h2><div class="pad">
-      ${chosen.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${chosen.map(i=>`<span class="chip">${esc(i.name)} · <b>${fmtP(BP.qty[i.id])}</b> ${esc(i.unit||'')}</span>`).join('')}</div>`:'<div class="hint" style="margin-bottom:10px">اكتب الكميات فوق الأول.</div>'}
+      ${chosen.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${chosen.map(i=>`<span class="chip">${esc(i.name)} · <b>${fmtP(BP.qty[i.id])}</b> ${esc(koUnitOf(BP.cfg,i).unit)}</span>`).join('')}</div>`:'<div class="hint" style="margin-bottom:10px">اكتب الكميات فوق الأول.</div>'}
       <div class="grid">
         <div><label class="f">مطلوبة يوم</label><input type="date" id="bp-need" value="${esc(BP.need||tmr)}" style="width:100%"></div>
         <div style="grid-column:span 2"><label class="f">ملاحظة <span class="hint">(اختياري)</span></label><input type="text" id="bp-note" value="${esc(BP.note)}" style="width:100%"></div>
@@ -2555,7 +2559,7 @@ async function bpAct(a,d){
     if(a==='cat'){ BP.cat=d.v; return bpRender(); }
     if(a==='reload'){ BP.orders=await koList(BP.branch); toast('اتحدثت'); return bpRender(); }
     if(a==='send'){
-      const lines=BP.items.filter(i=>+BP.qty[i.id]>0).map(i=>({itemId:i.id,name:i.name,unit:i.unit,qty:+BP.qty[i.id]}));
+      const lines=BP.items.filter(i=>+BP.qty[i.id]>0).map(i=>{ const u=koUnitOf(BP.cfg,i); return {itemId:i.id,name:i.name,unit:u.unit,qty:+BP.qty[i.id],size:u.size,baseUnit:u.base}; });
       if(!lines.length) return toast('اكتب الكميات الأول',1);
       if(!confirm(`هتبعت طلبية فيها ${lines.length} صنف لفرع ${BP.branch}. تأكيد؟`)) return;
       const btn=document.querySelector('[data-bp="send"]'); if(btn){ btn.disabled=true; btn.textContent='بيبعت…'; }
@@ -2583,7 +2587,7 @@ async function bpAct(a,d){
 }
 
 /* ---------------- شاشة المصنع ---------------- */
-const KO={loaded:false, loading:false, at:0, list:[], cfg:{items:[],pins:{},brands:{}}, err:'', showSetup:false, q:'', cat:'الكل', sel:null, brand:''};
+const KO={loaded:false, loading:false, at:0, list:[], cfg:{items:[],pins:{},brands:{},units:{}}, err:'', showSetup:false, q:'', cat:'الكل', sel:null, brand:'', udraft:null};
 async function koLoad(){
   if(KO.loading) return; KO.loading=true;
   try{ KO.cfg=await koGetCfg(); KO.list=await koList(); KO.err=''; }catch(e){ KO.err=e.message; }
@@ -2603,7 +2607,7 @@ function viewKOrders(){
   const brandSummary = bl.length ? (()=>{
     const inP = o => (o.period ? o.period===S.period : String(o.sentAt||'').slice(0,7)===S.period) && (o.status==='sent'||o.status==='received');
     const rows = bl.map(b=>{ const os=KO.list.filter(o=>inP(o)&&brandOfOrder(o)===b.id);
-      const val=os.reduce((t,o)=>t+o.lines.reduce((u,l)=>u+(+l.sent||0)*((item(l.itemId)||{}).price||0),0),0);
+      const val=os.reduce((t,o)=>t+o.lines.reduce((u,l)=>u+(+l.sent||0)*koLineSize(l)*((item(l.itemId)||{}).price||0),0),0);
       return {b, n:os.length, val}; });
     const none=KO.list.filter(o=>inP(o)&&!brandOfOrder(o));
     return `<div class="panel"><h2>صرف الشهر حسب البراند <em>${periodLabel(S.period)}</em></h2><div class="pad"><div class="cards">
@@ -2624,8 +2628,8 @@ function viewKOrders(){
     ${o.note?`<div class="warnbar" style="margin-top:6px">ملاحظة الفرع: ${esc(o.note)}</div>`:''}
     <div class="tblwrap" style="margin-top:8px;max-height:none"><table><thead><tr><th>الصنف</th><th class="n">مطلوب</th>
       ${mode==='new'?'<th class="n">الرصيد عندك</th><th class="n">هيتبعت</th>':'<th class="n">اتبعت</th>'}${mode==='done'?'<th class="n">الفرع استلم</th>':''}</tr></thead><tbody>
-      ${o.lines.map((l,ix)=>{ const b=bal(l.itemId); const short=b!==null&&b<l.qty;
-        return `<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span></td><td class="n">${fmtP(l.qty)}</td>
+      ${o.lines.map((l,ix)=>{ const sz=koLineSize(l), b0=bal(l.itemId), b=b0===null?null:n2(b0/sz); const short=b!==null&&b<l.qty;
+        return `<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span>${sz!==1?`<div class="hint" style="font-size:11px">1 ${esc(l.unit||'')} = ${fmtP(sz)} ${esc(l.baseUnit||(item(l.itemId)||{}).unit||'')} · المطلوب = ${fmtP(n2(l.qty*sz))} ${esc(l.baseUnit||(item(l.itemId)||{}).unit||'')}</div>`:''}</td><td class="n">${fmtP(l.qty)}</td>
         ${mode==='new'?`<td class="n" style="${short?'color:var(--red);font-weight:600':''}">${b===null?'—':fmt(b)}</td>
           <td class="n"><input type="number" min="0" step="any" data-kosent="${o.id}:${ix}" value="${short?Math.max(0,n2(b)):l.qty}" style="width:80px;text-align:center"></td>`
           :`<td class="n">${fmtP(l.sent||0)}</td>`}
@@ -2659,6 +2663,7 @@ function viewKOrders(){
 }
 function koSetupView(branches){
   if(!KO.sel) KO.sel=new Set(KO.cfg.items);
+  if(!KO.udraft) KO.udraft=JSON.parse(JSON.stringify(KO.cfg.units||{}));
   const cats=cats_ko(); const q=KO.q.trim().toLowerCase();
   const shown=S.items.filter(i=>(KO.cat==='الكل'||i.cat===KO.cat)&&(!q||i.name.toLowerCase().includes(q)));
   return `<div class="panel"><h2>باسورد الفروع <em>${Object.keys(KO.cfg.pins).length} فرع جاهز</em><button class="btn sm" data-act="add-branch" style="margin-inline-start:auto">+ فرع جديد</button></h2>
@@ -2673,18 +2678,28 @@ function koSetupView(branches){
     <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="ko-q" placeholder="دور على صنف…" value="${esc(KO.q)}">
       <button class="btn sm" data-act="ko-sel-shown" data-v="1">حدد المعروض</button><button class="btn sm" data-act="ko-sel-shown" data-v="0">شيل المعروض</button></div></div>
     <div class="cattabs">${cats.map(c=>`<button class="cattab ${KO.cat===c?'on':''}" data-act="ko-cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-    <div class="tblwrap"><table><tbody>${shown.map(i=>`<tr><td style="width:34px"><input type="checkbox" data-koitem="${i.id}" ${KO.sel.has(i.id)?'checked':''}></td>
-      <td>${esc(i.name)}</td><td class="hint">${esc(i.cat)} · ${esc(i.unit)}</td></tr>`).join('')}</tbody></table></div></div>`;
+    <div class="hint" style="margin:0 14px 8px;line-height:1.7">«وحدة الفرع»: الوحدة اللي الفرع بيطلب بيها (زي علبة أو صينية أو كرتونة) و«فيها كام»: كام وحدة من وحدة الكارت. الكارت نفسه ما بيتغيرش — المنصرف بيتسجل بوحدة الكارت تلقائي. سيبها فاضية لو الفرع هيطلب بوحدة الكارت.</div>
+    <div class="tblwrap"><table><thead><tr><th></th><th>الصنف</th><th>وحدة الكارت</th><th>وحدة الفرع</th><th>فيها كام</th></tr></thead><tbody>${shown.map(i=>{ const u=KO.udraft[i.id]||{}; return `<tr><td style="width:34px"><input type="checkbox" data-koitem="${i.id}" ${KO.sel.has(i.id)?'checked':''}></td>
+      <td>${esc(i.name)}<div class="hint">${esc(i.cat)}</div></td><td class="hint">${esc(i.unit)}</td>
+      <td><input type="text" data-kou="${i.id}" value="${esc(u.unit||'')}" placeholder="${esc(i.unit)}" style="width:100px"></td>
+      <td style="white-space:nowrap"><input type="number" min="0" step="any" data-kos="${i.id}" value="${u.size&&+u.size!==1?u.size:''}" placeholder="1" style="width:70px;text-align:center"> <span class="hint">${esc(i.unit)}</span></td></tr>`; }).join('')}</tbody></table></div></div>`;
 }
 function cats_ko(){ return ['الكل',...new Set(S.items.map(i=>i.cat).filter(Boolean))]; }
 async function koAct(a,d){
   if(a==='ko-refresh'){ KO.at=0; await koLoad(); return toast('اتحدثت'); }
-  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; return render(); }
+  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; KO.udraft=null; return render(); }
   if(a==='ko-copy'){ try{ await navigator.clipboard.writeText(koLink()); toast('الرابط اتنسخ — ابعته لكل الفروع'); }catch(e){ prompt('انسخ الرابط:',koLink()); } return; }
   if(a==='ko-cat'){ KO.cat=d.v; return render(); }
   if(a==='ko-brand'){ KO.brand=d.v; return render(); }
   if(a==='ko-sel-shown'){ const q=KO.q.trim().toLowerCase(); S.items.filter(i=>(KO.cat==='الكل'||i.cat===KO.cat)&&(!q||i.name.toLowerCase().includes(q))).forEach(i=>d.v==='1'?KO.sel.add(i.id):KO.sel.delete(i.id)); return render(); }
-  if(a==='ko-items-save'){ KO.cfg.items=[...KO.sel]; await koSaveCfg(KO.cfg); toast(`اتحفظ — ${KO.cfg.items.length} صنف هيظهر للفروع`); return render(); }
+  if(a==='ko-items-save'){
+    const units={}; for(const [id,u] of Object.entries(KO.udraft||{})){ const un=String(u.unit||'').trim(), sz=+u.size||0; if(!un && !(sz>0 && sz!==1)) continue;
+      const it=item(id); if(!it) continue; if(sz<0) return toast(`"${it.name}": الرقم مش صحيح`,1);
+      if(un && un!==it.unit && !(sz>0)) return toast(`"${it.name}": اكتب الـ«${un}» فيها كام ${it.unit}`,1);
+      units[id]={unit:un||it.unit, size:sz>0?sz:1}; }
+    try{ const fresh=await koGetCfg(); KO.cfg={...fresh, items:[...KO.sel], units}; }catch(e){ KO.cfg.items=[...KO.sel]; KO.cfg.units=units; }
+    await koSaveCfg(KO.cfg); KO.udraft=JSON.parse(JSON.stringify(units));
+    toast(`اتحفظ — ${KO.cfg.items.length} صنف هيظهر للفروع${Object.keys(units).length?` · ${Object.keys(units).length} صنف بوحدة خاصة للفروع`:''}`); return render(); }
   if(a==='ko-pin'){
     const pin=prompt(`باسورد فرع "${d.b}" (4 أرقام أو حروف على الأقل):`); if(pin===null) return;
     if(String(pin).trim().length<4) return toast('الباسورد لازم يبقى 4 حروف/أرقام على الأقل',1);
@@ -2735,12 +2750,12 @@ async function koAct(a,d){
     o.lines.forEach((l,ix)=>{ const inp=document.querySelector(`[data-kosent="${o.id}:${ix}"]`); l.sent=inp&&inp.value!==''?Math.max(0,+inp.value):l.qty; });
     const toSend=o.lines.filter(l=>l.sent>0);
     if(!toSend.length) return toast('كل الكميات صفر — لو مش هتبعت حاجة الغي الطلبية',1);
-    if(!confirm(`هيتسجل منصرف "صرف للفروع" لفرع ${o.branch}:\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}`).join('\n')}\n\nتأكيد؟`)) return;
+    if(!confirm(`هيتسجل منصرف "صرف للفروع" لفرع ${o.branch}:\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}${koLineSize(l)!==1?` (= ${fmtP(n2(l.sent*koLineSize(l)))} ${l.baseUnit||(item(l.itemId)||{}).unit||''})`:''}`).join('\n')}\n\nتأكيد؟`)) return;
     SUBMITTING++;
     try{
       const errs=[]; o.moveIds=[];
       for(const l of o.lines){ if(!(l.sent>0)) continue;
-        const res=dispenseOut(l.itemId, l.sent, today(), o.branch, 'صرف للفروع');
+        const res=dispenseOut(l.itemId, n2(l.sent*koLineSize(l)), today(), o.branch, 'صرف للفروع');
         if(res.error){ errs.push(`${l.name}: ${res.error}`); l.sent=0; } else if(res.move) o.moveIds.push(res.move.id); }
       if(!o.moveIds.length){ alert('ما اتسجلش ولا صنف:\n'+errs.join('\n')); return render(); }
       await saveTx();
@@ -6974,6 +6989,9 @@ function bind(){
   { const pq=document.getElementById('pr-qty'); if(pq) pq.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act('pur-add-line',{}); } }); }
   document.querySelectorAll('[data-koitem]').forEach(c=>c.onchange=()=>{ if(!KO.sel) KO.sel=new Set(KO.cfg.items); c.checked?KO.sel.add(c.dataset.koitem):KO.sel.delete(c.dataset.koitem);
     const h=c.closest('.panel').querySelector('h2 em'); if(h) h.textContent=KO.sel.size+' صنف'; });
+  document.querySelectorAll('[data-kou],[data-kos]').forEach(inp=>inp.oninput=()=>{ if(!KO.udraft) KO.udraft={}; const id=inp.dataset.kou||inp.dataset.kos; const u=KO.udraft[id]||(KO.udraft[id]={});
+    if(inp.dataset.kou) u.unit=inp.value; else u.size=inp.value===''?'':+inp.value;
+    if(inp.dataset.kou && inp.value.trim()){ const c=document.querySelector(`[data-koitem="${id}"]`); if(c && !c.checked){ c.checked=true; c.onchange&&c.onchange(); } } });
   { const kq=document.getElementById('ko-q'); if(kq) kq.oninput=()=>{ KO.q=kq.value; const p=kq.selectionStart; render(); const n=document.getElementById('ko-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } }; }
   const root=$('#root');
   root.querySelectorAll('[data-tabgroup]').forEach(b=>b.onclick=()=>{
