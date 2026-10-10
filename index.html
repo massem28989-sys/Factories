@@ -1001,6 +1001,20 @@ async function sset(k,v){
   if(!saved){ const was=MODE; MODE='memory'; if(was!=='memory' && $('#root') && $('#root').dataset.ready) render(); }
   return saved;
 }
+/* فروع/موردين اتضافوا أو اتشالوا على الجهاز ده ولسه ما اتأكدش إنهم اتكتبوا على السيرفر.
+   بيتحفظوا في الجهاز كمان، فلو الصفحة اتقفلت قبل الحفظ ما يضيعوش. السحب والحفظ بيدمجوهم مع نسخة السيرفر. */
+const NAME_ADD={branches:new Set(),suppliers:new Set()}, NAME_DEL={branches:new Set(),suppliers:new Set()};
+try{ const p=JSON.parse(localStorage.getItem('name-pending-'+(new URLSearchParams(location.search).get('factory')||''))||'null');
+  if(p){ ['branches','suppliers'].forEach(k=>{ (p.add&&p.add[k]||[]).forEach(n=>NAME_ADD[k].add(n)); (p.del&&p.del[k]||[]).forEach(n=>NAME_DEL[k].add(n)); }); } }catch(e){}
+function _saveNamePending(){ try{ localStorage.setItem('name-pending-'+(new URLSearchParams(location.search).get('factory')||''), JSON.stringify({add:{branches:[...NAME_ADD.branches],suppliers:[...NAME_ADD.suppliers]},del:{branches:[...NAME_DEL.branches],suppliers:[...NAME_DEL.suppliers]}})); }catch(e){} }
+function markNameAdded(kind,name){ NAME_ADD[kind].add(name); NAME_DEL[kind].delete(name); _saveNamePending(); }
+function markNameRemoved(kind,name){ NAME_DEL[kind].add(name); NAME_ADD[kind].delete(name); _saveNamePending(); }
+function _mergeNames(kind, serverList, def){
+  let l=[...((serverList&&serverList.length)?serverList:[])];
+  NAME_ADD[kind].forEach(n=>{ if(n && !l.includes(n)) l.push(n); });
+  l=l.filter(n=>!NAME_DEL[kind].has(n));
+  return l.length?l:[def];
+}
 async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
@@ -1618,7 +1632,19 @@ async function pushAll(quiet){
   }catch(e){ errors.push('إقفال الفترات: '+e.message); }
 
   try{
+    // قبل ما نكتب الإعدادات، نجيب نسخة السيرفر وندمج قوايم الفروع والموردين — عشان جهاز فاتح من بدري (أو جهاز المدير)
+    // ما يكتبش قايمته القديمة فوق فرع لسه متضاف من جهاز تاني
+    try{
+      const cur=await sb('stock_settings?'+fEq()+'&k=eq.state&select=v',{prefer:'return=representation'});
+      const sv=(cur&&cur[0]&&cur[0].v)||null;
+      if(sv){
+        S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
+        S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
+        ['boMap','boConv','boDone','inboxMap'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+      }
+    }catch(e){}
     await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{}}}]});
+    NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
   DB.busy=false;
@@ -1647,7 +1673,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=(st&&st[0]&&st[0].v&&st[0].v.suppliers&&st[0].v.suppliers.length)?st[0].v.suppliers:['المخزن الرئيسي']; S.branches=(st&&st[0]&&st[0].v&&st[0].v.branches&&st[0].v.branches.length)?st[0].v.branches:['الفرع الرئيسي']; S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -2678,6 +2704,7 @@ async function koAct(a,d){
     try{
       // قايمة الفروع
       const ix=S.branches.indexOf(old); if(ix>=0) S.branches[ix]=nu; else S.branches.push(nu);
+      markNameRemoved('branches', old); markNameAdded('branches', nu);
       // البراند
       if(KO.cfg.brands && KO.cfg.brands[old]!==undefined){ KO.cfg.brands[nu]=KO.cfg.brands[old]; delete KO.cfg.brands[old]; }
       // الباسورد (مربوط بالاسم، فلازم واحد جديد)
@@ -7439,7 +7466,7 @@ function bind(){
     const v=e.target.value.trim();
     if(m.dir==='in' && v && !S.suppliers.includes(v)){
       if(!confirm(`"${v}" مش موجود في قايمة الموردين. تضيفه كمورد جديد؟`)) return render();
-      S.suppliers.push(v); await saveMain();
+      S.suppliers.push(v); markNameAdded('suppliers', v); await saveMain();
     }
     m.party=v; await saveTx(); toast(m.dir==='in'?'اتعدل المورد':'اتعدلت الجهة'); render();
   });
@@ -9256,6 +9283,7 @@ async function act(a,d){
   if(a==='add-supplier'){
     const name=prompt('اسم المورد الجديد:'); if(!name||!name.trim()) return;
     if(!S.suppliers.includes(name.trim())) S.suppliers.push(name.trim());
+    markNameAdded('suppliers', name.trim());
     const dr=captureMoveDraft();
     await saveMain(); toast('اتضاف المورد'); render(); restoreMoveDraft(dr,['m-party']);
     const pp=$('#m-party'); if(pp) pp.value=name.trim(); return;
@@ -9263,6 +9291,7 @@ async function act(a,d){
   if(a==='add-branch'){
     const name=prompt('اسم الفرع الجديد:'); if(!name||!name.trim()) return;
     if(!S.branches.includes(name.trim())) S.branches.push(name.trim());
+    markNameAdded('branches', name.trim());
     const dr=captureMoveDraft();
     await saveMain(); toast('اتضاف الفرع'); render(); restoreMoveDraft(dr,['m-party']);
     const pp=$('#m-party'); if(pp) pp.value=name.trim(); return;
@@ -9772,7 +9801,7 @@ async function boot(){
       const liveTabs = ['count','in','out','branchorders','inbox','dailystock','korders','purchase'];
       // لو المستخدم واقف في أي خانة (بيختار صنف أو بيكتب كمية/سعر) ما نحدّثش الشاشة خالص — كانت بتمسح الصنف اللي اختاره
       const ae=document.activeElement, inField = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select';
-      if(liveTabs.includes(tab) && !typing && !inField && !SUBMITTING && !DB.busy && !ui.modal){
+      if(liveTabs.includes(tab) && !typing && !inField && !SUBMITTING && !DB.busy && !DB.dirty && !ui.modal){
         const draft=captureMoveDraft();
         await pullAll(true);
         if((tab==='purchase'||tab==='in') && Date.now()-PR_FETCHED_AT>30000){ try{ await fetchPurchaseRequests(); }catch(e){} }
