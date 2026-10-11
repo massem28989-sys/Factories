@@ -2427,7 +2427,10 @@ async function koHash(branch,pin){
   try{ const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
   catch(e){ return 'h'+hsh(txt)+hsh(txt.split('').reverse().join('')); }
 }
-async function koGetCfg(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {items:v.items||[], pins:v.pins||{}, brands:v.brands||{}, units:v.units||{}}; }
+async function koGetCfg(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {items:v.items||[], pins:v.pins||{}, brands:v.brands||{}, units:v.units||{}, itemBrands:v.itemBrands||{}}; }
+// الصنف ده بيظهر لفروع أنهي براند؟ ''/مش متحدد = مشترك للكل
+const koItemBrand = (cfg,id) => (((cfg&&cfg.itemBrands)||{})[id])||'';
+const koItemForBrand = (cfg,id,brand) => { const b=koItemBrand(cfg,id); return !b || !brand || b===brand; };
 /* وحدة طلب الفرع لكل صنف — منفصلة تمامًا عن وحدة كارت الأصناف (ما بتغيّرش الكارت).
    units[itemId] = {unit:'علبة', size:2.5} → العلبة = 2.5 من وحدة الكارت. لو مفيش، الفرع بيطلب بوحدة الكارت */
 function koUnitOf(cfg, it){ const u=((cfg&&cfg.units)||{})[it.id]; const size=u&&+u.size>0?+u.size:1; return {unit:(u&&u.unit)||it.unit||'', size, base:it.unit||''}; }
@@ -2454,11 +2457,15 @@ async function branchPortal(){
     BP.cfg=await koGetCfg();
     const its=await sb('stock_items?'+fEq()+'&select=id,name,unit,cat',{prefer:'return=representation'})||[];
     const allow=new Set(BP.cfg.items); BP.items=its.filter(i=>allow.has(i.id)).sort((a,b)=>(a.cat||'').localeCompare(b.cat||'','ar')||a.name.localeCompare(b.name,'ar'));
+    BP.allItems=BP.items;
     try{ const s=JSON.parse(sessionStorage.getItem('bp:'+FACTORY)||'null'); if(s && BP.cfg.pins[s.branch]===s.h) BP.branch=s.branch; }catch(e){}
+    bpApplyBrand();
     try{ const d=JSON.parse(localStorage.getItem('bp-draft:'+FACTORY)||'null'); if(d&&d.qty) BP.qty=d.qty; }catch(e){}
   }catch(e){ BP.err=e.message; }
   bpRender();
 }
+// كل فرع يشوف أصناف البراند بتاعه + الأصناف المشتركة
+function bpApplyBrand(){ const br=BP.branch?((BP.cfg.brands||{})[BP.branch]||''):''; BP.items=(BP.allItems||BP.items).filter(i=>koItemForBrand(BP.cfg,i.id,br)); }
 function bpSaveDraft(){ try{ localStorage.setItem('bp-draft:'+FACTORY,JSON.stringify({qty:BP.qty})); }catch(e){} }
 function bpShell(inner){
   const fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY==='kunafa'?'مصنع الكنافة':FACTORY}).name;
@@ -2551,7 +2558,7 @@ async function bpAct(a,d){
       if(!br||!pin){ err.style.display='block'; err.textContent='اختار الفرع واكتب الباسورد'; return; }
       const h=await koHash(br,pin);
       if(BP.cfg.pins[br]!==h){ err.style.display='block'; err.textContent='الباسورد غلط'; return; }
-      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); }catch(e){}
+      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); }catch(e){} bpApplyBrand();
       BP.tab='new'; return bpRender();
     }
     if(a==='logout'){ BP.branch=''; try{ sessionStorage.removeItem('bp:'+FACTORY); }catch(e){} return bpRender(); }
@@ -2559,6 +2566,7 @@ async function bpAct(a,d){
     if(a==='cat'){ BP.cat=d.v; return bpRender(); }
     if(a==='reload'){ BP.orders=await koList(BP.branch); toast('اتحدثت'); return bpRender(); }
     if(a==='send'){
+      bpApplyBrand();
       const lines=BP.items.filter(i=>+BP.qty[i.id]>0).map(i=>{ const u=koUnitOf(BP.cfg,i); return {itemId:i.id,name:i.name,unit:u.unit,qty:+BP.qty[i.id],size:u.size,baseUnit:u.base}; });
       if(!lines.length) return toast('اكتب الكميات الأول',1);
       if(!confirm(`هتبعت طلبية فيها ${lines.length} صنف لفرع ${BP.branch}. تأكيد؟`)) return;
@@ -2664,8 +2672,11 @@ function viewKOrders(){
 function koSetupView(branches){
   if(!KO.sel) KO.sel=new Set(KO.cfg.items);
   if(!KO.udraft) KO.udraft=JSON.parse(JSON.stringify(KO.cfg.units||{}));
+  if(!KO.bdraft) KO.bdraft=JSON.parse(JSON.stringify(KO.cfg.itemBrands||{}));
+  const BL=koBrands();
   const cats=cats_ko(); const q=KO.q.trim().toLowerCase();
-  const shown=S.items.filter(i=>(KO.cat==='الكل'||i.cat===KO.cat)&&(!q||i.name.toLowerCase().includes(q)));
+  const shown=S.items.filter(i=>(KO.cat==='الكل'||i.cat===KO.cat)&&(!q||i.name.toLowerCase().includes(q))
+    &&(!KO.bview || (KO.bview==='__sel'?KO.sel.has(i.id):(KO.sel.has(i.id) && (KO.bview==='__both'?!(KO.bdraft[i.id]):KO.bdraft[i.id]===KO.bview)))));
   return `<div class="panel"><h2>باسورد الفروع <em>${Object.keys(KO.cfg.pins).length} فرع جاهز</em><button class="btn sm" data-act="add-branch" style="margin-inline-start:auto">+ فرع جديد</button></h2>
     <div class="tblwrap" style="max-height:none"><table><tbody>
       ${branches.length?branches.map(b=>`<tr><td><b>${esc(b)}</b> <button class="btn sm" data-act="ko-rename" data-b="${esc(b)}" title="تعديل اسم الفرع" style="padding:2px 8px;margin-inline-start:4px">✎</button></td>
@@ -2676,18 +2687,31 @@ function koSetupView(branches){
     </tbody></table></div></div>
   <div class="panel"><h2>الأصناف اللي بتظهر للفروع <em>${KO.sel.size} صنف</em><button class="btn sm p" data-act="ko-items-save" style="margin-inline-start:auto">حفظ الأصناف</button></h2>
     <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="ko-q" placeholder="دور على صنف…" value="${esc(KO.q)}">
-      <button class="btn sm" data-act="ko-sel-shown" data-v="1">حدد المعروض</button><button class="btn sm" data-act="ko-sel-shown" data-v="0">شيل المعروض</button></div></div>
+      <button class="btn sm" data-act="ko-sel-shown" data-v="1">حدد المعروض</button><button class="btn sm" data-act="ko-sel-shown" data-v="0">شيل المعروض</button></div>
+      ${BL.length?`<div class="bar" style="margin-top:8px;flex-wrap:wrap;gap:6px"><span class="hint">اعرض:</span>
+        <button class="cattab ${!KO.bview?'on':''}" data-act="ko-bview" data-v="">كل الأصناف</button>
+        <button class="cattab ${KO.bview==='__sel'?'on':''}" data-act="ko-bview" data-v="__sel">المتحدد بس</button>
+        ${BL.map(b=>`<button class="cattab ${KO.bview===b.id?'on':''}" data-act="ko-bview" data-v="${b.id}">${esc(b.name)} بس</button>`).join('')}
+        <button class="cattab ${KO.bview==='__both'?'on':''}" data-act="ko-bview" data-v="__both">المشترك</button>
+        <span class="hint" style="margin-inline-start:auto">خلّي المعروض:</span>
+        ${BL.map(b=>`<button class="btn sm" data-act="ko-brand-shown" data-v="${b.id}">${esc(b.name)}</button>`).join('')}
+        <button class="btn sm" data-act="ko-brand-shown" data-v="">مشترك</button></div>`:''}</div>
     <div class="cattabs">${cats.map(c=>`<button class="cattab ${KO.cat===c?'on':''}" data-act="ko-cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
     <div class="hint" style="margin:0 14px 8px;line-height:1.7">«وحدة الفرع»: الوحدة اللي الفرع بيطلب بيها (زي علبة أو صينية أو كرتونة) و«فيها كام»: كام وحدة من وحدة الكارت. الكارت نفسه ما بيتغيرش — المنصرف بيتسجل بوحدة الكارت تلقائي. سيبها فاضية لو الفرع هيطلب بوحدة الكارت.</div>
-    <div class="tblwrap"><table><thead><tr><th></th><th>الصنف</th><th>وحدة الكارت</th><th>وحدة الفرع</th><th>فيها كام</th></tr></thead><tbody>${shown.map(i=>{ const u=KO.udraft[i.id]||{}; return `<tr><td style="width:34px"><input type="checkbox" data-koitem="${i.id}" ${KO.sel.has(i.id)?'checked':''}></td>
-      <td>${esc(i.name)}<div class="hint">${esc(i.cat)}</div></td><td class="hint">${esc(i.unit)}</td>
+    <div class="tblwrap"><table><thead><tr><th></th><th>الصنف</th>${BL.length?'<th>يظهر لفروع</th>':''}<th>وحدة الكارت</th><th>وحدة الفرع</th><th>فيها كام</th></tr></thead><tbody>${shown.map(i=>{ const u=KO.udraft[i.id]||{}; return `<tr><td style="width:34px"><input type="checkbox" data-koitem="${i.id}" ${KO.sel.has(i.id)?'checked':''}></td>
+      <td>${esc(i.name)}<div class="hint">${esc(i.cat)}</div></td>
+      ${BL.length?`<td><select data-kob="${i.id}" style="min-width:120px"><option value="">الاتنين (مشترك)</option>${BL.map(b=>`<option value="${b.id}" ${KO.bdraft[i.id]===b.id?'selected':''}>${esc(b.name)} بس</option>`).join('')}</select></td>`:''}
+      <td class="hint">${esc(i.unit)}</td>
       <td><input type="text" data-kou="${i.id}" value="${esc(u.unit||'')}" placeholder="${esc(i.unit)}" style="width:100px"></td>
       <td style="white-space:nowrap"><input type="number" min="0" step="any" data-kos="${i.id}" value="${u.size&&+u.size!==1?u.size:''}" placeholder="1" style="width:70px;text-align:center"> <span class="hint">${esc(i.unit)}</span></td></tr>`; }).join('')}</tbody></table></div></div>`;
 }
 function cats_ko(){ return ['الكل',...new Set(S.items.map(i=>i.cat).filter(Boolean))]; }
 async function koAct(a,d){
   if(a==='ko-refresh'){ KO.at=0; await koLoad(); return toast('اتحدثت'); }
-  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; KO.udraft=null; return render(); }
+  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; KO.udraft=null; KO.bdraft=null; KO.bview=''; return render(); }
+  if(a==='ko-bview'){ KO.bview=d.v; return render(); }
+  if(a==='ko-brand-shown'){ const q=KO.q.trim().toLowerCase(); const ids=[...document.querySelectorAll('[data-kob]')].map(x=>x.dataset.kob);
+    ids.forEach(id=>{ if(d.v) KO.bdraft[id]=d.v; else delete KO.bdraft[id]; KO.sel.add(id); }); toast(`${ids.length} صنف اتعلّم ${d.v?'لـ'+(koBrand(d.v)||{}).name+' بس':'مشترك'} — متنساش «حفظ الأصناف»`); return render(); }
   if(a==='ko-copy'){ try{ await navigator.clipboard.writeText(koLink()); toast('الرابط اتنسخ — ابعته لكل الفروع'); }catch(e){ prompt('انسخ الرابط:',koLink()); } return; }
   if(a==='ko-cat'){ KO.cat=d.v; return render(); }
   if(a==='ko-brand'){ KO.brand=d.v; return render(); }
@@ -2697,8 +2721,9 @@ async function koAct(a,d){
       const it=item(id); if(!it) continue; if(sz<0) return toast(`"${it.name}": الرقم مش صحيح`,1);
       if(un && un!==it.unit && !(sz>0)) return toast(`"${it.name}": اكتب الـ«${un}» فيها كام ${it.unit}`,1);
       units[id]={unit:un||it.unit, size:sz>0?sz:1}; }
-    try{ const fresh=await koGetCfg(); KO.cfg={...fresh, items:[...KO.sel], units}; }catch(e){ KO.cfg.items=[...KO.sel]; KO.cfg.units=units; }
-    await koSaveCfg(KO.cfg); KO.udraft=JSON.parse(JSON.stringify(units));
+    const itemBrands={}; Object.entries(KO.bdraft||{}).forEach(([id,b])=>{ if(b && item(id)) itemBrands[id]=b; });
+    try{ const fresh=await koGetCfg(); KO.cfg={...fresh, items:[...KO.sel], units, itemBrands}; }catch(e){ KO.cfg.items=[...KO.sel]; KO.cfg.units=units; KO.cfg.itemBrands=itemBrands; }
+    await koSaveCfg(KO.cfg); KO.udraft=JSON.parse(JSON.stringify(units)); KO.bdraft=JSON.parse(JSON.stringify(itemBrands));
     toast(`اتحفظ — ${KO.cfg.items.length} صنف هيظهر للفروع${Object.keys(units).length?` · ${Object.keys(units).length} صنف بوحدة خاصة للفروع`:''}`); return render(); }
   if(a==='ko-pin'){
     const pin=prompt(`باسورد فرع "${d.b}" (4 أرقام أو حروف على الأقل):`); if(pin===null) return;
@@ -6989,6 +7014,8 @@ function bind(){
   { const pq=document.getElementById('pr-qty'); if(pq) pq.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act('pur-add-line',{}); } }); }
   document.querySelectorAll('[data-koitem]').forEach(c=>c.onchange=()=>{ if(!KO.sel) KO.sel=new Set(KO.cfg.items); c.checked?KO.sel.add(c.dataset.koitem):KO.sel.delete(c.dataset.koitem);
     const h=c.closest('.panel').querySelector('h2 em'); if(h) h.textContent=KO.sel.size+' صنف'; });
+  document.querySelectorAll('[data-kob]').forEach(sel=>sel.onchange=()=>{ if(!KO.bdraft) KO.bdraft={}; if(sel.value) KO.bdraft[sel.dataset.kob]=sel.value; else delete KO.bdraft[sel.dataset.kob];
+    const c=document.querySelector(`[data-koitem="${sel.dataset.kob}"]`); if(c && !c.checked){ c.checked=true; c.onchange&&c.onchange(); } });
   document.querySelectorAll('[data-kou],[data-kos]').forEach(inp=>inp.oninput=()=>{ if(!KO.udraft) KO.udraft={}; const id=inp.dataset.kou||inp.dataset.kos; const u=KO.udraft[id]||(KO.udraft[id]={});
     if(inp.dataset.kou) u.unit=inp.value; else u.size=inp.value===''?'':+inp.value;
     if(inp.dataset.kou && inp.value.trim()){ const c=document.querySelector(`[data-koitem="${id}"]`); if(c && !c.checked){ c.checked=true; c.onchange&&c.onchange(); } } });
