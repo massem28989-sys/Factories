@@ -2427,7 +2427,19 @@ async function koHash(branch,pin){
   try{ const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(txt)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
   catch(e){ return 'h'+hsh(txt)+hsh(txt.split('').reverse().join('')); }
 }
-async function koGetCfg(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {items:v.items||[], pins:v.pins||{}, brands:v.brands||{}, units:v.units||{}, itemBrands:v.itemBrands||{}}; }
+async function koGetCfgRaw(){ const r=await sb('stock_settings?'+fEq()+'&k=eq.'+KO_CFG_KEY+'&select=v',{prefer:'return=representation'}); const v=(r&&r[0]&&r[0].v)||{}; return {...v, items:v.items||[], pins:v.pins||{}, brands:v.brands||{}, units:v.units||{}, itemBrands:v.itemBrands||{}}; }
+let KO_BASE=null; // نسخة الإعدادات زي ما اتقرت/اتكتبت آخر مرة — عشان نعرف إيه اللي اتغير فعلًا على الجهاز ده
+const _koSnap = c => JSON.parse(JSON.stringify(c||{}));
+async function koGetCfg(){ const c=await koGetCfgRaw(); KO_BASE=_koSnap(c); return c; }
+// بيطبّق اللي اتغير بس (من base لـ mine) على أحدث نسخة من السيرفر — عشان جهاز/تاب فاتح نسخة قديمة ما يمسحش تعديلات اتعملت بعده
+function _koMerge(fresh, base, mine){
+  const r=_koSnap(fresh);
+  ['pins','brands','units','itemBrands'].forEach(k=>{ const b=(base&&base[k])||{}, m=(mine&&mine[k])||{}; r[k]=r[k]||{};
+    new Set([...Object.keys(b),...Object.keys(m)]).forEach(x=>{ if(JSON.stringify(b[x])!==JSON.stringify(m[x])){ if(m[x]===undefined) delete r[k][x]; else r[k][x]=m[x]; } }); });
+  const bi=new Set((base&&base.items)||[]), mi=new Set((mine&&mine.items)||[]), ri=new Set(r.items||[]);
+  mi.forEach(x=>{ if(!bi.has(x)) ri.add(x); }); bi.forEach(x=>{ if(!mi.has(x)) ri.delete(x); });
+  r.items=[...ri]; return r;
+}
 // الصنف ده بيظهر لفروع أنهي براند؟ ''/مش متحدد = مشترك للكل
 const koItemBrand = (cfg,id) => (((cfg&&cfg.itemBrands)||{})[id])||'';
 const koItemForBrand = (cfg,id,brand) => { const b=koItemBrand(cfg,id); return !b || !brand || b===brand; };
@@ -2435,7 +2447,13 @@ const koItemForBrand = (cfg,id,brand) => { const b=koItemBrand(cfg,id); return !
    units[itemId] = {unit:'علبة', size:2.5} → العلبة = 2.5 من وحدة الكارت. لو مفيش، الفرع بيطلب بوحدة الكارت */
 function koUnitOf(cfg, it){ const u=((cfg&&cfg.units)||{})[it.id]; const size=u&&+u.size>0?+u.size:1; return {unit:(u&&u.unit)||it.unit||'', size, base:it.unit||''}; }
 const koLineSize = l => +l.size>0 ? +l.size : 1;
-async function koSaveCfg(cfg){ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:KO_CFG_KEY,v:cfg}]}); }
+async function koSaveCfg(cfg){
+  let out=cfg;
+  if(KO_BASE){ const fresh=await koGetCfgRaw(); out=_koMerge(fresh, KO_BASE, cfg); }
+  await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:KO_CFG_KEY,v:out}]});
+  KO_BASE=_koSnap(out);
+  if(cfg && cfg!==out){ ['items','pins','brands','units','itemBrands'].forEach(k=>cfg[k]=_koSnap(out[k])); }
+}
 async function koList(branch){
   let q='stock_settings?'+fEq()+'&k=like.korder_o*&select=v';
   if(branch) q+='&v->>branch=eq.'+encodeURIComponent(branch);
@@ -2470,6 +2488,7 @@ function bpSaveDraft(){ try{ localStorage.setItem('bp-draft:'+FACTORY,JSON.strin
 function bpShell(inner){
   const fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY==='kunafa'?'مصنع الكنافة':FACTORY}).name;
   const br = BP.branch ? koBrandOf(BP.cfg,BP.branch) : null;
+
   const logo = br ? br.logo() : FACTORY_LOGOS[FACTORY];
   return langFab()+`<div id="toast"></div><header><div class="wrap"><div class="hrow">
     ${logo?`<img class="hlogo" src="${logo}" alt="">`:''}
@@ -2670,7 +2689,7 @@ function viewKOrders(){
     ${done.length?done.map(o=>orderCard(o,'done')).join(''):'<div class="empty">مفيش</div>'}</div>`;
 }
 function koSetupView(branches){
-  if(!KO.sel) KO.sel=new Set(KO.cfg.items);
+  if(!KO.sel){ KO.sel=new Set(KO.cfg.items); KO.dbase=_koSnap({items:KO.cfg.items, units:KO.cfg.units||{}, itemBrands:KO.cfg.itemBrands||{}}); }
   if(!KO.udraft) KO.udraft=JSON.parse(JSON.stringify(KO.cfg.units||{}));
   if(!KO.bdraft) KO.bdraft=JSON.parse(JSON.stringify(KO.cfg.itemBrands||{}));
   const BL=koBrands();
@@ -2708,7 +2727,8 @@ function koSetupView(branches){
 function cats_ko(){ return ['الكل',...new Set(S.items.map(i=>i.cat).filter(Boolean))]; }
 async function koAct(a,d){
   if(a==='ko-refresh'){ KO.at=0; await koLoad(); return toast('اتحدثت'); }
-  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; KO.udraft=null; KO.bdraft=null; KO.bview=''; return render(); }
+  if(a==='ko-setup'){ KO.showSetup=!KO.showSetup; KO.sel=null; KO.udraft=null; KO.bdraft=null; KO.dbase=null; KO.bview='';
+    if(KO.showSetup){ try{ KO.cfg=await koGetCfg(); }catch(e){} } return render(); }
   if(a==='ko-bview'){ KO.bview=d.v; return render(); }
   if(a==='ko-brand-shown'){ const q=KO.q.trim().toLowerCase(); const ids=[...document.querySelectorAll('[data-kob]')].map(x=>x.dataset.kob);
     ids.forEach(id=>{ if(d.v) KO.bdraft[id]=d.v; else delete KO.bdraft[id]; KO.sel.add(id); }); toast(`${ids.length} صنف اتعلّم ${d.v?'لـ'+(koBrand(d.v)||{}).name+' بس':'مشترك'} — متنساش «حفظ الأصناف»`); return render(); }
@@ -2722,8 +2742,11 @@ async function koAct(a,d){
       if(un && un!==it.unit && !(sz>0)) return toast(`"${it.name}": اكتب الـ«${un}» فيها كام ${it.unit}`,1);
       units[id]={unit:un||it.unit, size:sz>0?sz:1}; }
     const itemBrands={}; Object.entries(KO.bdraft||{}).forEach(([id,b])=>{ if(b && item(id)) itemBrands[id]=b; });
-    try{ const fresh=await koGetCfg(); KO.cfg={...fresh, items:[...KO.sel], units, itemBrands}; }catch(e){ KO.cfg.items=[...KO.sel]; KO.cfg.units=units; KO.cfg.itemBrands=itemBrands; }
-    await koSaveCfg(KO.cfg); KO.udraft=JSON.parse(JSON.stringify(units)); KO.bdraft=JSON.parse(JSON.stringify(itemBrands));
+    // بنطبّق اللي اتغير في الشاشة دي بس (مقارنة باللي كان ساعة ما فتحتها) على أحدث إعدادات — مش نكتب القايمة كلها من الأول
+    const mine=_koMerge({items:KO.cfg.items, units:KO.cfg.units||{}, itemBrands:KO.cfg.itemBrands||{}, pins:{}, brands:{}}, KO.dbase||{}, {items:[...KO.sel], units, itemBrands});
+    KO.cfg.items=mine.items; KO.cfg.units=mine.units; KO.cfg.itemBrands=mine.itemBrands;
+    await koSaveCfg(KO.cfg);
+    KO.sel=null; KO.udraft=null; KO.bdraft=null; KO.dbase=null;
     toast(`اتحفظ — ${KO.cfg.items.length} صنف هيظهر للفروع${Object.keys(units).length?` · ${Object.keys(units).length} صنف بوحدة خاصة للفروع`:''}`); return render(); }
   if(a==='ko-pin'){
     const pin=prompt(`باسورد فرع "${d.b}" (4 أرقام أو حروف على الأقل):`); if(pin===null) return;
