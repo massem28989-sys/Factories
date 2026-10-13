@@ -2178,13 +2178,14 @@ function parseRecipeImport(text, skipHeader){
 
   const byRecipe = {};
   const errors = [];
+  const badRecipes = new Set(); // وصفة فيها سطر غلط — ما تتستوردش ناقصة
   lines.forEach((line, idx)=>{
     const p = splitRow(line).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
     const [rName, outName, outQty, outUnit, matName, matQty] = p;
     const rowNo = idx + (skipHeader?2:1);
     if(!rName || !outName || !matName){ errors.push(`سطر ${rowNo}: ناقص اسم الوصفة أو المنتج أو الخامة`); return; }
-    if(!(+outQty>0)){ errors.push(`سطر ${rowNo}: الكمية الناتجة لازم تكون رقم أكبر من صفر`); return; }
-    if(!(+matQty>0)){ errors.push(`سطر ${rowNo}: كمية الخامة "${matName}" لازم تكون رقم أكبر من صفر`); return; }
+    if(!(+outQty>0)){ errors.push(`سطر ${rowNo}: الكمية الناتجة لازم تكون رقم أكبر من صفر`); badRecipes.add(rName); return; }
+    if(!(+matQty>0)){ errors.push(`سطر ${rowNo}: كمية الخامة "${matName}" لازم تكون رقم أكبر من صفر`); badRecipes.add(rName); return; }
 
     if(!byRecipe[rName]) byRecipe[rName] = { name:rName, outName, outQty:+outQty, outUnit:outUnit||'', lines:[] };
     byRecipe[rName].lines.push({ matName, qty:+matQty });
@@ -2199,6 +2200,7 @@ function parseRecipeImport(text, skipHeader){
       return { ...l, item: it||null };
     });
     const missing = lines.filter(l=>!l.item).map(l=>l.matName);
+    if(badRecipes.has(r.name)) missing.push('(سطر فيه كمية ناقصة — صلّحه في الشيت)');
     const exists = S.recipes.find(x=>norm(x.name)===norm(r.name));
     return { ...r, outItem:outIt||null, lines, missing, exists:!!exists };
   });
@@ -3799,6 +3801,7 @@ async function fetchBranchOrders(){
     });
     orders.sort((a,b)=> new Date(b.submittedAt) - new Date(a.submittedAt));
     BO.totals=totals; BO.orders=orders; BO.ordersCount=ordersCount; BO.branchesCount=branches.size;
+    BO.fetchedKey=BO.from+'~'+BO.to;
   }catch(e){ BO.err=e.message; }
   await fetchFactoryChangeRequests();
   await fetchFactoryShortageReports();
@@ -3950,19 +3953,61 @@ function boKey(faroojName){ return `${BO.from}~${BO.to}~${faroojName}`; }
 function boIsDone(faroojName){ return !!(S.boDone && S.boDone[boKey(faroojName)]); }
 
 function viewBranchOrders(){
-  if(!BO.from){ const d=new Date(); d.setDate(d.getDate()-7); BO.from=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; BO.to=today(); }
+  if(!BO.from){ BO.from=today(); BO.to=today(); if(!BO.view || BO.view==='totals') BO.view='core'; }
   const rows = Object.values(BO.totals);
+  const oneDay = BO.from===BO.to;
+  const dShift = n => { const d=new Date(BO.from+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+  const dayName = d => { try{ return new Date(d+'T12:00:00').toLocaleDateString(LANG==='en'?'en-GB':'ar-EG',{weekday:'long',day:'numeric',month:'long'}); }catch(e){ return d; } };
+  const multi = (()=>{ const c={}; BO.orders.forEach(o=>c[o.branch]=(c[o.branch]||0)+1); return Object.entries(c).filter(([b,n])=>n>1); })();
+  const stepBtn = (v,label,extra='') => `<button class="cattab ${BO.view===v?'on':''}" data-boview="${v}" ${extra}>${label}</button>`;
   return `
   <div class="panel"><div class="pad">
-    <div class="hint" style="margin-bottom:10px">بتجيب الكمية الإجمالية المطلوبة من كل صنف من "لوحة طلبيات المصنع" في تطبيق الفروج. تقدر تعدّل الكميات مباشرة من جداول "اجمالي الفروع"/"المقبلات"، وتضيف صنف جديد لطلبية فرع من الزرار تحت. أي تعديل بيتكتب فعليًا في طلبية الفرع. دوس "صرف" جنب أي صنف عشان يتصرف من مخزنك — لو ليه وصفة، الخامات هتتخصم تلقائي زي أي صرف عادي.
-      ${rows.length?`<button class="btn sm p" data-act="bo-add-item-open" style="margin-inline-start:8px">+ إضافة صنف لطلبية فرع</button>`:''}
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <b style="font-size:16px">طلبية يوم</b>
+      <button class="btn sm" data-act="bo-day" data-v="${dShift(-1)}" title="اليوم اللي قبله">◀ قبله</button>
+      <input type="date" id="bo-day" value="${BO.from}" style="font-size:15px;padding:6px 10px">
+      <button class="btn sm" data-act="bo-day" data-v="${dShift(1)}" title="اليوم اللي بعده">بعده ▶</button>
+      <button class="btn sm ${BO.from===today()&&oneDay?'p':''}" data-act="bo-day" data-v="${today()}">النهارده</button>
+      <span class="hint">${oneDay?esc(dayName(BO.from)):`فترة من ${esc(BO.from)} لـ ${esc(BO.to)}`}</span>
+      <button class="btn sm" data-act="bo-range-toggle" style="margin-inline-start:auto">${BO.showRange?'إخفاء الفترة':'فترة أكتر من يوم'}</button>
     </div>
-    <div class="grid">
+    ${BO.showRange?`<div class="grid" style="margin-top:10px">
       <div><label class="f">من تاريخ</label><input type="date" id="bo-from" value="${BO.from}" style="width:100%"></div>
       <div><label class="f">إلى تاريخ</label><input type="date" id="bo-to" value="${BO.to}" style="width:100%"></div>
-      <div style="align-self:end"><button class="btn p" data-act="bo-fetch" ${BO.loading?'disabled':''} style="width:100%">${BO.loading?'جاري الجلب…':'جلب الطلبيات من الفروج'}</button></div>
-    </div>
+      <div style="align-self:end"><button class="btn p" data-act="bo-fetch" ${BO.loading?'disabled':''} style="width:100%">${BO.loading?'جاري الجلب…':'جلب الفترة'}</button></div>
+    </div>`:''}
+    ${BO.loading?`<div class="hint" style="margin-top:8px">جاري جلب الطلبيات من تطبيق الفروج…</div>`:''}
     ${BO.err?`<div class="warnbar" style="margin-top:10px">${esc(BO.err)}</div>`:''}
+    ${!oneDay&&rows.length?`<div class="warnbar" style="margin-top:10px">انت فاتح فترة أكتر من يوم — الإجمالي بيجمع كل الأيام. للطباعة والتعديل اليومي ارجع لـ«طلبية يوم» واختار يوم واحد.</div>`:''}
+    ${multi.length?`<div class="warnbar" style="margin-top:10px">⚠️ فروع ليها أكتر من طلبية في ${oneDay?'اليوم ده':'الفترة دي'}: ${multi.map(([b,n])=>`${esc(b)} (${n})`).join('، ')} — جداول التعديل بتعرض أحدث طلبية بس، والباقي تلاقيه في «كل طلبية فرع لوحدها».</div>`:''}
+  </div></div>
+  ${rows.length?`<div class="panel"><div class="pad">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+      <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
+        <div style="font-weight:700;margin-bottom:6px">① راجع وعدّل</div>
+        <div class="hint" style="margin-bottom:6px">اكتب الرقم في الخانة — بيتحفظ في طلبية الفرع على طول</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('core','الأصناف الأساسية')}${stepBtn('appet','المقبلات والصوصات')}${NADER_SAUCES.length?stepBtn('nader','صوصات نادر'):''}${extraItemsList().length?stepBtn('extra',`أصناف إضافية (${extraItemsList().length})`):''}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
+        <div style="font-weight:700;margin-bottom:6px">② اطبع</div>
+        <div class="hint" style="margin-bottom:6px">بعد ما تخلص التعديل</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <button class="btn sm p" data-act="bo-print" data-v="sheet">🖨️ شيت التحضير (كل الفروع)</button>
+          <button class="btn sm p" data-act="bo-print" data-v="branches">🖨️ إذن تسليم لكل فرع</button>
+        </div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
+        <div style="font-weight:700;margin-bottom:6px">③ اصرف من المخزن</div>
+        <div class="hint" style="margin-bottom:6px">آخر خطوة — بيخصم الإجمالي من المخزون</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('totals',`الإجمالي والصرف (${rows.length} صنف)`)}</div>
+      </div>
+    </div>
+  </div></div>`:''}
+  <div class="panel"><div class="pad">
+    <div class="hint" style="margin-bottom:10px;display:none">بتجيب الكمية الإجمالية المطلوبة من كل صنف من "لوحة طلبيات المصنع" في تطبيق الفروج. تقدر تعدّل الكميات مباشرة من جداول "اجمالي الفروع"/"المقبلات"، وتضيف صنف جديد لطلبية فرع من الزرار تحت. أي تعديل بيتكتب فعليًا في طلبية الفرع. دوس "صرف" جنب أي صنف عشان يتصرف من مخزنك — لو ليه وصفة، الخامات هتتخصم تلقائي زي أي صرف عادي.
+      ${rows.length?`<button class="btn sm p" data-act="bo-add-item-open" style="margin-inline-start:8px">+ إضافة صنف لطلبية فرع</button>`:''}
+    </div>
+    ${!rows.length&&!BO.loading?`<div class="empty" style="padding:6px">${BO.fetchedKey===BO.from+'~'+BO.to?'مفيش طلبيات من الفروع في اليوم ده':'اختار اليوم وهتتجاب الطلبيات لوحدها'} <button class="btn sm p" data-act="bo-fetch" style="margin-inline-start:8px">جلب الطلبيات</button></div>`:''}
     ${rows.length?(()=>{
       const doneN = rows.filter(r=>boIsDone(r.name)).length;
       const readyN = rows.filter(r=>!boIsDone(r.name) && findMatchingLocalItem(r.name)).length;
@@ -3977,12 +4022,7 @@ function viewBranchOrders(){
   </div></div>
   ${(rows.length || BO.changes.length) ?`<div class="panel"><div class="pad">
     <div class="bar">
-      <button class="btn sm ${BO.view==='totals'?'p':''}" data-boview="totals">الإجمالي المطلوب (${rows.length} صنف)</button>
-      <button class="btn sm ${BO.view==='orders'?'p':''}" data-boview="orders">طلبيات الفروع (${BO.orders.length})</button>
-      <button class="btn sm ${BO.view==='core'?'p':''}" data-boview="core">اجمالي الفروع</button>
-      <button class="btn sm ${BO.view==='appet'?'p':''}" data-boview="appet">المقبلات والصوصات</button>
-      ${NADER_SAUCES.length?`<button class="btn sm ${BO.view==='nader'?'p':''}" data-boview="nader">صوصات نادر</button>`:''}
-      ${(()=>{ const extra=extraItemsList(); return extra.length?`<button class="btn sm ${BO.view==='extra'?'p':''}" data-boview="extra">أصناف إضافية (${extra.length})</button>`:''; })()}
+      <span class="hint">أدوات تانية:</span>
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
@@ -7478,6 +7518,8 @@ function bind(){
     toast(`اتثبتت المطابقة: ${it?it.name:''}`);
     render();
   });
+  const boDay=$('#bo-day'); if(boDay) boDay.onchange=e=>{ if(!e.target.value) return; BO.from=e.target.value; BO.to=e.target.value; fetchBranchOrders(); };
+  if(tab==='branchorders' && BRANCH_APP && !BO.loading && BO.from && BO.fetchedKey!==BO.from+'~'+BO.to && !BO.autoTried){ BO.autoTried=true; setTimeout(()=>fetchBranchOrders(),0); }
   const boFrom=$('#bo-from'); if(boFrom) boFrom.onchange=e=>{BO.from=e.target.value;};
   const boTo=$('#bo-to'); if(boTo) boTo.onchange=e=>{BO.to=e.target.value;};
   const q=$('#q'); if(q){ q.oninput=e=>{ui.q=e.target.value; const p=e.target.selectionStart; render(); const n=$('#q'); n.focus(); n.setSelectionRange(p,p);}; }
@@ -8366,6 +8408,56 @@ function boAddItemModal(){
 
 // أي صنف موجود في طلبيات الفروع بس مش موجود في أي من الشيتات الثلاثة الثابتة (اجمالي الفروع/المقبلات/نادر) —
 // بيظهر هنا تلقائي، عشان أي صنف تضيفه (أو أي صنف الفرع طلبه لوحده) يبقى ليه جدول قابل للتعديل من غير ما نغلط في تصنيفه يدوي
+/* طباعة طلبية الفروج: شيت تحضير (كل الفروع × الأصناف) أو إذن تسليم لكل فرع في صفحة */
+function boPrint(kind){
+  if(!BO.orders.length) return toast('مفيش طلبيات تتطبع — اختار اليوم الأول',1);
+  const w=window.open('','_blank'); if(!w){ toast('المتصفح منع فتح نافذة الطباعة — اسمح بالـ popups',1); return; }
+  const fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:''}).name||'';
+  const logo=FACTORY_LOGOS[FACTORY]||'';
+  const dayTxt = BO.from===BO.to ? (()=>{ try{ return new Date(BO.from+'T12:00:00').toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }catch(e){ return BO.from; } })() : `من ${BO.from} لـ ${BO.to}`;
+  // أحدث طلبية لكل فرع (نفس اللي بيظهر في جداول التعديل) + لو فيه أكتر من طلبية بنجمعهم في الطباعة
+  const byBranch=new Map();
+  BO.orders.forEach(o=>{ const m=byBranch.get(o.branch)||new Map(); (o.items||[]).forEach(it=>{ if(!(+it.qty>0)) return; const k=it.name; const cur=m.get(k)||{name:it.name,unit:it.unit,qty:0}; cur.qty=n2(cur.qty+(+it.qty||0)); m.set(k,cur); }); byBranch.set(o.branch,m); });
+  const branches=[...byBranch.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
+  const lbl = n => { const all=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES]; const f=all.find(x=>x.name===n); return f?f.label:n; };
+  const groups=[['الأصناف الأساسية',CORE_ITEMS],['المقبلات والصوصات',APPETIZER_ITEMS],...(NADER_SAUCES.length?[['صوصات نادر',NADER_SAUCES]]:[]),['أصناف إضافية',extraItemsList()]];
+  const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">اتطبعت ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
+  let body='';
+  if(kind==='sheet'){
+    groups.forEach(([title,list],gi)=>{
+      const cols=list.filter(ci=>branches.some(b=>(byBranch.get(b).get(ci.name)||{}).qty>0));
+      if(!cols.length) return;
+      const tot={}; cols.forEach(c=>tot[c.name]=0);
+      const rowsH=branches.filter(b=>cols.some(c=>(byBranch.get(b).get(c.name)||{}).qty>0)).map((b,i)=>`<tr><td class="c">${i+1}</td><td class="br">${esc(b)}</td>${cols.map(c=>{ const v=(byBranch.get(b).get(c.name)||{}).qty||0; tot[c.name]+=v; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('');
+      body+=`<section class="${gi?'pb':''}">${head('شيت تحضير طلبيات الفروع',title)}
+        <table class="mx"><thead><tr><th style="width:26px">#</th><th>الفرع</th>${cols.map(c=>`<th>${esc(lbl(c.name))}<small>${esc((byBranch.get(branches.find(b=>byBranch.get(b).get(c.name)))||new Map()).get(c.name)?.unit||'')}</small></th>`).join('')}</tr></thead>
+        <tbody>${rowsH}</tbody><tfoot><tr><td></td><td>الإجمالي</td>${cols.map(c=>`<td class="c">${fmtP(n2(tot[c.name]))}</td>`).join('')}</tr></tfoot></table>
+        <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
+    });
+  } else {
+    branches.forEach((b,bi)=>{
+      const items=[...byBranch.get(b).values()];
+      const order=g=>{ const i=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES].findIndex(x=>x.name===g.name); return i<0?999:i; };
+      items.sort((x,y)=>order(x)-order(y)||x.name.localeCompare(y.name,'ar'));
+      body+=`<section class="${bi?'pb':''}">${head('إذن تسليم طلبية',b)}
+        <div class="meta"><div><b>الفرع</b>${esc(b)}</div><div><b>عدد الأصناف</b>${items.length}</div><div><b>السواق</b></div></div>
+        <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">المطلوب</th><th style="width:12%">الوحدة</th><th style="width:16%">اتبعت فعلًا</th><th style="width:18%">ملاحظات</th></tr></thead>
+        <tbody>${items.map((it,i)=>`<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(it.unit||'')}</td><td></td><td></td></tr>`).join('')}</tbody></table>
+        <div class="sig"><div>المسلّم (المصنع)</div><div>السواق</div><div>المستلم (الفرع)</div></div></section>`;
+    });
+  }
+  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${kind==='sheet'?'شيت التحضير':'أذونات التسليم'} — ${esc(BO.from)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>@page{size:A4 ${kind==='sheet'?'landscape':'portrait'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
+  .hd{display:flex;align-items:center;gap:12px;border-bottom:4px solid #8E1A20;padding-bottom:8px;margin-bottom:10px}.hd img{width:52px;height:52px;object-fit:contain}.hd h1{margin:0;font-size:20px;color:#8E1A20}.hd .s{color:#555;font-size:12px}.hd .r{margin-inline-start:auto;color:#777;font-size:11px}
+  table{width:100%;border-collapse:collapse}th{background:#F6E3E1;color:#5a0f14;border:1px solid #bbb;padding:6px 4px;font-size:11.5px}th small{display:block;font-weight:400;color:#888;font-size:10px}td{border:1px solid #bbb;padding:5px 4px}td.c{text-align:center}td.br{font-weight:600;white-space:nowrap}
+  .mx td.c{font-size:13px;font-weight:600}.mx tbody tr:nth-child(even){background:#faf6f5}tfoot td{background:#8E1A20;color:#fff;font-weight:700;text-align:center}
+  .ls td{height:28px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}.meta div{border:1px solid #ccc;border-radius:6px;padding:6px 10px;min-height:42px;font-weight:600}.meta b{display:block;font-size:11px;color:#777;font-weight:400}
+  .sig{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:22px}.sig div{border-top:1px solid #333;padding-top:5px;text-align:center;color:#444;font-size:12px}
+  .pb{page-break-before:always}tr{page-break-inside:avoid}@media screen{body{max-width:1100px;margin:16px auto;padding:0 14px}}</style></head><body>
+  ${body||'<p>مفيش أصناف</p>'}<script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  w.document.close();
+}
 function extraItemsList(){
   const norm = s => String(s||'').trim().toLowerCase();
   const known = new Set([...CORE_ITEMS, ...APPETIZER_ITEMS, ...NADER_SAUCES].map(x=>norm(x.name)));
@@ -9103,6 +9195,9 @@ async function act(a,d){
     toast(`اتضاف "${name}" لطلبية ${branch}`);
     return render();
   }
+  if(a==='bo-day'){ BO.from=d.v; BO.to=d.v; BO.showRange=false; return fetchBranchOrders(); }
+  if(a==='bo-range-toggle'){ BO.showRange=!BO.showRange; return render(); }
+  if(a==='bo-print'){ return boPrint(d.v); }
   if(a==='bo-fetch'){
     const f=$('#bo-from'), t=$('#bo-to');
     if(f) BO.from=f.value; if(t) BO.to=t.value;
