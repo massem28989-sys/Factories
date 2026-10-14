@@ -3975,7 +3975,7 @@ function boKey(faroojName){ return `${BO.from}~${BO.to}~${faroojName}`; }
 function boIsDone(faroojName){ return !!(S.boDone && S.boDone[boKey(faroojName)]); }
 
 function viewBranchOrders(){
-  if(!BO.from){ BO.from=today(); BO.to=today(); if(!BO.view || BO.view==='totals') BO.view='core'; }
+  if(!BO.from){ BO.from=today(); BO.to=today(); if(!BO.view || BO.view==='totals' || BO.view==='core') BO.view='review'; }
   const rows = Object.values(BO.totals);
   const oneDay = BO.from===BO.to;
   const dShift = n => { const d=new Date(BO.from+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
@@ -4020,7 +4020,7 @@ function viewBranchOrders(){
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
         <div style="font-weight:700;margin-bottom:6px">① راجع وعدّل</div>
         <div class="hint" style="margin-bottom:6px">اكتب الرقم في الخانة — بيتحفظ في طلبية الفرع على طول</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('core','الأصناف الأساسية')}${stepBtn('appet','المقبلات والصوصات')}${NADER_SAUCES.length?stepBtn('nader','صوصات نادر'):''}${extraItemsList().length?stepBtn('extra',`أصناف إضافية (${extraItemsList().length})`):''}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('review','⭐ مراجعة الطلبية كلها')}${stepBtn('core','الأصناف الأساسية')}${stepBtn('appet','المقبلات والصوصات')}${NADER_SAUCES.length?stepBtn('nader','صوصات نادر'):''}${extraItemsList().length?stepBtn('extra',`أصناف إضافية (${extraItemsList().length})`):''}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
       </div>
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
         <div style="font-weight:700;margin-bottom:6px">② اطبع</div>
@@ -4148,6 +4148,7 @@ function viewBranchOrders(){
       }).join('') : `<tr><td colspan="7" class="empty">مفيش بلاغات نواقص من الفروع</td></tr>`}</tbody>
     </table></div>
   </div>` : ''}
+  ${rows.length && BO.view==='review' ? boReviewHtml() : ''}
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
   ${rows.length && BO.view==='appet' ? boMatrixHtml(APPETIZER_ITEMS, 'المقبلات والصوصات') : ''}
   ${rows.length && BO.view==='nader' ? boMatrixHtml(NADER_SAUCES, 'صوصات نادر') : ''}
@@ -4213,7 +4214,7 @@ function viewBranchOrders(){
               :`<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`))}</td>
         </tr>`;
       }).join('') : `<tr><td colspan="8" class="empty">مفيش صنف مطابق للبحث</td></tr>`}</tbody></table></div>
-  </div>`;})() : (BO.loading?'':`<div class="panel"><div class="empty">دوس "جلب الطلبيات من الفروج" عشان تشوف الأرقام</div></div>`)}
+  </div>`;})() : ''}
   `;
 }
 
@@ -8442,6 +8443,64 @@ function boAddItemModal(){
 
 // أي صنف موجود في طلبيات الفروع بس مش موجود في أي من الشيتات الثلاثة الثابتة (اجمالي الفروع/المقبلات/نادر) —
 // بيظهر هنا تلقائي، عشان أي صنف تضيفه (أو أي صنف الفرع طلبه لوحده) يبقى ليه جدول قابل للتعديل من غير ما نغلط في تصنيفه يدوي
+/* مراجعة الطلبية كلها في شاشة واحدة: كل مجموعة جدول، الفروع صفوف والأصناف أعمدة،
+   الخانة بتتلوّن حسب الكمية (الأغمق = أكبر طلب)، والرقم الغريب (أكبر من 2.5× متوسط الفروع) بيتعلّم */
+function boReviewHtml(){
+  const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
+  const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
+  if(!branches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في اليوم ده</div></div>`;
+  const q=String(BO.matrixQ||'').trim().toLowerCase();
+  const unitOf=n=>{ for(const o of BO.orders){ const f=(o.items||[]).find(x=>x.name===n); if(f) return f.unit||''; } return ''; };
+  const qty=(oi,n)=>{ const f=(BO.orders[oi].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; };
+  const groups=[['الأصناف الأساسية',CORE_ITEMS,true],['المقبلات والصوصات',APPETIZER_ITEMS,false],...(NADER_SAUCES.length?[['صوصات نادر',NADER_SAUCES,false]]:[]),['أصناف إضافية',extraItemsList(),false]];
+  const showBr = q ? branches.filter(b=>b.toLowerCase().includes(q)) : branches;
+  const brList = showBr.length ? showBr : branches;
+  const itemQ = q && !showBr.length;
+  let html='', grand=0;
+  groups.forEach(([title,list,always])=>{
+    let cols=list.filter(ci=> always || branches.some(b=>qty(latest.get(b),ci.name)>0));
+    if(itemQ) cols=cols.filter(ci=>ci.label.toLowerCase().includes(q)||ci.name.toLowerCase().includes(q));
+    if(!cols.length) return;
+    const stats={}; cols.forEach(ci=>{ const vals=branches.map(b=>qty(latest.get(b),ci.name)).filter(v=>v>0); const sum=vals.reduce((a,b)=>a+b,0);
+      stats[ci.name]={sum:n2(sum), max:Math.max(0,...vals), avg:vals.length?sum/vals.length:0, n:vals.length}; });
+    const body=brList.map(b=>{ const oi=latest.get(b); let cnt=0;
+      const cells=cols.map(ci=>{ const v=qty(oi,ci.name), st=stats[ci.name]; if(v>0) cnt++;
+        const a = v>0 && st.max>0 ? 0.10+0.45*(v/st.max) : 0;
+        const odd = v>0 && st.n>=3 && v>st.avg*2.5;
+        return `<td class="bx${v>0?' on':''}${odd?' odd':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}" title="${esc(b)} · ${esc(ci.label)}${odd?' — أكبر بكتير من متوسط الفروع ('+fmtP(n2(st.avg))+')':''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${oi}:${esc(ci.name)}"></td>`; }).join('');
+      return `<tr><th class="bxb">${esc(b)}</th>${cells}<td class="bxc">${cnt||'—'}</td></tr>`; }).join('');
+    grand+=cols.reduce((t,ci)=>t+stats[ci.name].sum,0);
+    html+=`<div class="panel bxp"><h2>${esc(title)} <em>${cols.length} صنف · ${brList.length} فرع</em></h2>
+      <div class="tblwrap bxw"><table class="bxt">
+        <thead><tr><th class="bxb bxh">الفرع</th>${cols.map(ci=>`<th class="bxh"><div>${esc(ci.label)}</div><small>${esc(unitOf(ci.name))}</small></th>`).join('')}<th class="bxh bxc">أصناف</th></tr></thead>
+        <tbody>${body}</tbody>
+        <tfoot><tr><th class="bxb">الإجمالي</th>${cols.map(ci=>`<td>${stats[ci.name].sum?fmtP(stats[ci.name].sum):'—'}<small>${stats[ci.name].n} فرع</small></td>`).join('')}<td></td></tr></tfoot>
+      </table></div></div>`;
+  });
+  return `<style>
+    .bxw{max-height:72vh}
+    .bxt{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:13px}
+    .bxt th,.bxt td{border-bottom:1px solid var(--line);border-inline-start:1px solid var(--seam,#eee);padding:0;text-align:center}
+    .bxh{position:sticky;top:0;z-index:2;background:#F6E3E1;color:#5a0f14;padding:8px 6px!important;font-weight:700;min-width:74px;vertical-align:bottom}
+    .bxh small{display:block;font-weight:400;color:#8b6b6b;font-size:10.5px}
+    .bxb{position:sticky;right:0;z-index:1;background:#fff;text-align:start!important;padding:6px 10px!important;font-weight:600;white-space:nowrap;min-width:130px;box-shadow:-2px 0 0 var(--line)}
+    thead .bxb{z-index:3;background:#F6E3E1}
+    .bx input{width:70px;border:0!important;background:transparent!important;text-align:center;font-size:13.5px;padding:7px 2px!important;color:#777;box-shadow:none!important}
+    .bx.on input{color:#1a0608;font-weight:700}
+    .bx input:focus{outline:2px solid #8E1A20;background:#fff!important}
+    .bx.odd{box-shadow:inset 0 0 0 2px #E8A317}
+    .bxt tbody tr:hover th,.bxt tbody tr:hover td{filter:brightness(.96)}
+    .bxc{color:var(--muted);font-size:12px;min-width:54px}
+    .bxt tfoot td,.bxt tfoot th{position:sticky;bottom:0;background:#8E1A20;color:#fff;font-weight:700;padding:7px 4px!important}
+    .bxt tfoot small{display:block;font-weight:400;opacity:.8;font-size:10px}
+  </style>
+  <div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <input type="text" class="grow" id="bo-matrix-q" placeholder="دور باسم فرع أو صنف…" value="${esc(BO.matrixQ||'')}" style="min-width:220px;flex:1">
+    ${q?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
+    <span class="hint">اللون الأغمق = طلب أكبر · <span style="box-shadow:inset 0 0 0 2px #E8A317;padding:0 6px;border-radius:4px">إطار أصفر</span> = رقم أكبر بكتير من باقي الفروع، راجعه · اكتب في أي خانة وهتتحفظ في طلبية الفرع</span>
+  </div></div>
+  ${html||'<div class="panel"><div class="empty">مفيش نتيجة للبحث</div></div>'}`;
+}
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
   return `<div class="modal" data-close="1"><div class="box" style="max-width:560px">
