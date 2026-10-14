@@ -8640,14 +8640,20 @@ function boKgPerUnit(name){
   if(u==='جرام'||u==='gm'||u==='g') return 0.001;
   const v=(S.boKgPer||{})[name]; return v>0?+v:null;
 }
+/* أقرب تركيبة ضربات للمطلوب — مسموح تنقص لحد كيلو (زي 12 ك = وسط + صغيرة = 11.5)
+   الأفضل = أقل (الفرق عن المطلوب + 0.6 لكل ضربة)، عشان ما يقترحش ضربة كبيرة لـ12 ك ولا 6 صغيرين بدل كبيرة */
+const NADER_UNDER_MAX = (BRANCH_APP && BRANCH_APP.naderUnderMax!=null) ? BRANCH_APP.naderUnderMax : 1;
 function naderPlan(kg){
   const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg); if(!B.length||!(kg>0)) return null;
-  const maxN=B.map(b=>Math.ceil(kg/b.kg)+1); let best=null;
-  const rec=(i,cnt,sum)=>{ if(i===B.length){ if(sum+1e-9<kg) return; const over=sum-kg, n=cnt.reduce((a,b)=>a+b,0);
-      // الأفضل = أقل (زيادة + 2 كيلو لكل ضربة) — عشان ما يقترحش 7 ضربات صغيرة عشان يوفّر نص كيلو
-      const cost=over+2*n; if(!best || cost<best.cost-1e-9 || (Math.abs(cost-best.cost)<1e-9 && over<best.over)) best={cnt:cnt.slice(),sum,over,n,cost}; return; }
-    for(let c=0;c<=maxN[i];c++){ cnt.push(c); rec(i+1,cnt,sum+c*B[i].kg); cnt.pop(); if(sum+c*B[i].kg>=kg) break; } };
-  rec(0,[],0); return best?{...best,B}:null;
+  const big=B[0].kg;
+  const maxN=B.map((b,i)=> i===0 ? Math.ceil(kg/b.kg)+1 : Math.min(Math.ceil(kg/b.kg)+1, Math.ceil(big/b.kg)+1));
+  let best=null; const cnt=[];
+  const rec=(i,sum)=>{ if(i===B.length){ if(sum < kg-NADER_UNDER_MAX-1e-9) return; const n=cnt.reduce((a,b)=>a+b,0); if(!n) return;
+      const diff=sum-kg, cost=Math.abs(diff)+0.6*n;
+      if(!best || cost<best.cost-1e-9 || (Math.abs(cost-best.cost)<1e-9 && (Math.abs(diff)<Math.abs(best.over)-1e-9 || (Math.abs(Math.abs(diff)-Math.abs(best.over))<1e-9 && n<best.n)))) best={cnt:cnt.slice(),sum,over:diff,n,cost};
+      return; }
+    for(let c=0;c<=maxN[i];c++){ cnt.push(c); rec(i+1,sum+c*B[i].kg); cnt.pop(); } };
+  rec(0,0); return best?{...best,B}:null;
 }
 function boNaderHtml(){
   if(!NADER_SAUCES.length || !NADER_BATCHES.length) return '';
@@ -8660,7 +8666,7 @@ function boNaderHtml(){
       <td class="n"><b>${fmtP(r.qty)}</b> <span class="chip">${esc(r.unit)}</span></td>
       <td class="n">${k===null?`<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><span class="hint">1 ${esc(r.unit||'وحدة')} =</span><input type="number" step="any" min="0" data-bokg="${esc(r.name)}" placeholder="؟" style="width:60px;text-align:center"><span class="hint">كجم</span></div>`:`<b>${fmtP(kg)}</b> كجم${k!==1?` <div class="hint">1 ${esc(r.unit)} = ${fmtP(k)} كجم <button class="btn sm" data-act="bo-kg-reset" data-n="${esc(r.name)}" style="padding:0 5px;font-size:10px">✎</button></div>`:''}`}</td>
       ${B.map((b,i)=>`<td class="n" style="font-size:17px;font-weight:700;${p&&p.cnt[i]?'color:#8E1A20':'color:#ccc'}">${p?(p.cnt[i]||'—'):''}</td>`).join('')}
-      <td class="n">${p?`${fmtP(n2(p.sum))} كجم${p.over>0.001?`<div class="hint">زيادة ${fmtP(n2(p.over))}</div>`:''}`:'<span class="hint">حدد الوزن</span>'}</td></tr>`; }).join('');
+      <td class="n">${p?`${fmtP(n2(p.sum))} كجم${p.over>0.001?`<div class="hint">زيادة ${fmtP(n2(p.over))}</div>`:(p.over<-0.001?`<div class="hint" style="color:#B25E10">أقل بـ ${fmtP(n2(-p.over))}</div>`:'')}`:'<span class="hint">حدد الوزن</span>'}</td></tr>`; }).join('');
   return `<div class="panel"><h2>🥣 ضربات صوصات نادر <em>${rows.length} صوص</em>${tblEditBtn('nader')}</h2>
     <div class="hint" style="margin:-6px 14px 8px">أقل عدد ضربات بيغطي المطلوب بأقل زيادة — ${B.map(b=>`${esc(b.label)} ${fmtP(b.kg)} ك`).join(' · ')}</div>
     <div class="tblwrap" style="max-height:none"><table class="gridcols"><thead><tr><th>الصوص</th><th class="n">طلب الفروع</th><th class="n">بالكيلو</th>${B.map(b=>`<th class="n">${esc(b.label)}<div class="hint" style="font-weight:400">${fmtP(b.kg)} ك</div></th>`).join('')}<th class="n">هيطلع</th></tr></thead>
