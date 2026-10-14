@@ -924,6 +924,8 @@ const BRANCH_APP_CONFIG = {
       { label: "صوص سطل ابيض", name: "White Sauce - صوص سطل ابيض مع ذره" }
     ],
     // صوصات نادر — لو اسم أي صنف هنا مش مطابق لاسمه في تطبيق الفروج بالظبط، الكمية هتظهر فاضية
+    // أحجام ضربات صوصات نادر (بالكيلو) — النظام بيقترح أقل عدد ضربات يغطي المطلوب بأقل زيادة
+    naderBatches: [ {label:'كبيرة', kg:15}, {label:'وسط', kg:7.5}, {label:'صغيرة', kg:4} ],
     naderSauces: [
       { label: "صوص وردي", name: "pink sauce - صوص وردي" },
       { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم" },
@@ -1015,7 +1017,7 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1039,7 +1041,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1640,10 +1642,10 @@ async function pushAll(quiet){
       if(sv){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
-        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1673,7 +1675,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -7531,6 +7533,7 @@ function bind(){
     toast(v?'اتحفظت المطابقة — هيفتكرها المرات الجاية':'اتشالت المطابقة');
     render();
   });
+  root.querySelectorAll('[data-bokg]').forEach(inp=>inp.onchange=async e=>{ const n=e.target.dataset.bokg, v=+e.target.value; if(!S.boKgPer) S.boKgPer={}; if(v>0) S.boKgPer[n]=v; else delete S.boKgPer[n]; await saveMain(); render(); });
   root.querySelectorAll('[data-boconv]').forEach(inp=>inp.onchange=async e=>{
     const name=e.target.dataset.boconv, v=e.target.value;
     if(!S.boConv) S.boConv={};
@@ -8521,7 +8524,41 @@ function boReviewHtml(){
       <tbody>${body}</tbody>
       <tfoot><tr><th class="bxb" style="background:#8E1A20;color:#fff">عدد الأصناف لكل فرع</th><td>${items.length}</td><td></td>${brTot.map(n=>`<td>${n||'—'}</td>`).join('')}</tr></tfoot>
     </table></div>`:'<div class="empty">مفيش نتيجة للبحث</div>'}
-  </div>`;
+  </div>
+  ${boNaderHtml()}`;
+}
+/* ضربات صوصات نادر: إجمالي كل صوص بالكيلو ← أنسب تركيبة ضربات (كبيرة/وسط/صغيرة) */
+const NADER_BATCHES = (BRANCH_APP && BRANCH_APP.naderBatches) || [];
+function boKgPerUnit(name){
+  const u=normUnit((BO.totals[name]||{}).unit||''); if(u==='كيلو') return 1;
+  if(u==='جرام'||u==='gm'||u==='g') return 0.001;
+  const v=(S.boKgPer||{})[name]; return v>0?+v:null;
+}
+function naderPlan(kg){
+  const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg); if(!B.length||!(kg>0)) return null;
+  const maxN=B.map(b=>Math.ceil(kg/b.kg)+1); let best=null;
+  const rec=(i,cnt,sum)=>{ if(i===B.length){ if(sum+1e-9<kg) return; const over=sum-kg, n=cnt.reduce((a,b)=>a+b,0);
+      // الأفضل = أقل (زيادة + 2 كيلو لكل ضربة) — عشان ما يقترحش 7 ضربات صغيرة عشان يوفّر نص كيلو
+      const cost=over+2*n; if(!best || cost<best.cost-1e-9 || (Math.abs(cost-best.cost)<1e-9 && over<best.over)) best={cnt:cnt.slice(),sum,over,n,cost}; return; }
+    for(let c=0;c<=maxN[i];c++){ cnt.push(c); rec(i+1,cnt,sum+c*B[i].kg); cnt.pop(); if(sum+c*B[i].kg>=kg) break; } };
+  rec(0,[],0); return best?{...best,B}:null;
+}
+function boNaderHtml(){
+  if(!NADER_SAUCES.length || !NADER_BATCHES.length) return '';
+  const rows=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; return t&&+t.qty>0?{...ns,qty:+t.qty,unit:t.unit||''}:null; }).filter(Boolean);
+  if(!rows.length) return '';
+  const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg);
+  let tot=B.map(()=>0);
+  const body=rows.map(r=>{ const k=boKgPerUnit(r.name); const kg=k?n2(r.qty*k):null; const p=kg?naderPlan(kg):null; if(p) p.cnt.forEach((c,i)=>tot[i]+=c);
+    return `<tr><td><div class="iname">${esc(r.label)}</div></td>
+      <td class="n"><b>${fmtP(r.qty)}</b> <span class="chip">${esc(r.unit)}</span></td>
+      <td class="n">${k===null?`<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><span class="hint">1 ${esc(r.unit||'وحدة')} =</span><input type="number" step="any" min="0" data-bokg="${esc(r.name)}" placeholder="؟" style="width:60px;text-align:center"><span class="hint">كجم</span></div>`:`<b>${fmtP(kg)}</b> كجم${k!==1?` <div class="hint">1 ${esc(r.unit)} = ${fmtP(k)} كجم <button class="btn sm" data-act="bo-kg-reset" data-n="${esc(r.name)}" style="padding:0 5px;font-size:10px">✎</button></div>`:''}`}</td>
+      ${B.map((b,i)=>`<td class="n" style="font-size:17px;font-weight:700;${p&&p.cnt[i]?'color:#8E1A20':'color:#ccc'}">${p?(p.cnt[i]||'—'):''}</td>`).join('')}
+      <td class="n">${p?`${fmtP(n2(p.sum))} كجم${p.over>0.001?`<div class="hint">زيادة ${fmtP(n2(p.over))}</div>`:''}`:'<span class="hint">حدد الوزن</span>'}</td></tr>`; }).join('');
+  return `<div class="panel"><h2>🥣 ضربات صوصات نادر <em>${rows.length} صوص</em></h2>
+    <div class="hint" style="margin:-6px 14px 8px">أقل عدد ضربات بيغطي المطلوب بأقل زيادة — ${B.map(b=>`${esc(b.label)} ${fmtP(b.kg)} ك`).join(' · ')}</div>
+    <div class="tblwrap" style="max-height:none"><table class="gridcols"><thead><tr><th>الصوص</th><th class="n">طلب الفروع</th><th class="n">بالكيلو</th>${B.map(b=>`<th class="n">${esc(b.label)}<div class="hint" style="font-weight:400">${fmtP(b.kg)} ك</div></th>`).join('')}<th class="n">هيطلع</th></tr></thead>
+    <tbody>${body}</tbody><tfoot><tr style="font-weight:700"><td colspan="3">إجمالي الضربات</td>${tot.map(n=>`<td class="n hl">${n||'—'}</td>`).join('')}<td></td></tr></tfoot></table></div></div>`;
 }
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
@@ -8558,6 +8595,10 @@ function boPrint(kind){
     body+=`<section>${head('إجمالي طلبيات الفروع','كل الأصناف')}
       <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">الإجمالي</th><th style="width:12%">الوحدة</th><th style="width:12%">عدد الفروع</th><th style="width:16%">اتجهّز</th></tr></thead>
       <tbody>${all.map((it,i)=>`<tr><td class="c">${i+1}</td><td>${esc(it.label)}</td><td class="c"><b style="font-size:14px">${fmtP(it.total)}</b></td><td class="c">${esc(it.unit)}</td><td class="c">${it.n}</td><td></td></tr>`).join('')}</tbody></table>
+      ${(()=>{ if(!NADER_SAUCES.length||!NADER_BATCHES.length) return ''; const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg);
+        const rr=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; if(!t||!(+t.qty>0)) return ''; const k=boKgPerUnit(ns.name); const kg=k?n2(+t.qty*k):null; const p=kg?naderPlan(kg):null;
+          return `<tr><td>${esc(ns.label)}</td><td class="c">${fmtP(+t.qty)} ${esc(t.unit||'')}</td><td class="c">${kg?fmtP(kg)+' كجم':'—'}</td>${B.map((b,i)=>`<td class="c"><b style="font-size:15px">${p&&p.cnt[i]?p.cnt[i]:''}</b></td>`).join('')}</tr>`; }).join('');
+        return rr?`<h3 style="margin:16px 0 6px;color:#8E1A20">ضربات صوصات نادر</h3><table class="ls"><thead><tr><th>الصوص</th><th>المطلوب</th><th>بالكيلو</th>${B.map(b=>`<th>${esc(b.label)} (${fmtP(b.kg)} ك)</th>`).join('')}</tr></thead><tbody>${rr}</tbody></table>`:''; })()}
       <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
     const CH=12;
     for(let k=0;k<branches.length;k+=CH){
@@ -9329,6 +9370,7 @@ async function act(a,d){
     return render();
   }
   if(a==='bo-day'){ BO.from=d.v; BO.to=d.v; BO.showRange=false; return fetchBranchOrders(); }
+  if(a==='bo-kg-reset'){ if(S.boKgPer) delete S.boKgPer[d.n]; await saveMain(); return render(); }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
   if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
     toast(S.boWeigh[d.n]?`"${d.n}" هيتصرف بالوزن الفعلي لكل فرع`:`"${d.n}" رجع يتصرف بمعامل ثابت`); return render(); }
