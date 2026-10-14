@@ -926,7 +926,7 @@ const BRANCH_APP_CONFIG = {
       { label: "جوانح", match: /جوانح|wings/i },
       { label: "دجاج مسحب", match: /مسحب|boneless\s*chicken/i, not: /whole|مخل/i },
       { label: "طاووق", match: /طاووق|طاووك|tawo+q|tawook/i },
-      { label: "ريش", match: /ريش|ribs|chops/i }
+      { label: "ريش", match: /(^|[\s\-–(])ريش($|[\s\-–)])|\bribs\b|\bchops\b/i, not: /فريش|fresh|بطاط|potato/i }
     ],
     // جدول المقبلات — كل صنف بيتلاقي في الطلبيات بالاسم التقريبي (match) ومن غير اللي في (not)
     appetizerTable: [
@@ -8591,8 +8591,9 @@ function boTblModal(kind){
       </div>
       <table class="gridcols"><thead><tr><th>الصنف في الجدول</th><th>بيتربط بـ</th><th></th></tr></thead><tbody>
       ${T.arr.map(e=>{ const r=boAppetResolve([e])[0]; return `<tr><td><b>${esc(e.label)}</b>${e.custom?' <span class="chip b">مضاف</span>':''}</td>
-        <td style="font-size:12px">${r.names.length?r.names.map(esc).join('<br>'):(e.name?esc(e.name):'<span class="hint">ما اتطلبش في اليوم ده</span>')}</td>
+        <td style="font-size:12px">${r.names.length?r.names.map(n=>`<div style="display:flex;gap:6px;align-items:center;justify-content:space-between;padding:2px 0">${esc(n)}${r.names.length>1||!e.custom?`<button class="btn sm" data-act="bo-tbl-exname" data-k="${kind}" data-n="${esc(n)}" title="شيل الاسم ده بس من الجدول" style="padding:0 6px;font-size:11px">✕</button>`:''}</div>`).join(''):(e.name?esc(e.name):'<span class="hint">ما اتطلبش في اليوم ده</span>')}</td>
         <td style="text-align:end"><button class="btn sm danger" data-act="bo-tbl-del" data-k="${kind}" data-l="${esc(e.label)}" data-c="${e.custom?1:0}">شيل</button></td></tr>`; }).join('')}
+      ${Object.keys((S.boTblDel||{})[kind]||{}).filter(x=>x[0]==='@').map(x=>`<tr style="opacity:.5"><td colspan="2" style="font-size:12px">${esc(x.slice(1))} <span class="chip">متشال من الجدول</span></td><td style="text-align:end"><button class="btn sm g" data-act="bo-tbl-restore" data-k="${kind}" data-l="${esc(x)}">رجّعه</button></td></tr>`).join('')}
       ${TBL_DEFAULTS[kind].filter(e=>((S.boTblDel||{})[kind]||{})[e.label]).map(e=>`<tr style="opacity:.5"><td>${esc(e.label)} <span class="chip">متشال</span></td><td></td><td style="text-align:end"><button class="btn sm g" data-act="bo-tbl-restore" data-k="${kind}" data-l="${esc(e.label)}">رجّعه</button></td></tr>`).join('')}
       </tbody></table>
     </div>
@@ -8602,7 +8603,9 @@ function boTblModal(kind){
 function boTblBind(){ const sel=$('#tbl-name'), lab=$('#tbl-label'); if(sel&&lab) sel.onchange=()=>{ const o=sel.selectedOptions[0]; if(o&&o.dataset.short&&!lab.value) lab.value=o.dataset.short; }; }
 function boAppetResolve(list){
   list=list||APPET_TABLE; const keys=Object.keys(BO.totals); const used=new Set();
-  return list.map(e=>{ const names=keys.filter(k=>!used.has(k) && e.match.test(k) && !(e.not && e.not.test(k))); names.forEach(n=>used.add(n)); return {...e, names}; });
+  const kind=typeof TBL_KINDS!=='undefined'?Object.keys(TBL_KINDS).find(k=>TBL_KINDS[k].arr===list):null;
+  const ex=(kind&&(S.boTblDel||{})[kind])||{};
+  return list.map(e=>{ const names=keys.filter(k=>!used.has(k) && !ex['@'+k] && e.match.test(k) && !(e.not && e.not.test(k))); names.forEach(n=>used.add(n)); return {...e, names}; });
 }
 function boAppetHtml(){ return boGroupTable(APPET_TABLE,'🥗 المقبلات','appet'); }
 function boMeatHtml(){ return boGroupTable(MEAT_TABLE,'🍗 اللحوم','meat'); }
@@ -8617,7 +8620,7 @@ function boGroupTable(LIST,TITLE,KIND){
   const rowsH=[]; const brTot=branches.map(()=>0);
   R.forEach(e=>e.names.forEach(n=>{ const unit=(BO.totals[n]||{}).unit||''; const vals=branches.map(b=>{ const f=(BO.orders[latest.get(b)].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; });
     const pos=vals.filter(v=>v>0), max=Math.max(0,...pos);
-    rowsH.push(`<tr><th class="bxb"><div>${esc(e.label)}</div>${e.names.length>1||n!==e.label?`<small>${esc(n)}</small>`:''}</th>
+    rowsH.push(`<tr><th class="bxb"><div style="display:flex;justify-content:space-between;gap:6px"><span>${esc(e.label)}</span>${KIND&&isOwner()?`<button class="btn sm" data-act="bo-tbl-exname" data-k="${KIND}" data-n="${esc(n)}" title="شيله من الجدول ده" style="padding:0 5px;font-size:10px;line-height:16px">✕</button>`:''}</div>${e.names.length>1||n!==e.label?`<small>${esc(n)}</small>`:''}</th>
       <td class="bxt-tot"><b>${fmtP((BO.totals[n]||{}).qty||0)}</b> <span>${esc(unit)}</span></td><td class="bxc">${pos.length}</td>
       ${branches.map((b,k)=>{ const v=vals[k]; if(v>0) brTot[k]+=1; const a=v>0&&max>0?0.10+0.45*(v/max):0;
         return `<td class="bx${v>0?' on':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${latest.get(b)}:${esc(n)}"></td>`; }).join('')}</tr>`); }));
@@ -9516,6 +9519,7 @@ async function act(a,d){
     if(d.c==='1'){ S.boTblAdd[d.k]=(S.boTblAdd[d.k]||[]).filter(e=>e.label!==d.l); }
     else { if(!S.boTblDel) S.boTblDel={}; (S.boTblDel[d.k]=S.boTblDel[d.k]||{})[d.l]=1; }
     await saveMain(); ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
+  if(a==='bo-tbl-exname'){ if(!S.boTblDel) S.boTblDel={}; (S.boTblDel[d.k]=S.boTblDel[d.k]||{})['@'+d.n]=1; await saveMain(); toast(`"${d.n}" اتشال من جدول ${TBL_KINDS[d.k].title}`); if(ui.modal){ ui.modal=boTblModal(d.k); } render(); if(ui.modal) boTblBind(); return; }
   if(a==='bo-tbl-restore'){ if(S.boTblDel&&S.boTblDel[d.k]) delete S.boTblDel[d.k][d.l]; await saveMain(); ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
   if(a==='bo-kg-reset'){ if(S.boKgPer) delete S.boKgPer[d.n]; await saveMain(); return render(); }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
