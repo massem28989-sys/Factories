@@ -1040,7 +1040,7 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1064,7 +1064,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1665,10 +1665,10 @@ async function pushAll(quiet){
       if(sv){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
-        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1698,7 +1698,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -3828,6 +3828,7 @@ async function fetchBranchOrders(){
     BO.totals=totals; BO.orders=orders; BO.ordersCount=ordersCount; BO.branchesCount=branches.size;
     BO.fetchedKey=BO.from+'~'+BO.to;
     // صوص اسمه في تطبيق الفروع مش معروف بالظبط (زي صوص ميكس): بندوّر عليه بالاسم التقريبي
+    applyCustomTables();
     NADER_SAUCES.forEach(ns=>{ if(ns.match && !totals[ns.name]){ const k=Object.keys(totals).find(n=>ns.match.test(n)); if(k) ns.name=k; } });
     // بنحفظ كل فرع ظهر في أي طلبية — عشان نعرف مين ما طلبش في يوم معين
     if(!S.boSeen) S.boSeen={}; let learned=false;
@@ -4006,6 +4007,7 @@ function boIsDone(faroojName){ return !!(S.boDone && S.boDone[boKey(faroojName)]
 
 function viewBranchOrders(){
   if(!BO.from){ BO.from=today(); BO.to=today(); if(!BO.view || BO.view==='totals' || BO.view==='core') BO.view='review'; }
+  applyCustomTables();
   const rows = Object.values(BO.totals);
   const oneDay = BO.from===BO.to;
   const dShift = n => { const d=new Date(BO.from+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
@@ -8557,18 +8559,61 @@ function boReviewHtml(){
 /* جدول المقبلات: كل صنف صف (الإجمالي + كل فرع)، بيتعدل مباشرة زي الجدول الكبير */
 const APPET_TABLE = (BRANCH_APP && BRANCH_APP.appetizerTable) || [];
 const MEAT_TABLE = (BRANCH_APP && BRANCH_APP.meatTable) || [];
+/* الجداول (لحوم/مقبلات/صوصات نادر) قابلة للتعديل من الشاشة: تضيف أي صنف من الطلبيات أو تشيل صنف.
+   الإضافات والحذف بيتحفظوا في الإعدادات (boTblAdd / boTblDel) والقوايم الأصلية فاضلة زي ما هي */
+const TBL_KINDS = { meat:{title:'اللحوم', arr:MEAT_TABLE}, appet:{title:'المقبلات', arr:APPET_TABLE}, nader:{title:'صوصات نادر', arr:NADER_SAUCES} };
+const TBL_DEFAULTS = { meat:MEAT_TABLE.slice(), appet:APPET_TABLE.slice(), nader:NADER_SAUCES.slice() };
+function applyCustomTables(){
+  Object.entries(TBL_KINDS).forEach(([k,t])=>{
+    const del=(S.boTblDel||{})[k]||{};
+    const base=TBL_DEFAULTS[k].filter(e=>!del[e.label]);
+    const add=((S.boTblAdd||{})[k]||[]).map(c=>({label:c.label, name:c.name, match:{test:x=>x===c.name}, custom:true}));
+    t.arr.splice(0,t.arr.length,...base,...add);
+  });
+}
+function boTblModal(kind){
+  applyCustomTables(); const T=TBL_KINDS[kind]; if(!T) return '';
+  const inTbl=new Set(); boAppetResolve(T.arr).forEach(e=>e.names.forEach(n=>inTbl.add(n))); T.arr.forEach(e=>{ if(e.name) inTbl.add(e.name); });
+  const cand=Object.keys(BO.totals).filter(n=>!inTbl.has(n)).sort((a,b)=>boLabel(a).localeCompare(boLabel(b),'ar'));
+  const shortAr = n => { const p=String(n).split(' - ').map(x=>x.trim()); return p.find(x=>/[\u0600-\u06FF]/.test(x)) || n; };
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:600px">
+    <h3>أصناف جدول ${esc(T.title)}</h3>
+    <div class="pad" style="max-height:64vh;overflow:auto">
+      <div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:12px">
+        <b>+ ضيف صنف للجدول</b>
+        <label class="f" style="margin-top:8px">الصنف (من طلبيات الفروع)</label>
+        <select id="tbl-name" style="width:100%"><option value="">— اختار —</option>${cand.map(n=>`<option value="${esc(n)}" data-short="${esc(shortAr(n))}">${esc(n)}</option>`).join('')}</select>
+        <div class="hint" style="margin-top:4px">مش لاقي الصنف؟ لازم يكون فيه فرع طلبه في اليوم اللي فاتحه — أو اكتب اسمه بالظبط زي ما في تطبيق الفروع:</div>
+        <input type="text" id="tbl-name-free" placeholder="الاسم بالظبط (اختياري)" style="width:100%;margin-top:4px">
+        <label class="f" style="margin-top:8px">الاسم اللي يظهر في الجدول</label>
+        <input type="text" id="tbl-label" placeholder="مثلًا: ريش" style="width:100%">
+        <button class="btn p" data-act="bo-tbl-add" data-k="${kind}" style="margin-top:10px">ضيف</button>
+      </div>
+      <table class="gridcols"><thead><tr><th>الصنف في الجدول</th><th>بيتربط بـ</th><th></th></tr></thead><tbody>
+      ${T.arr.map(e=>{ const r=boAppetResolve([e])[0]; return `<tr><td><b>${esc(e.label)}</b>${e.custom?' <span class="chip b">مضاف</span>':''}</td>
+        <td style="font-size:12px">${r.names.length?r.names.map(esc).join('<br>'):(e.name?esc(e.name):'<span class="hint">ما اتطلبش في اليوم ده</span>')}</td>
+        <td style="text-align:end"><button class="btn sm danger" data-act="bo-tbl-del" data-k="${kind}" data-l="${esc(e.label)}" data-c="${e.custom?1:0}">شيل</button></td></tr>`; }).join('')}
+      ${TBL_DEFAULTS[kind].filter(e=>((S.boTblDel||{})[kind]||{})[e.label]).map(e=>`<tr style="opacity:.5"><td>${esc(e.label)} <span class="chip">متشال</span></td><td></td><td style="text-align:end"><button class="btn sm g" data-act="bo-tbl-restore" data-k="${kind}" data-l="${esc(e.label)}">رجّعه</button></td></tr>`).join('')}
+      </tbody></table>
+    </div>
+    <div class="foot"><button class="btn" data-close="1">تمام</button></div>
+  </div></div>`;
+}
+function boTblBind(){ const sel=$('#tbl-name'), lab=$('#tbl-label'); if(sel&&lab) sel.onchange=()=>{ const o=sel.selectedOptions[0]; if(o&&o.dataset.short&&!lab.value) lab.value=o.dataset.short; }; }
 function boAppetResolve(list){
   list=list||APPET_TABLE; const keys=Object.keys(BO.totals); const used=new Set();
   return list.map(e=>{ const names=keys.filter(k=>!used.has(k) && e.match.test(k) && !(e.not && e.not.test(k))); names.forEach(n=>used.add(n)); return {...e, names}; });
 }
-function boAppetHtml(){ return boGroupTable(APPET_TABLE,'🥗 المقبلات'); }
-function boMeatHtml(){ return boGroupTable(MEAT_TABLE,'🍗 اللحوم'); }
-function boGroupTable(LIST,TITLE){
-  if(!LIST.length) return '';
+function boAppetHtml(){ return boGroupTable(APPET_TABLE,'🥗 المقبلات','appet'); }
+function boMeatHtml(){ return boGroupTable(MEAT_TABLE,'🍗 اللحوم','meat'); }
+const tblEditBtn = k => isOwner()?`<button class="btn sm" data-act="bo-tbl-open" data-k="${k}" style="margin-inline-start:auto">✎ أصناف الجدول</button>`:'';
+function boGroupTable(LIST,TITLE,KIND){
+  if(!LIST.length) return KIND&&isOwner()?`<div class="panel"><h2>${TITLE} <em>الجدول فاضي</em>${tblEditBtn(KIND)}</h2></div>`:'';
   const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
   const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
   const R=boAppetResolve(LIST).filter(e=>e.names.length);
-  if(!R.length || !branches.length) return '';
+  if(!branches.length) return '';
+  if(!R.length) return `<div class="panel"><h2>${TITLE} <em>مفيش أصناف منه في اليوم ده</em>${tblEditBtn(KIND)}</h2></div>`;
   const rowsH=[]; const brTot=branches.map(()=>0);
   R.forEach(e=>e.names.forEach(n=>{ const unit=(BO.totals[n]||{}).unit||''; const vals=branches.map(b=>{ const f=(BO.orders[latest.get(b)].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; });
     const pos=vals.filter(v=>v>0), max=Math.max(0,...pos);
@@ -8577,7 +8622,7 @@ function boGroupTable(LIST,TITLE){
       ${branches.map((b,k)=>{ const v=vals[k]; if(v>0) brTot[k]+=1; const a=v>0&&max>0?0.10+0.45*(v/max):0;
         return `<td class="bx${v>0?' on':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${latest.get(b)}:${esc(n)}"></td>`; }).join('')}</tr>`); }));
   const missing=boAppetResolve(LIST).filter(e=>!e.names.length).map(e=>e.label);
-  return `<div class="panel"><h2>${TITLE} <em>${rowsH.length} صنف · ${branches.length} فرع</em></h2>
+  return `<div class="panel"><h2>${TITLE} <em>${rowsH.length} صنف · ${branches.length} فرع</em>${tblEditBtn(KIND)}</h2>
     ${missing.length?`<div class="hint" style="margin:-6px 14px 8px">ما اتطلبش النهارده: ${missing.map(esc).join('، ')}</div>`:''}
     <div class="tblwrap bxw"><table class="bxt">
       <thead><tr><th class="bxb bxh">الصنف</th><th class="bxh">الإجمالي</th><th class="bxh">فروع</th>${branches.map(b=>`<th class="bxh">${esc(b)}</th>`).join('')}</tr></thead>
@@ -8613,7 +8658,7 @@ function boNaderHtml(){
       <td class="n">${k===null?`<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><span class="hint">1 ${esc(r.unit||'وحدة')} =</span><input type="number" step="any" min="0" data-bokg="${esc(r.name)}" placeholder="؟" style="width:60px;text-align:center"><span class="hint">كجم</span></div>`:`<b>${fmtP(kg)}</b> كجم${k!==1?` <div class="hint">1 ${esc(r.unit)} = ${fmtP(k)} كجم <button class="btn sm" data-act="bo-kg-reset" data-n="${esc(r.name)}" style="padding:0 5px;font-size:10px">✎</button></div>`:''}`}</td>
       ${B.map((b,i)=>`<td class="n" style="font-size:17px;font-weight:700;${p&&p.cnt[i]?'color:#8E1A20':'color:#ccc'}">${p?(p.cnt[i]||'—'):''}</td>`).join('')}
       <td class="n">${p?`${fmtP(n2(p.sum))} كجم${p.over>0.001?`<div class="hint">زيادة ${fmtP(n2(p.over))}</div>`:''}`:'<span class="hint">حدد الوزن</span>'}</td></tr>`; }).join('');
-  return `<div class="panel"><h2>🥣 ضربات صوصات نادر <em>${rows.length} صوص</em></h2>
+  return `<div class="panel"><h2>🥣 ضربات صوصات نادر <em>${rows.length} صوص</em>${tblEditBtn('nader')}</h2>
     <div class="hint" style="margin:-6px 14px 8px">أقل عدد ضربات بيغطي المطلوب بأقل زيادة — ${B.map(b=>`${esc(b.label)} ${fmtP(b.kg)} ك`).join(' · ')}</div>
     <div class="tblwrap" style="max-height:none"><table class="gridcols"><thead><tr><th>الصوص</th><th class="n">طلب الفروع</th><th class="n">بالكيلو</th>${B.map(b=>`<th class="n">${esc(b.label)}<div class="hint" style="font-weight:400">${fmtP(b.kg)} ك</div></th>`).join('')}<th class="n">هيطلع</th></tr></thead>
     <tbody>${body}</tbody><tfoot><tr style="font-weight:700"><td colspan="3">إجمالي الضربات</td>${tot.map(n=>`<td class="n hl">${n||'—'}</td>`).join('')}<td></td></tr></tfoot></table></div>
@@ -9459,6 +9504,19 @@ async function act(a,d){
     return render();
   }
   if(a==='bo-day'){ BO.from=d.v; BO.to=d.v; BO.showRange=false; return fetchBranchOrders(); }
+  if(a==='bo-tbl-open'){ ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
+  if(a==='bo-tbl-add'){
+    const name=(($('#tbl-name-free')||{}).value||'').trim() || (($('#tbl-name')||{}).value||'');
+    let label=(($('#tbl-label')||{}).value||'').trim(); if(!name) return toast('اختار الصنف الأول',1); if(!label) label=boLabel(name);
+    if(TBL_KINDS[d.k].arr.some(e=>e.label===label)) return toast('فيه صنف بنفس الاسم في الجدول',1);
+    if(!S.boTblAdd) S.boTblAdd={}; (S.boTblAdd[d.k]=S.boTblAdd[d.k]||[]).push({label,name});
+    await saveMain(); toast(`اتضاف "${label}" لجدول ${TBL_KINDS[d.k].title}`); ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
+  if(a==='bo-tbl-del'){
+    if(!confirm(`شيل "${d.l}" من جدول ${TBL_KINDS[d.k].title}؟ (الطلبيات نفسها مش هتتأثر)`)) return;
+    if(d.c==='1'){ S.boTblAdd[d.k]=(S.boTblAdd[d.k]||[]).filter(e=>e.label!==d.l); }
+    else { if(!S.boTblDel) S.boTblDel={}; (S.boTblDel[d.k]=S.boTblDel[d.k]||{})[d.l]=1; }
+    await saveMain(); ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
+  if(a==='bo-tbl-restore'){ if(S.boTblDel&&S.boTblDel[d.k]) delete S.boTblDel[d.k][d.l]; await saveMain(); ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
   if(a==='bo-kg-reset'){ if(S.boKgPer) delete S.boKgPer[d.n]; await saveMain(); return render(); }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
   if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
