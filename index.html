@@ -1015,7 +1015,7 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1039,7 +1039,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1640,10 +1640,10 @@ async function pushAll(quiet){
       if(sv){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
-        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1673,7 +1673,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -3961,7 +3961,10 @@ function convFactorOf(faroojName){
   return (saved!==undefined && saved!=='' && +saved>0) ? +saved : null; // null = محتاج تحديد
 }
 // هل الصنف ده جاهز للصرف فعليًا؟ (متطابق + وحدته واضحة)
+// صنف الفرع بيطلبه بالعدد والمصنع بيصرفه بالوزن الفعلي (زي الريش): بيتوزن لكل فرع ساعة الصرف
+const boIsWeigh = n => !!(S.boWeigh && S.boWeigh[n]);
 function boReadyToDispense(faroojName){
+  if(boIsWeigh(faroojName)) return false; // محتاج وزن يدوي — بيتصرف من شاشة الوزن مش من «صرف الكل»
   return !!findMatchingLocalItem(faroojName) && convFactorOf(faroojName)!==null;
 }
 // الكمية الحقيقية بوحدة المصنع
@@ -4020,7 +4023,7 @@ function viewBranchOrders(){
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
         <div style="font-weight:700;margin-bottom:6px">① راجع وعدّل</div>
         <div class="hint" style="margin-bottom:6px">اكتب الرقم في الخانة — بيتحفظ في طلبية الفرع على طول</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('review','⭐ مراجعة الطلبية كلها')}${stepBtn('core','الأصناف الأساسية')}${stepBtn('appet','المقبلات والصوصات')}${NADER_SAUCES.length?stepBtn('nader','صوصات نادر'):''}${extraItemsList().length?stepBtn('extra',`أصناف إضافية (${extraItemsList().length})`):''}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('review',`⭐ كل الأصناف والإجمالي (${rows.length})`)}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
       </div>
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
         <div style="font-weight:700;margin-bottom:6px">② اطبع</div>
@@ -4155,7 +4158,7 @@ function viewBranchOrders(){
   ${rows.length && BO.view==='extra' ? boMatrixHtml(extraItemsList(), 'أصناف إضافية') : ''}
   ${BO.view==='compare' ? viewDispenseComparison() : ''}
   ${rows.length && BO.view==='totals' ? (()=>{
-    const needConv = rows.filter(r=>findMatchingLocalItem(r.name) && convFactorOf(r.name)===null).length;
+    const needConv = rows.filter(r=>findMatchingLocalItem(r.name) && convFactorOf(r.name)===null && !boIsWeigh(r.name)).length;
     const tq = String(BO.matrixQ||'').trim().toLowerCase();
     const shownRows = tq ? rows.filter(r=>{ const m=findMatchingLocalItem(r.name);
       return r.name.toLowerCase().includes(tq) || (m && m.name.toLowerCase().includes(tq)); }) : rows;
@@ -4182,7 +4185,8 @@ function viewBranchOrders(){
         const autoPack = match && bu && match.packUnit && match.packSize>0 && normUnit(match.packUnit)===normUnit(bu);
         const f = match ? convFactorOf(r.name) : null;
         const finalQty = (f!==null) ? n2(r.qty*f) : null;
-        const needsConv = match && f===null;
+        const weigh = boIsWeigh(r.name);
+        const needsConv = match && f===null && !weigh;
         return `<tr${done?' style="opacity:.55"':(needsConv?' class="lowrow"':(suggested?' style="background:var(--amberbg)"':''))}>
           <td><div class="iname">${esc(r.name)}</div></td>
           <td class="n">${fmt(r.qty)} <span class="chip">${esc(bu)}</span></td>
@@ -4197,21 +4201,22 @@ function viewBranchOrders(){
             </div>`:''}
           </td>
           <td>${!match?'<span class="hint">—</span>'
+              : weigh?`<span class="chip b">⚖️ بالوزن الفعلي</span><div class="hint" style="margin-top:3px">الفرع بيطلب بالـ${esc(bu||'حبة')} وبيتوزن عند الصرف</div><button class="btn sm" data-act="bo-weigh-toggle" data-n="${esc(r.name)}" style="margin-top:3px;font-size:11px;padding:2px 7px">رجّعه لمعامل ثابت</button>`
               : sameUnit?'<span class="chip g">نفس الوحدة</span>'
               : autoPack?`<span class="chip g">1 ${esc(bu)} = ${fmt(match.packSize)} ${esc(fu)}</span> <span class="hint">(وحدة بديلة)</span>`
               : `<div style="display:flex;align-items:center;gap:4px;white-space:nowrap">
                    <span class="hint">1 ${esc(bu)} =</span>
                    <input type="number" step="any" min="0" value="${S.boConv&&S.boConv[r.name]!==undefined?S.boConv[r.name]:''}" data-boconv="${esc(r.name)}" placeholder="؟" style="width:64px;padding:4px 6px;font-size:12px;text-align:center">
                    <span class="hint">${esc(fu)}</span>
-                 </div>`}</td>
-          <td class="n">${finalQty!==null?`<b>${fmt(finalQty)}</b> <span class="chip">${esc(fu)}</span>`:'<span class="chip r">محتاج تحويل</span>'}</td>
+                 </div><button class="btn sm" data-act="bo-weigh-toggle" data-n="${esc(r.name)}" style="margin-top:4px;font-size:11px;padding:2px 7px" title="لو الحبة وزنها بيختلف (زي الريش): بتكتب الوزن الفعلي لكل فرع ساعة الصرف">⚖️ يتصرف بالوزن الفعلي</button>`}</td>
+          <td class="n">${weigh?(done&&(S.boDone[boKey(r.name)]||{}).qty?`<b>${fmt(S.boDone[boKey(r.name)].qty)}</b> <span class="chip">${esc(fu)}</span><div class="hint">وزن فعلي</div>`:`<span class="hint">بيتحدد بالميزان</span>${f?`<div class="hint">تقريبًا ${fmt(n2(r.qty*f))} ${esc(fu)}</div>`:''}`):(finalQty!==null?`<b>${fmt(finalQty)}</b> <span class="chip">${esc(fu)}</span>`:'<span class="chip r">محتاج تحويل</span>')}</td>
           <td>${done?`<span class="chip g">اتصرف لـ${(S.boDone[boKey(r.name)]||{}).branches||brN} فرع ✓</span>`
               :(!match?'<span class="chip r">محتاج مطابقة</span>'
-              :(needsConv?'<span class="chip r">حدد التحويل</span>':'<span class="chip a">جاهز للصرف</span>'))}</td>
+              :(needsConv?'<span class="chip r">حدد التحويل</span>':(weigh?'<span class="chip a">جاهز — محتاج وزن</span>':'<span class="chip a">جاهز للصرف</span>')))}</td>
           <td>${!match?'<span class="hint">حدد المطابقة الأول</span>'
               :(done?(isOwner()?`<button class="btn sm" data-act="bo-undo" data-bodispense="${esc(r.name)}">تراجع</button>`:'<span class="chip b">اتصرف</span>')
               :(needsConv?'<span class="hint">حدد التحويل</span>'
-              :`<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`))}</td>
+              :(weigh?`<button class="btn sm g" data-act="bo-weigh-open" data-n="${esc(r.name)}">⚖️ وزن وصرف</button>`:`<button class="btn sm g" data-act="bo-dispense" data-bodispense="${esc(r.name)}">صرف</button>`)))}</td>
         </tr>`;
       }).join('') : `<tr><td colspan="8" class="empty">مفيش صنف مطابق للبحث</td></tr>`}</tbody></table></div>
   </div>`;})() : ''}
@@ -7423,6 +7428,8 @@ function bind(){
     const order=BO.orders[oi]; if(!order) return;
     if(!order.items) order.items=[];
     const v=e.target.value;
+    // الصنف ده اتصرف من المخزن خلاص؟ التعديل هيتكتب في طلبية الفرع بس، وحركة الصرف القديمة مش هتتغير
+    if(boIsDone(itemName) && !confirm(`"${itemName}" اتصرف من المخزن قبل كده بالكمية القديمة.\n\nالتعديل هيتكتب في طلبية فرع ${order.branch} بس — حركة الصرف مش هتتغير لوحدها، ولازم تعدّل كميتها من «منصرف».\n\nتكمل؟`)){ return render(); }
     const ji=order.items.findIndex(x=>x.name===itemName);
     const backup = ji>=0 ? {...order.items[ji]} : null;
 
@@ -8445,61 +8452,76 @@ function boAddItemModal(){
 // بيظهر هنا تلقائي، عشان أي صنف تضيفه (أو أي صنف الفرع طلبه لوحده) يبقى ليه جدول قابل للتعديل من غير ما نغلط في تصنيفه يدوي
 /* مراجعة الطلبية كلها في شاشة واحدة: كل مجموعة جدول، الفروع صفوف والأصناف أعمدة،
    الخانة بتتلوّن حسب الكمية (الأغمق = أكبر طلب)، والرقم الغريب (أكبر من 2.5× متوسط الفروع) بيتعلّم */
+/* كل الأصناف في جدول واحد: الصنف صف، وقصاده الإجمالي وعدد الفروع، وبعدين خانة لكل فرع (بتتعدل مباشرة).
+   مفيش تقسيم أساسي/إضافي — كل اللي اتطلب بيظهر. ترتيب أبجدي أو حسب الإجمالي */
+const boLabel = n => { const f=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES].find(x=>x.name===n); return f?f.label:n; };
+function boAllItems(){
+  const map=new Map();
+  BO.orders.forEach(o=>(o.items||[]).forEach(it=>{ if(!map.has(it.name)) map.set(it.name,{name:it.name, unit:it.unit||''}); }));
+  return [...map.values()];
+}
 function boReviewHtml(){
   const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
   const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
   if(!branches.length) return `<div class="panel"><div class="empty">مفيش طلبيات في اليوم ده</div></div>`;
-  const q=String(BO.matrixQ||'').trim().toLowerCase();
-  const unitOf=n=>{ for(const o of BO.orders){ const f=(o.items||[]).find(x=>x.name===n); if(f) return f.unit||''; } return ''; };
   const qty=(oi,n)=>{ const f=(BO.orders[oi].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; };
-  const groups=[['الأصناف الأساسية',CORE_ITEMS,true],['المقبلات والصوصات',APPETIZER_ITEMS,false],...(NADER_SAUCES.length?[['صوصات نادر',NADER_SAUCES,false]]:[]),['أصناف إضافية',extraItemsList(),false]];
-  const showBr = q ? branches.filter(b=>b.toLowerCase().includes(q)) : branches;
-  const brList = showBr.length ? showBr : branches;
-  const itemQ = q && !showBr.length;
-  let html='', grand=0;
-  groups.forEach(([title,list,always])=>{
-    let cols=list.filter(ci=> always || branches.some(b=>qty(latest.get(b),ci.name)>0));
-    if(itemQ) cols=cols.filter(ci=>ci.label.toLowerCase().includes(q)||ci.name.toLowerCase().includes(q));
-    if(!cols.length) return;
-    const stats={}; cols.forEach(ci=>{ const vals=branches.map(b=>qty(latest.get(b),ci.name)).filter(v=>v>0); const sum=vals.reduce((a,b)=>a+b,0);
-      stats[ci.name]={sum:n2(sum), max:Math.max(0,...vals), avg:vals.length?sum/vals.length:0, n:vals.length}; });
-    const body=brList.map(b=>{ const oi=latest.get(b); let cnt=0;
-      const cells=cols.map(ci=>{ const v=qty(oi,ci.name), st=stats[ci.name]; if(v>0) cnt++;
-        const a = v>0 && st.max>0 ? 0.10+0.45*(v/st.max) : 0;
-        const odd = v>0 && st.n>=3 && v>st.avg*2.5;
-        return `<td class="bx${v>0?' on':''}${odd?' odd':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}" title="${esc(b)} · ${esc(ci.label)}${odd?' — أكبر بكتير من متوسط الفروع ('+fmtP(n2(st.avg))+')':''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${oi}:${esc(ci.name)}"></td>`; }).join('');
-      return `<tr><th class="bxb">${esc(b)}</th>${cells}<td class="bxc">${cnt||'—'}</td></tr>`; }).join('');
-    grand+=cols.reduce((t,ci)=>t+stats[ci.name].sum,0);
-    html+=`<div class="panel bxp"><h2>${esc(title)} <em>${cols.length} صنف · ${brList.length} فرع</em></h2>
-      <div class="tblwrap bxw"><table class="bxt">
-        <thead><tr><th class="bxb bxh">الفرع</th>${cols.map(ci=>`<th class="bxh"><div>${esc(ci.label)}</div><small>${esc(unitOf(ci.name))}</small></th>`).join('')}<th class="bxh bxc">أصناف</th></tr></thead>
-        <tbody>${body}</tbody>
-        <tfoot><tr><th class="bxb">الإجمالي</th>${cols.map(ci=>`<td>${stats[ci.name].sum?fmtP(stats[ci.name].sum):'—'}<small>${stats[ci.name].n} فرع</small></td>`).join('')}<td></td></tr></tfoot>
-      </table></div></div>`;
-  });
+  const q=String(BO.matrixQ||'').trim().toLowerCase();
+  let items=boAllItems().map(it=>{ const vals=branches.map(b=>qty(latest.get(b),it.name)); const pos=vals.filter(v=>v>0);
+    const sum=n2(pos.reduce((a,b)=>a+b,0)); return {...it, label:boLabel(it.name), vals, sum, n:pos.length, max:Math.max(0,...pos), avg:pos.length?sum/pos.length:0}; });
+  // الإجمالي الحقيقي من كل الطلبيات (لو فرع ليه أكتر من طلبية)
+  items.forEach(it=>{ it.total=(BO.totals[it.name]||{}).qty||it.sum; });
+  if(q) items=items.filter(it=>it.label.toLowerCase().includes(q)||it.name.toLowerCase().includes(q));
+  const brQ = q ? branches.filter(b=>b.toLowerCase().includes(q)) : [];
+  const brShow = brQ.length && !items.length ? brQ : branches;
+  if(brQ.length && !items.length) items=boAllItems().map(it=>{ const vals=branches.map(b=>qty(latest.get(b),it.name)); const pos=vals.filter(v=>v>0); const sum=n2(pos.reduce((a,b)=>a+b,0));
+    return {...it,label:boLabel(it.name),vals,sum,total:(BO.totals[it.name]||{}).qty||sum,n:pos.length,max:Math.max(0,...pos),avg:pos.length?sum/pos.length:0}; });
+  const sort=BO.revSort||'name';
+  items.sort((a,b)=> sort==='total' ? (b.total-a.total) : sort==='branches' ? (b.n-a.n) : a.label.localeCompare(b.label,'ar'));
+  const bIdx=brShow.map(b=>branches.indexOf(b));
+  const units=[...new Set(items.map(i=>i.unit).filter(Boolean))];
+  const body=items.map((it,ri)=>`<tr>
+      <th class="bxb"><div>${esc(it.label)}</div>${it.label!==it.name?`<small>${esc(it.name)}</small>`:''}</th>
+      <td class="bxt-tot"><b>${fmtP(it.total)}</b> <span>${esc(it.unit)}</span></td>
+      <td class="bxc">${it.n}</td>
+      ${bIdx.map(k=>{ const b=branches[k], oi=latest.get(b), v=it.vals[k]; const a=v>0&&it.max>0?0.10+0.45*(v/it.max):0; const odd=v>0&&it.n>=3&&v>it.avg*2.5;
+        return `<td class="bx${v>0?' on':''}${odd?' odd':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}" title="${esc(b)} · ${esc(it.label)}${odd?' — أكبر بكتير من متوسط الفروع ('+fmtP(n2(it.avg))+')':''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${oi}:${esc(it.name)}"></td>`; }).join('')}
+    </tr>`).join('');
+  const brTot=bIdx.map(k=>items.filter(it=>it.vals[k]>0).length);
   return `<style>
-    .bxw{max-height:72vh}
+    .bxw{max-height:74vh}
     .bxt{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:13px}
     .bxt th,.bxt td{border-bottom:1px solid var(--line);border-inline-start:1px solid var(--seam,#eee);padding:0;text-align:center}
-    .bxh{position:sticky;top:0;z-index:2;background:#F6E3E1;color:#5a0f14;padding:8px 6px!important;font-weight:700;min-width:74px;vertical-align:bottom}
-    .bxh small{display:block;font-weight:400;color:#8b6b6b;font-size:10.5px}
-    .bxb{position:sticky;right:0;z-index:1;background:#fff;text-align:start!important;padding:6px 10px!important;font-weight:600;white-space:nowrap;min-width:130px;box-shadow:-2px 0 0 var(--line)}
+    .bxh{position:sticky;top:0;z-index:2;background:#F6E3E1;color:#5a0f14;padding:8px 6px!important;font-weight:700;min-width:76px;vertical-align:bottom;font-size:12px}
+    .bxb{position:sticky;right:0;z-index:1;background:#fff;text-align:start!important;padding:6px 10px!important;font-weight:600;min-width:170px;max-width:230px;box-shadow:-2px 0 0 var(--line)}
+    .bxb small{display:block;font-weight:400;color:#999;font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     thead .bxb{z-index:3;background:#F6E3E1}
-    .bx input{width:70px;border:0!important;background:transparent!important;text-align:center;font-size:13.5px;padding:7px 2px!important;color:#777;box-shadow:none!important}
+    .bxt-tot{background:#FBF1EF;padding:6px 10px!important;white-space:nowrap;font-size:14px;min-width:96px}
+    .bxt-tot span{color:#8b6b6b;font-size:11px}
+    .bx input{width:66px;border:0!important;background:transparent!important;text-align:center;font-size:13.5px;padding:7px 2px!important;color:#777;box-shadow:none!important}
     .bx.on input{color:#1a0608;font-weight:700}
     .bx input:focus{outline:2px solid #8E1A20;background:#fff!important}
     .bx.odd{box-shadow:inset 0 0 0 2px #E8A317}
     .bxt tbody tr:hover th,.bxt tbody tr:hover td{filter:brightness(.96)}
-    .bxc{color:var(--muted);font-size:12px;min-width:54px}
-    .bxt tfoot td,.bxt tfoot th{position:sticky;bottom:0;background:#8E1A20;color:#fff;font-weight:700;padding:7px 4px!important}
-    .bxt tfoot small{display:block;font-weight:400;opacity:.8;font-size:10px}
+    .bxc{color:var(--muted);font-size:12px;min-width:50px}
+    .bxt tfoot td,.bxt tfoot th{position:sticky;bottom:0;background:#8E1A20;color:#fff;font-weight:600;padding:7px 4px!important;font-size:12px}
   </style>
-  <div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <input type="text" class="grow" id="bo-matrix-q" placeholder="دور باسم فرع أو صنف…" value="${esc(BO.matrixQ||'')}" style="min-width:220px;flex:1">
-    ${q?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
-    <span class="hint">اللون الأغمق = طلب أكبر · <span style="box-shadow:inset 0 0 0 2px #E8A317;padding:0 6px;border-radius:4px">إطار أصفر</span> = رقم أكبر بكتير من باقي الفروع، راجعه · اكتب في أي خانة وهتتحفظ في طلبية الفرع</span>
-  </div></div>
-  ${html||'<div class="panel"><div class="empty">مفيش نتيجة للبحث</div></div>'}`;
+  <div class="panel">
+    <h2>كل الأصناف المطلوبة <em>${items.length} صنف · ${brShow.length} فرع</em>
+      <span style="margin-inline-start:auto;display:flex;gap:4px;align-items:center"><span class="hint">ترتيب:</span>
+        <button class="cattab ${sort==='name'?'on':''}" data-act="bo-rev-sort" data-v="name">أبجدي</button>
+        <button class="cattab ${sort==='total'?'on':''}" data-act="bo-rev-sort" data-v="total">الأكبر إجمالي</button>
+        <button class="cattab ${sort==='branches'?'on':''}" data-act="bo-rev-sort" data-v="branches">الأكتر فروع</button></span></h2>
+    <div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding-top:0">
+      <input type="text" id="bo-matrix-q" placeholder="دور باسم صنف أو فرع…" value="${esc(BO.matrixQ||'')}" style="min-width:220px;flex:1">
+      ${q?`<button class="btn sm" data-act="bo-matrix-clear">مسح البحث</button>`:''}
+      <span class="hint">«الإجمالي» = مجموع كل الفروع · اللون الأغمق = طلب أكبر · <span style="box-shadow:inset 0 0 0 2px #E8A317;padding:0 6px;border-radius:4px">إطار أصفر</span> = رقم أكبر بكتير من باقي الفروع · اكتب في أي خانة وهتتحفظ في طلبية الفرع</span>
+    </div>
+    ${items.length?`<div class="tblwrap bxw"><table class="bxt">
+      <thead><tr><th class="bxb bxh">الصنف</th><th class="bxh">الإجمالي</th><th class="bxh">فروع</th>${bIdx.map(k=>`<th class="bxh">${esc(branches[k])}</th>`).join('')}</tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><th class="bxb" style="background:#8E1A20;color:#fff">عدد الأصناف لكل فرع</th><td>${items.length}</td><td></td>${brTot.map(n=>`<td>${n||'—'}</td>`).join('')}</tr></tfoot>
+    </table></div>`:'<div class="empty">مفيش نتيجة للبحث</div>'}
+  </div>`;
 }
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
@@ -8531,16 +8553,19 @@ function boPrint(kind){
   const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">اتطبعت ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
   let body='';
   if(kind==='sheet'){
-    groups.forEach(([title,list],gi)=>{
-      const cols=list.filter(ci=>branches.some(b=>(byBranch.get(b).get(ci.name)||{}).qty>0));
-      if(!cols.length) return;
-      const tot={}; cols.forEach(c=>tot[c.name]=0);
-      const rowsH=branches.filter(b=>cols.some(c=>(byBranch.get(b).get(c.name)||{}).qty>0)).map((b,i)=>`<tr><td class="c">${i+1}</td><td class="br">${esc(b)}</td>${cols.map(c=>{ const v=(byBranch.get(b).get(c.name)||{}).qty||0; tot[c.name]+=v; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('');
-      body+=`<section class="${gi?'pb':''}">${head('شيت تحضير طلبيات الفروع',title)}
-        <table class="mx"><thead><tr><th style="width:26px">#</th><th>الفرع</th>${cols.map(c=>`<th>${esc(lbl(c.name))}<small>${esc((byBranch.get(branches.find(b=>byBranch.get(b).get(c.name)))||new Map()).get(c.name)?.unit||'')}</small></th>`).join('')}</tr></thead>
-        <tbody>${rowsH}</tbody><tfoot><tr><td></td><td>الإجمالي</td>${cols.map(c=>`<td class="c">${fmtP(n2(tot[c.name]))}</td>`).join('')}</tr></tfoot></table>
-        <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
-    });
+    const all=boAllItems().map(it=>({...it,label:lbl(it.name),total:(BO.totals[it.name]||{}).qty||0, n:branches.filter(b=>(byBranch.get(b).get(it.name)||{}).qty>0).length}))
+      .filter(it=>it.total>0).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
+    body+=`<section>${head('إجمالي طلبيات الفروع','كل الأصناف')}
+      <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">الإجمالي</th><th style="width:12%">الوحدة</th><th style="width:12%">عدد الفروع</th><th style="width:16%">اتجهّز</th></tr></thead>
+      <tbody>${all.map((it,i)=>`<tr><td class="c">${i+1}</td><td>${esc(it.label)}</td><td class="c"><b style="font-size:14px">${fmtP(it.total)}</b></td><td class="c">${esc(it.unit)}</td><td class="c">${it.n}</td><td></td></tr>`).join('')}</tbody></table>
+      <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
+    const CH=12;
+    for(let k=0;k<branches.length;k+=CH){
+      const bs=branches.slice(k,k+CH);
+      body+=`<section class="pb">${head('توزيع الأصناف على الفروع',branches.length>CH?`الفروع ${k+1}–${k+bs.length} من ${branches.length}`:'')}
+        <table class="mx"><thead><tr><th>الصنف</th><th style="width:70px">الإجمالي</th>${bs.map(b=>`<th>${esc(b)}</th>`).join('')}</tr></thead>
+        <tbody>${all.map(it=>`<tr><td class="br">${esc(it.label)} <small style="color:#888;font-weight:400">${esc(it.unit)}</small></td><td class="c" style="background:#F6E3E1">${fmtP(it.total)}</td>${bs.map(b=>{ const v=(byBranch.get(b).get(it.name)||{}).qty||0; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('')}</tbody></table></section>`;
+    }
   } else {
     branches.forEach((b,bi)=>{
       const items=[...byBranch.get(b).values()];
@@ -8549,7 +8574,8 @@ function boPrint(kind){
       body+=`<section class="${bi?'pb':''}">${head('إذن تسليم طلبية',b)}
         <div class="meta"><div><b>الفرع</b>${esc(b)}</div><div><b>عدد الأصناف</b>${items.length}</div><div><b>السواق</b></div></div>
         <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">المطلوب</th><th style="width:12%">الوحدة</th><th style="width:16%">اتبعت فعلًا</th><th style="width:18%">ملاحظات</th></tr></thead>
-        <tbody>${items.map((it,i)=>`<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(it.unit||'')}</td><td></td><td></td></tr>`).join('')}</tbody></table>
+        <tbody>${items.map((it,i)=>{ const wz=boIsWeigh(it.name); const w=wz&&((S.boDone[boKey(it.name)]||{}).weights||{})[b];
+          return `<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}${wz?' <small style="color:#8E1A20">⚖️ بالوزن</small>':''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(it.unit||'')}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> كجم`:'______ كجم'):''}</td><td></td></tr>`; }).join('')}</tbody></table>
         <div class="sig"><div>المسلّم (المصنع)</div><div>السواق</div><div>المستلم (الفرع)</div></div></section>`;
     });
   }
@@ -9303,6 +9329,11 @@ async function act(a,d){
     return render();
   }
   if(a==='bo-day'){ BO.from=d.v; BO.to=d.v; BO.showRange=false; return fetchBranchOrders(); }
+  if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
+  if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
+    toast(S.boWeigh[d.n]?`"${d.n}" هيتصرف بالوزن الفعلي لكل فرع`:`"${d.n}" رجع يتصرف بمعامل ثابت`); return render(); }
+  if(a==='bo-weigh-open'){ ui.modal=boWeighModal(d.n); render(); boWeighBind(); return; }
+  if(a==='bo-weigh-save'){ return boWeighSave(d.n); }
   if(a==='bo-branches-manage'){ ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-br-toggle'){ if(!S.boHidden) S.boHidden={}; if(S.boHidden[d.b]) delete S.boHidden[d.b]; else S.boHidden[d.b]=1; await saveMain(); ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-br-add'){ const n=prompt('اسم الفرع زي ما بيظهر في طلبيات الفروج بالظبط:'); if(!n||!n.trim()) return; if(!S.boSeen) S.boSeen={}; S.boSeen[n.trim()]=S.boSeen[n.trim()]||''; if(S.boHidden) delete S.boHidden[n.trim()]; await saveMain(); ui.modal=boBranchesModal(); return render(); }
@@ -9319,6 +9350,7 @@ async function act(a,d){
     const match = findMatchingLocalItem(faroojName);
     if(!match) return;
     if(boIsDone(faroojName)) return toast('الصنف ده اتصرف قبل كده للفترة دي',1);
+    if(boIsWeigh(faroojName)){ ui.modal=boWeighModal(faroojName); render(); boWeighBind(); return; }
     const conv = convFactorOf(faroojName);
     if(conv===null) return toast('حدد معامل التحويل الأول — وحدة الفرع مختلفة عن وحدة المصنع',1);
 
@@ -9354,6 +9386,8 @@ async function act(a,d){
     return render();
   }
   if(a==='bo-dispense-all'){
+    const weighPending = Object.keys(BO.totals).filter(n=>boIsWeigh(n) && !boIsDone(n) && findMatchingLocalItem(n));
+    if(weighPending.length) toast(`${weighPending.length} صنف بالوزن الفعلي (${weighPending.slice(0,3).join('، ')}) مش هيتصرف هنا — اصرفه من زرار «⚖️ وزن وصرف»`);
     const names = Object.keys(BO.totals).filter(n=>boReadyToDispense(n) && !boIsDone(n));
     const blocked = Object.keys(BO.totals).filter(n=>findMatchingLocalItem(n) && convFactorOf(n)===null && !boIsDone(n)).length;
     if(!names.length) return toast(blocked? `مفيش أصناف جاهزة — ${blocked} صنف محتاج معامل تحويل الأول` : 'مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
