@@ -1015,7 +1015,7 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1039,7 +1039,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1640,10 +1640,10 @@ async function pushAll(quiet){
       if(sv){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
-        ['boMap','boConv','boDone','inboxMap'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1673,7 +1673,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
@@ -3802,12 +3802,34 @@ async function fetchBranchOrders(){
     orders.sort((a,b)=> new Date(b.submittedAt) - new Date(a.submittedAt));
     BO.totals=totals; BO.orders=orders; BO.ordersCount=ordersCount; BO.branchesCount=branches.size;
     BO.fetchedKey=BO.from+'~'+BO.to;
+    // بنحفظ كل فرع ظهر في أي طلبية — عشان نعرف مين ما طلبش في يوم معين
+    if(!S.boSeen) S.boSeen={}; let learned=false;
+    orders.forEach(o=>{ if(o.branch && (!S.boSeen[o.branch] || String(S.boSeen[o.branch])<String(o.date||''))){ S.boSeen[o.branch]=o.date||BO.from; learned=true; } });
+    if(!BO.learnedBack){ BO.learnedBack=true; let done=false; try{ done=localStorage.getItem('bo-learned:'+FACTORY)==='1'; }catch(e){} if(!done || Object.keys(S.boSeen).length<3){ boLearnBranches(); try{ localStorage.setItem('bo-learned:'+FACTORY,'1'); }catch(e){} } }
+    if(learned) saveMain();
   }catch(e){ BO.err=e.message; }
   await fetchFactoryChangeRequests();
   await fetchFactoryShortageReports();
   BO.loading=false; render();
 }
 
+// أول مرة: بنبص على آخر 14 يوم عشان نتعرف على كل الفروع اللي بتطلب عادةً
+async function boLearnBranches(){
+  try{
+    const end=new Date(BO.from+'T12:00:00'); const st=new Date(end); st.setDate(st.getDate()-14);
+    const dates=faroojDateRange(st.toISOString().slice(0,10), end.toISOString().slice(0,10));
+    const keys=(await Promise.all(dates.map(d=>faroojList(`${BRANCH_APP.keyPrefix}:${d}:`).catch(()=>[])))).flat();
+    const vals=await Promise.all(keys.map(k=>faroojGet(k).catch(()=>null)));
+    if(!S.boSeen) S.boSeen={}; let n=0;
+    vals.forEach(v=>{ try{ const o=JSON.parse(v); if(o&&o.branch&&(!S.boSeen[o.branch]||String(S.boSeen[o.branch])<String(o.date||''))){ S.boSeen[o.branch]=o.date||''; n++; } }catch(e){} });
+    if(n){ await saveMain(); render(); }
+  }catch(e){}
+}
+// كل الفروع المعروفة (اللي طلبت قبل كده + فروع الصرف المسجلة) ناقص اللي اتشالت من المتابعة
+function boKnownBranches(){
+  const set=new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')]);
+  return [...set].filter(b=>!(S.boHidden||{})[b]).sort((a,b)=>a.localeCompare(b,'ar'));
+}
 async function fetchFactoryChangeRequests(){
   try{
     const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:index`);
@@ -3979,6 +4001,18 @@ function viewBranchOrders(){
     ${BO.loading?`<div class="hint" style="margin-top:8px">جاري جلب الطلبيات من تطبيق الفروج…</div>`:''}
     ${BO.err?`<div class="warnbar" style="margin-top:10px">${esc(BO.err)}</div>`:''}
     ${!oneDay&&rows.length?`<div class="warnbar" style="margin-top:10px">انت فاتح فترة أكتر من يوم — الإجمالي بيجمع كل الأيام. للطباعة والتعديل اليومي ارجع لـ«طلبية يوم» واختار يوم واحد.</div>`:''}
+    ${(()=>{ if(BO.loading || BO.fetchedKey!==BO.from+'~'+BO.to) return '';
+      const known=boKnownBranches(); if(!known.length) return '';
+      const ordered=new Set(BO.orders.map(o=>o.branch));
+      const missing=known.filter(b=>!ordered.has(b));
+      return `<div style="margin-top:10px;border:1px solid ${missing.length?'var(--red)':'var(--line)'};border-radius:10px;padding:8px 12px;${missing.length?'background:#FFF4F3':''}">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <b>${missing.length?`❗ فروع ما طلبتش ${oneDay?'اليوم ده':'في الفترة دي'}: ${missing.length} من ${known.length}`:`✓ كل الفروع طلبت (${known.length} فرع)`}</b>
+          <span class="hint">طلب ${known.filter(b=>ordered.has(b)).length} فرع</span>
+          <button class="btn sm" data-act="bo-branches-manage" style="margin-inline-start:auto">قايمة الفروع</button>
+        </div>
+        ${missing.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${missing.map(b=>`<span class="chip r" title="آخر طلبية: ${esc((S.boSeen||{})[b]||'—')}">${esc(b)}${(S.boSeen||{})[b]?` <small style="opacity:.75">· آخر طلب ${esc(String(S.boSeen[b]).slice(5))}</small>`:''}</span>`).join('')}</div>`:''}
+      </div>`; })()}
     ${multi.length?`<div class="warnbar" style="margin-top:10px">⚠️ فروع ليها أكتر من طلبية في ${oneDay?'اليوم ده':'الفترة دي'}: ${multi.map(([b,n])=>`${esc(b)} (${n})`).join('، ')} — جداول التعديل بتعرض أحدث طلبية بس، والباقي تلاقيه في «كل طلبية فرع لوحدها».</div>`:''}
   </div></div>
   ${rows.length?`<div class="panel"><div class="pad">
@@ -8408,6 +8442,20 @@ function boAddItemModal(){
 
 // أي صنف موجود في طلبيات الفروع بس مش موجود في أي من الشيتات الثلاثة الثابتة (اجمالي الفروع/المقبلات/نادر) —
 // بيظهر هنا تلقائي، عشان أي صنف تضيفه (أو أي صنف الفرع طلبه لوحده) يبقى ليه جدول قابل للتعديل من غير ما نغلط في تصنيفه يدوي
+function boBranchesModal(){
+  const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:560px">
+    <h3>الفروع اللي بتتابع طلبياتها</h3>
+    <div class="pad" style="max-height:62vh;overflow:auto">
+      <div class="hint" style="margin-bottom:8px;line-height:1.7">القايمة دي بتتملى لوحدها من الفروع اللي بعتت طلبيات قبل كده. فرع اتقفل أو مش بيطلب يوميًا؟ دوس «شيله من المتابعة» عشان ما يظهرش في «ما طلبتش».</div>
+      <table class="gridcols"><thead><tr><th>الفرع</th><th>آخر طلبية</th><th></th></tr></thead><tbody>
+      ${all.map(b=>{ const h=(S.boHidden||{})[b]; return `<tr style="${h?'opacity:.5':''}"><td><div class="iname">${esc(b)}</div></td><td class="n">${esc((S.boSeen||{})[b]||'—')}</td>
+        <td style="text-align:end"><button class="btn sm ${h?'g':''}" data-act="bo-br-toggle" data-b="${esc(b)}">${h?'رجّعه للمتابعة':'شيله من المتابعة'}</button></td></tr>`; }).join('')||'<tr><td colspan="3" class="empty">لسه مفيش فروع</td></tr>'}
+      </tbody></table>
+    </div>
+    <div class="foot"><button class="btn" data-act="bo-br-add">+ ضيف فرع</button><button class="btn p" data-close="1">تمام</button></div>
+  </div></div>`;
+}
 /* طباعة طلبية الفروج: شيت تحضير (كل الفروع × الأصناف) أو إذن تسليم لكل فرع في صفحة */
 function boPrint(kind){
   if(!BO.orders.length) return toast('مفيش طلبيات تتطبع — اختار اليوم الأول',1);
@@ -9196,6 +9244,9 @@ async function act(a,d){
     return render();
   }
   if(a==='bo-day'){ BO.from=d.v; BO.to=d.v; BO.showRange=false; return fetchBranchOrders(); }
+  if(a==='bo-branches-manage'){ ui.modal=boBranchesModal(); return render(); }
+  if(a==='bo-br-toggle'){ if(!S.boHidden) S.boHidden={}; if(S.boHidden[d.b]) delete S.boHidden[d.b]; else S.boHidden[d.b]=1; await saveMain(); ui.modal=boBranchesModal(); return render(); }
+  if(a==='bo-br-add'){ const n=prompt('اسم الفرع زي ما بيظهر في طلبيات الفروج بالظبط:'); if(!n||!n.trim()) return; if(!S.boSeen) S.boSeen={}; S.boSeen[n.trim()]=S.boSeen[n.trim()]||''; if(S.boHidden) delete S.boHidden[n.trim()]; await saveMain(); ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-range-toggle'){ BO.showRange=!BO.showRange; return render(); }
   if(a==='bo-print'){ return boPrint(d.v); }
   if(a==='bo-fetch'){
