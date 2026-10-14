@@ -914,22 +914,45 @@ const BRANCH_APP_CONFIG = {
       { label: "صحن حمص", name: "hommos - 180 gm - صحن حمص" },
       { label: "بيواز", name: "Biwaz - بيواز" },
       { label: "سلطه دايت", name: "Low carb salad - سلطه دايت" },
-      { label: "فتوله", name: "فتوله - Fatola" },
-      { label: "صوص كوكتيل دجاج", name: "Cocktail Sauce - صوص كوكتيل دجاج" },
-      { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش" },
-      { label: "صوص حريقه", name: "Hareqa Sauce - صوص حريقه" },
-      { label: "صوص طحينة", name: "Tahina Suace - صوص طحينة" },
-      { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace" },
-      { label: "صوص سطل احمر", name: "Red Sauce - صوص سطل احمر مع ذره" },
-      { label: "صوص سطل ابيض", name: "White Sauce - صوص سطل ابيض مع ذره" }
+      { label: "فتوله", name: "فتوله - Fatola" }
     ],
-    // صوصات نادر — لو اسم أي صنف هنا مش مطابق لاسمه في تطبيق الفروج بالظبط، الكمية هتظهر فاضية
+    // جدول اللحوم
+    meatTable: [
+      { label: "كباب لحم", match: /كباب\s*لحم|kabab\s*(lahm|meat)/i },
+      { label: "كباب دجاج", match: /كباب\s*دجاج|kabab\s*chicken/i },
+      { label: "فروج كامل", match: /فروج\s*(كامل|بالعظم)|with\s*bone|whole\s*chicken/i, not: /boneless|مخل|مسحب/i },
+      { label: "فروج مخلي", match: /مخل[يى]|whole\s*chicken\s*boneless/i },
+      { label: "أفخاد", match: /افخاد|أفخاد|afkhad|thigh/i },
+      { label: "جوانح", match: /جوانح|wings/i },
+      { label: "دجاج مسحب", match: /مسحب|boneless\s*chicken/i, not: /whole|مخل/i },
+      { label: "طاووق", match: /طاووق|طاووك|tawo+q|tawook/i },
+      { label: "ريش", match: /ريش|ribs|chops/i }
+    ],
+    // جدول المقبلات — كل صنف بيتلاقي في الطلبيات بالاسم التقريبي (match) ومن غير اللي في (not)
+    appetizerTable: [
+      { label: "صحن حمص", match: /صحن\s*حمص|hommos\s*-\s*180/i },
+      { label: "حمص", match: /حمص|hommos|hummus/i, not: /صحن|180/i },
+      { label: "فتوش", match: /فتوش|fatosh|fattoush/i },
+      { label: "تبولة", match: /تبول|tabul|tabbou/i },
+      { label: "فتولة", match: /فتول|fatola/i },
+      { label: "متبل", match: /متبل|mutabal|moutabal/i },
+      { label: "سمبوسة", match: /سمبوس|sambos/i },
+      { label: "بيواز", match: /بيواز|biwaz/i }
+    ],
     // أحجام ضربات صوصات نادر (بالكيلو) — النظام بيقترح أقل عدد ضربات يغطي المطلوب بأقل زيادة
     naderBatches: [ {label:'كبيرة', kg:15}, {label:'وسط', kg:7.5}, {label:'صغيرة', kg:4} ],
     naderSauces: [
-      { label: "صوص وردي", name: "pink sauce - صوص وردي" },
-      { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم" },
-      { label: "صوص سبايسي", name: "Spicy sauce - صوص سبايسي" }
+      { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم", match: /صوص\s*ثوم|garlic\s*sauce/i },
+      { label: "صوص وردي", name: "pink sauce - صوص وردي", match: /صوص\s*وردي|pink\s*sauce/i },
+      { label: "صوص سبايسي", name: "Spicy sauce - صوص سبايسي", match: /صوص\s*سبايسي|^spicy\s*sauce/i },
+      { label: "صوص طحينة", name: "Tahina Suace - صوص طحينة", match: /صوص\s*طحين|tahina/i },
+      { label: "صوص كوكتيل دجاج", name: "Cocktail Sauce - صوص كوكتيل دجاج", match: /كوكتيل\s*دجاج|cocktail\s*sauce/i },
+      { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش", match: /ساندو|sandwich/i },
+      { label: "صوص حريقة", name: "Hareqa Sauce - صوص حريقه", match: /حريق|hareq/i },
+      { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace", match: /بطاطا|potato/i },
+      { label: "صوص سطل أبيض", name: "White Sauce - صوص سطل ابيض مع ذره", match: /سطل\s*ابيض|white\s*sauce/i },
+      { label: "صوص سطل أحمر", name: "Red Sauce - صوص سطل احمر مع ذره", match: /سطل\s*احمر|red\s*sauce/i },
+      { label: "صوص ميكس", name: "Mix sauce - صوص ميكس", match: /(صوص\s*(ال)?ميكس|mix\s*sauce)/i }
     ]
   }
   // لإضافة مصنع جديد (زي الكنافة) لما يبقى عنده تطبيق فروع: انسخ الكتلة دي وحطها هنا بنفس الشكل
@@ -3804,6 +3827,8 @@ async function fetchBranchOrders(){
     orders.sort((a,b)=> new Date(b.submittedAt) - new Date(a.submittedAt));
     BO.totals=totals; BO.orders=orders; BO.ordersCount=ordersCount; BO.branchesCount=branches.size;
     BO.fetchedKey=BO.from+'~'+BO.to;
+    // صوص اسمه في تطبيق الفروع مش معروف بالظبط (زي صوص ميكس): بندوّر عليه بالاسم التقريبي
+    NADER_SAUCES.forEach(ns=>{ if(ns.match && !totals[ns.name]){ const k=Object.keys(totals).find(n=>ns.match.test(n)); if(k) ns.name=k; } });
     // بنحفظ كل فرع ظهر في أي طلبية — عشان نعرف مين ما طلبش في يوم معين
     if(!S.boSeen) S.boSeen={}; let learned=false;
     orders.forEach(o=>{ if(o.branch && (!S.boSeen[o.branch] || String(S.boSeen[o.branch])<String(o.date||''))){ S.boSeen[o.branch]=o.date||BO.from; learned=true; } });
@@ -8525,7 +8550,40 @@ function boReviewHtml(){
       <tfoot><tr><th class="bxb" style="background:#8E1A20;color:#fff">عدد الأصناف لكل فرع</th><td>${items.length}</td><td></td>${brTot.map(n=>`<td>${n||'—'}</td>`).join('')}</tr></tfoot>
     </table></div>`:'<div class="empty">مفيش نتيجة للبحث</div>'}
   </div>
-  ${boNaderHtml()}`;
+  ${boMeatHtml()}
+  ${boNaderHtml()}
+  ${boAppetHtml()}`;
+}
+/* جدول المقبلات: كل صنف صف (الإجمالي + كل فرع)، بيتعدل مباشرة زي الجدول الكبير */
+const APPET_TABLE = (BRANCH_APP && BRANCH_APP.appetizerTable) || [];
+const MEAT_TABLE = (BRANCH_APP && BRANCH_APP.meatTable) || [];
+function boAppetResolve(list){
+  list=list||APPET_TABLE; const keys=Object.keys(BO.totals); const used=new Set();
+  return list.map(e=>{ const names=keys.filter(k=>!used.has(k) && e.match.test(k) && !(e.not && e.not.test(k))); names.forEach(n=>used.add(n)); return {...e, names}; });
+}
+function boAppetHtml(){ return boGroupTable(APPET_TABLE,'🥗 المقبلات'); }
+function boMeatHtml(){ return boGroupTable(MEAT_TABLE,'🍗 اللحوم'); }
+function boGroupTable(LIST,TITLE){
+  if(!LIST.length) return '';
+  const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
+  const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
+  const R=boAppetResolve(LIST).filter(e=>e.names.length);
+  if(!R.length || !branches.length) return '';
+  const rowsH=[]; const brTot=branches.map(()=>0);
+  R.forEach(e=>e.names.forEach(n=>{ const unit=(BO.totals[n]||{}).unit||''; const vals=branches.map(b=>{ const f=(BO.orders[latest.get(b)].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; });
+    const pos=vals.filter(v=>v>0), max=Math.max(0,...pos);
+    rowsH.push(`<tr><th class="bxb"><div>${esc(e.label)}</div>${e.names.length>1||n!==e.label?`<small>${esc(n)}</small>`:''}</th>
+      <td class="bxt-tot"><b>${fmtP((BO.totals[n]||{}).qty||0)}</b> <span>${esc(unit)}</span></td><td class="bxc">${pos.length}</td>
+      ${branches.map((b,k)=>{ const v=vals[k]; if(v>0) brTot[k]+=1; const a=v>0&&max>0?0.10+0.45*(v/max):0;
+        return `<td class="bx${v>0?' on':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${latest.get(b)}:${esc(n)}"></td>`; }).join('')}</tr>`); }));
+  const missing=boAppetResolve(LIST).filter(e=>!e.names.length).map(e=>e.label);
+  return `<div class="panel"><h2>${TITLE} <em>${rowsH.length} صنف · ${branches.length} فرع</em></h2>
+    ${missing.length?`<div class="hint" style="margin:-6px 14px 8px">ما اتطلبش النهارده: ${missing.map(esc).join('، ')}</div>`:''}
+    <div class="tblwrap bxw"><table class="bxt">
+      <thead><tr><th class="bxb bxh">الصنف</th><th class="bxh">الإجمالي</th><th class="bxh">فروع</th>${branches.map(b=>`<th class="bxh">${esc(b)}</th>`).join('')}</tr></thead>
+      <tbody>${rowsH.join('')}</tbody>
+      <tfoot><tr><th class="bxb" style="background:#8E1A20;color:#fff">أصناف لكل فرع</th><td></td><td></td>${brTot.map(n=>`<td>${n||'—'}</td>`).join('')}</tr></tfoot>
+    </table></div></div>`;
 }
 /* ضربات صوصات نادر: إجمالي كل صوص بالكيلو ← أنسب تركيبة ضربات (كبيرة/وسط/صغيرة) */
 const NADER_BATCHES = (BRANCH_APP && BRANCH_APP.naderBatches) || [];
@@ -8558,7 +8616,28 @@ function boNaderHtml(){
   return `<div class="panel"><h2>🥣 ضربات صوصات نادر <em>${rows.length} صوص</em></h2>
     <div class="hint" style="margin:-6px 14px 8px">أقل عدد ضربات بيغطي المطلوب بأقل زيادة — ${B.map(b=>`${esc(b.label)} ${fmtP(b.kg)} ك`).join(' · ')}</div>
     <div class="tblwrap" style="max-height:none"><table class="gridcols"><thead><tr><th>الصوص</th><th class="n">طلب الفروع</th><th class="n">بالكيلو</th>${B.map(b=>`<th class="n">${esc(b.label)}<div class="hint" style="font-weight:400">${fmtP(b.kg)} ك</div></th>`).join('')}<th class="n">هيطلع</th></tr></thead>
-    <tbody>${body}</tbody><tfoot><tr style="font-weight:700"><td colspan="3">إجمالي الضربات</td>${tot.map(n=>`<td class="n hl">${n||'—'}</td>`).join('')}<td></td></tr></tfoot></table></div></div>`;
+    <tbody>${body}</tbody><tfoot><tr style="font-weight:700"><td colspan="3">إجمالي الضربات</td>${tot.map(n=>`<td class="n hl">${n||'—'}</td>`).join('')}<td></td></tr></tfoot></table></div>
+    ${boNaderBranchHtml(rows,B)}</div>`;
+}
+// ضربات كل فرع لوحده: كل فرع بياخد ضربات كاملة على قد طلبه
+function boNaderPerBranch(rows){
+  const latest=new Map(); BO.orders.forEach(o=>{ const m=latest.get(o.branch)||{}; (o.items||[]).forEach(it=>{ if(+it.qty>0) m[it.name]=n2((m[it.name]||0)+ +it.qty); }); latest.set(o.branch,m); });
+  const brs=[...latest.keys()].filter(b=>rows.some(r=>latest.get(b)[r.name]>0)).sort((a,b)=>a.localeCompare(b,'ar'));
+  return brs.map(b=>({branch:b, cells:rows.map(r=>{ const q=latest.get(b)[r.name]||0; const k=boKgPerUnit(r.name); const kg=q&&k?n2(q*k):0; return {q, kg, p:kg?naderPlan(kg):null}; })}));
+}
+const naderShort = (p,B) => p ? B.map((b,i)=>p.cnt[i]?`${b.label} ×${p.cnt[i]}`:'').filter(Boolean).join(' + ') : '';
+function boNaderBranchHtml(rows,B){
+  const per=boNaderPerBranch(rows); if(!per.length) return '';
+  const tot=rows.map(()=>B.map(()=>0)); const all=B.map(()=>0);
+  per.forEach(x=>x.cells.forEach((c,ri)=>{ if(c.p) c.p.cnt.forEach((n,i)=>{ tot[ri][i]+=n; all[i]+=n; }); }));
+  return `<h3 style="margin:14px 14px 4px;font-size:15px">ضربات كل فرع لوحده</h3>
+    <div class="hint" style="margin:0 14px 8px">كل فرع بياخد ضربات كاملة على قد طلبه — لو هتعمل لكل فرع لوحده، ده المطلوب يتعمل.</div>
+    <div class="tblwrap" style="max-height:none"><table class="gridcols">
+      <thead><tr><th>الفرع</th>${rows.map(r=>`<th class="n">${esc(r.label)}</th>`).join('')}</tr></thead>
+      <tbody>${per.map(x=>`<tr><td><div class="iname">${esc(x.branch)}</div></td>${x.cells.map(c=>`<td class="n">${c.q?`${c.p?`<div style="font-weight:700;color:#8E1A20">${esc(naderShort(c.p,B))}</div>`:''}<div class="hint">${c.kg?`طلب <bdi>${fmtP(c.kg)}</bdi> ك · يطلع <bdi>${fmtP(n2(c.p.sum))}</bdi> ك`:`${fmtP(c.q)} — حدد الوزن فوق`}</div>`:'<span class="hint">—</span>'}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:700"><td>إجمالي ضربات الفروع</td>${tot.map(t=>`<td class="n hl">${B.map((b,i)=>t[i]?`${b.label} ×${t[i]}`:'').filter(Boolean).join(' + ')||'—'}</td>`).join('')}</tr>
+      <tr style="font-weight:700"><td>الكل</td><td class="n hl" colspan="${rows.length}">${B.map((b,i)=>`${b.label}: ${all[i]}`).join(' · ')} ضربة</td></tr></tfoot>
+    </table></div>`;
 }
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
@@ -8598,9 +8677,18 @@ function boPrint(kind){
       ${(()=>{ if(!NADER_SAUCES.length||!NADER_BATCHES.length) return ''; const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg);
         const rr=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; if(!t||!(+t.qty>0)) return ''; const k=boKgPerUnit(ns.name); const kg=k?n2(+t.qty*k):null; const p=kg?naderPlan(kg):null;
           return `<tr><td>${esc(ns.label)}</td><td class="c">${fmtP(+t.qty)} ${esc(t.unit||'')}</td><td class="c">${kg?fmtP(kg)+' كجم':'—'}</td>${B.map((b,i)=>`<td class="c"><b style="font-size:15px">${p&&p.cnt[i]?p.cnt[i]:''}</b></td>`).join('')}</tr>`; }).join('');
-        return rr?`<h3 style="margin:16px 0 6px;color:#8E1A20">ضربات صوصات نادر</h3><table class="ls"><thead><tr><th>الصوص</th><th>المطلوب</th><th>بالكيلو</th>${B.map(b=>`<th>${esc(b.label)} (${fmtP(b.kg)} ك)</th>`).join('')}</tr></thead><tbody>${rr}</tbody></table>`:''; })()}
+        const rows2=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; return t&&+t.qty>0?{...ns,qty:+t.qty,unit:t.unit||''}:null; }).filter(Boolean);
+        const per=rows2.length?boNaderPerBranch(rows2):[];
+        const perH=per.length?`<h3 style="margin:14px 0 6px;color:#8E1A20">ضربات كل فرع لوحده</h3><table class="ls"><thead><tr><th>الفرع</th>${rows2.map(r=>`<th>${esc(r.label)}</th>`).join('')}</tr></thead><tbody>${per.map(x=>`<tr><td><b>${esc(x.branch)}</b></td>${x.cells.map(c=>`<td class="c">${c.p?`<b>${esc(naderShort(c.p,B))}</b><br><small style="color:#777">${fmtP(c.kg)} ك</small>`:(c.q?fmtP(c.q):'')}</td>`).join('')}</tr>`).join('')}</tbody></table>`:'';
+        return rr?`<h3 style="margin:16px 0 6px;color:#8E1A20">ضربات صوصات نادر</h3><table class="ls"><thead><tr><th>الصوص</th><th>المطلوب</th><th>بالكيلو</th>${B.map(b=>`<th>${esc(b.label)} (${fmtP(b.kg)} ك)</th>`).join('')}</tr></thead><tbody>${rr}</tbody></table>${perH}`:''; })()}
       <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
     const CH=12;
+    for(const [LIST,TT] of [[MEAT_TABLE,'اللحوم'],[APPET_TABLE,'المقبلات']]){ const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[];
+      if(R.length){ const lines=[]; R.forEach(e=>e.names.forEach(n=>lines.push({label:e.label,name:n,unit:(BO.totals[n]||{}).unit||'',total:(BO.totals[n]||{}).qty||0})));
+        for(let k=0;k<branches.length;k+=CH){ const bs=branches.slice(k,k+CH);
+          body+=`<section class="pb">${head(TT,branches.length>CH?`الفروع ${k+1}–${k+bs.length} من ${branches.length}`:'')}
+          <table class="mx"><thead><tr><th>الصنف</th><th style="width:70px">الإجمالي</th>${bs.map(b=>`<th>${esc(b)}</th>`).join('')}</tr></thead>
+          <tbody>${lines.map(it=>`<tr><td class="br">${esc(it.label)} <small style="color:#888;font-weight:400">${esc(it.unit)}</small></td><td class="c" style="background:#F6E3E1">${fmtP(it.total)}</td>${bs.map(b=>{ const v=(byBranch.get(b).get(it.name)||{}).qty||0; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('')}</tbody></table></section>`; } } }
     for(let k=0;k<branches.length;k+=CH){
       const bs=branches.slice(k,k+CH);
       body+=`<section class="pb">${head('توزيع الأصناف على الفروع',branches.length>CH?`الفروع ${k+1}–${k+bs.length} من ${branches.length}`:'')}
@@ -8616,7 +8704,8 @@ function boPrint(kind){
         <div class="meta"><div><b>الفرع</b>${esc(b)}</div><div><b>عدد الأصناف</b>${items.length}</div><div><b>السواق</b></div></div>
         <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">المطلوب</th><th style="width:12%">الوحدة</th><th style="width:16%">اتبعت فعلًا</th><th style="width:18%">ملاحظات</th></tr></thead>
         <tbody>${items.map((it,i)=>{ const wz=boIsWeigh(it.name); const w=wz&&((S.boDone[boKey(it.name)]||{}).weights||{})[b];
-          return `<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}${wz?' <small style="color:#8E1A20">⚖️ بالوزن</small>':''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(it.unit||'')}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> كجم`:'______ كجم'):''}</td><td></td></tr>`; }).join('')}</tbody></table>
+          const isN=NADER_SAUCES.some(x=>x.name===it.name)&&NADER_BATCHES.length; const kk=isN?boKgPerUnit(it.name):null; const np=kk?naderPlan(n2(it.qty*kk)):null;
+          return `<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}${wz?' <small style="color:#8E1A20">⚖️ بالوزن</small>':''}${np?` <small style="color:#8E1A20">🥣 ${esc(naderShort(np,NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg)))}</small>`:''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(it.unit||'')}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> كجم`:'______ كجم'):''}</td><td></td></tr>`; }).join('')}</tbody></table>
         <div class="sig"><div>المسلّم (المصنع)</div><div>السواق</div><div>المستلم (الفرع)</div></div></section>`;
     });
   }
