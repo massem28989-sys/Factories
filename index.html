@@ -8732,8 +8732,14 @@ function boPrint(kind){
           return `<tr><td>${esc(ns.label)}</td><td class="c">${fmtP(+t.qty)} ${esc(t.unit||'')}</td><td class="c">${kg?fmtP(kg)+' كجم':'—'}</td>${B.map((b,i)=>`<td class="c"><b style="font-size:15px">${p&&p.cnt[i]?p.cnt[i]:''}</b></td>`).join('')}</tr>`; }).join('');
         const rows2=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; return t&&+t.qty>0?{...ns,qty:+t.qty,unit:t.unit||''}:null; }).filter(Boolean);
         const per=rows2.length?boNaderPerBranch(rows2):[];
-        const perH=per.length?`<h3 style="margin:14px 0 6px;color:#8E1A20">ضربات كل فرع لوحده</h3><table class="ls"><thead><tr><th>الفرع</th>${rows2.map(r=>`<th>${esc(r.label)}</th>`).join('')}</tr></thead><tbody>${per.map(x=>`<tr><td><b>${esc(x.branch)}</b></td>${x.cells.map(c=>`<td class="c">${c.p?`<b>${esc(naderShort(c.p,B))}</b><br><small style="color:#777">${fmtP(c.kg)} ك</small>`:(c.q?fmtP(c.q):'')}</td>`).join('')}</tr>`).join('')}</tbody></table>`:'';
-        return rr?`<h3 style="margin:16px 0 6px;color:#8E1A20">ضربات صوصات نادر</h3><table class="ls"><thead><tr><th>الصوص</th><th>المطلوب</th><th>بالكيلو</th>${B.map(b=>`<th>${esc(b.label)} (${fmtP(b.kg)} ك)</th>`).join('')}</tr></thead><tbody>${rr}</tbody></table>${perH}`:''; })() : '';
+        const tot=rows2.map(()=>B.map(()=>0)); const all=B.map(()=>0);
+        per.forEach(x=>x.cells.forEach((c,ri)=>{ if(c.p) c.p.cnt.forEach((n,k)=>{ tot[ri][k]+=n; all[k]+=n; }); }));
+        const kgTot=rows2.map((r,ri)=>n2(per.reduce((t,x)=>t+(x.cells[ri].kg||0),0)));
+        const perH=per.length?`<table class="mx"><thead><tr><th>الفرع</th>${rows2.map(r=>`<th>${esc(r.label)}</th>`).join('')}</tr></thead><tbody>${per.map(x=>`<tr><td class="br">${esc(x.branch)}</td>${x.cells.map(c=>`<td class="c">${c.p?`<b>${esc(naderShort(c.p,B))}</b><br><small style="color:#777;font-weight:400">${fmtP(c.kg)} ك</small>`:(c.q?fmtP(c.q):'')}</td>`).join('')}</tr>`).join('')}</tbody>
+          <tfoot><tr><td>إجمالي الضربات</td>${tot.map(t=>`<td class="c">${B.map((b,k)=>t[k]?`${b.label} ×${t[k]}`:'').filter(Boolean).join('<br>')||'—'}</td>`).join('')}</tr>
+          <tr><td>إجمالي الكيلو</td>${kgTot.map(k=>`<td class="c">${k?fmtP(k)+' ك':'—'}</td>`).join('')}</tr>
+          <tr><td>الكل</td><td class="c" colspan="${rows2.length}">${B.map((b,k)=>`${b.label} (${fmtP(b.kg)} ك): ${all[k]}`).join('   ·   ')}</td></tr></tfoot></table>`:'';
+        return perH?`<h3 style="margin:16px 0 6px;color:#8E1A20">ضربات صوصات نادر — لكل فرع</h3>${perH}`:''; })() : '';
     if(P.tot){
     body+=`<section>${head('إجمالي طلبيات الفروع','كل الأصناف')}
       <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">الإجمالي</th><th style="width:12%">الوحدة</th><th style="width:12%">عدد الفروع</th><th style="width:16%">اتجهّز</th></tr></thead>
