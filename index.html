@@ -4006,7 +4006,7 @@ function boKey(faroojName){ return `${BO.from}~${BO.to}~${faroojName}`; }
 function boIsDone(faroojName){ return !!(S.boDone && S.boDone[boKey(faroojName)]); }
 
 function viewBranchOrders(){
-  if(!BO.from){ BO.from=today(); BO.to=today(); if(!BO.view || BO.view==='totals' || BO.view==='core') BO.view='review'; }
+  if(!BO.from){ BO.from=today(); BO.to=today(); if(!BO.view || BO.view==='totals' || BO.view==='core') BO.view='edit'; }
   applyCustomTables();
   const rows = Object.values(BO.totals);
   const oneDay = BO.from===BO.to;
@@ -4052,7 +4052,7 @@ function viewBranchOrders(){
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
         <div style="font-weight:700;margin-bottom:6px">① راجع وعدّل</div>
         <div class="hint" style="margin-bottom:6px">اكتب الرقم في الخانة — بيتحفظ في طلبية الفرع على طول</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('review',`⭐ كل الأصناف والإجمالي (${rows.length})`)}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${stepBtn('edit','✏️ تعديل سهل (فرع فرع)')}${stepBtn('review',`⭐ كل الأصناف والإجمالي (${rows.length})`)}${stepBtn('orders','كل طلبية فرع لوحدها')}</div>
       </div>
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
         <div style="font-weight:700;margin-bottom:6px">② اطبع</div>
@@ -4180,6 +4180,7 @@ function viewBranchOrders(){
       }).join('') : `<tr><td colspan="7" class="empty">مفيش بلاغات نواقص من الفروع</td></tr>`}</tbody>
     </table></div>
   </div>` : ''}
+  ${rows.length && BO.view==='edit' ? boEditHtml() : ''}
   ${rows.length && BO.view==='review' ? boReviewHtml() : ''}
   ${rows.length && BO.view==='core' ? boMatrixHtml(CORE_ITEMS, 'اجمالي الفروع') : ''}
   ${rows.length && BO.view==='appet' ? boMatrixHtml(APPETIZER_ITEMS, 'المقبلات والصوصات') : ''}
@@ -7450,6 +7451,8 @@ function bind(){
       mih.style.color = f ? 'var(--green)' : ''; };
     const mu=$('#m-unitmode'); if(mu) mu.onchange=()=>{ updateConv(); refreshPrice(); };
   }
+  root.querySelectorAll('[data-edstep]').forEach(btn=>btn.onclick=()=>{ const inp=btn.parentElement.querySelector('input'); const v=Math.max(0,n2((+inp.value||0)+(+btn.dataset.edstep))); inp.value=v||''; inp.dispatchEvent(new Event('change')); });
+  { const es=$('#ed-item'); if(es) es.onchange=()=>{ BO.editItem=es.value; render(); }; }
   root.querySelectorAll('[data-bocell]').forEach(inp=>inp.onchange=async e=>{
     const raw=e.target.dataset.bocell;
     const sep=raw.indexOf(':');
@@ -8693,6 +8696,59 @@ function boNaderBranchHtml(rows,B){
       <tr style="font-weight:700"><td>الكل</td><td class="n hl" colspan="${rows.length}">${B.map((b,i)=>`${b.label}: ${all[i]}`).join(' · ')} ضربة</td></tr></tfoot>
     </table></div>`;
 }
+/* تعديل سهل: تختار فرع وتشوف طلبيته كقايمة كبيرة واضحة (أو تختار صنف وتشوف كل الفروع) وتعدّل بـ − / + */
+function boEditHtml(){
+  const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
+  const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
+  const mode=BO.editMode||'branch';
+  const allItems=boAllItems().map(it=>({...it,label:boLabel(it.name)})).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
+  const qOf=(oi,n)=>{ const f=(BO.orders[oi].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; };
+  const row=(oi,n,label,unit,sub)=>{ const v=qOf(oi,n); return `<div class="ed-row${v>0?' on':''}">
+      <div class="ed-name"><b>${esc(label)}</b>${sub?`<small>${sub}</small>`:''}</div>
+      <div class="ed-ctl"><button class="ed-b" type="button" data-edstep="-1">−</button>
+        <input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="0" data-bocell="${oi}:${esc(n)}">
+        <button class="ed-b" type="button" data-edstep="1">+</button><span class="ed-u">${esc(unit||'')}</span></div></div>`; };
+  const css=`<style>
+    .ed-chips{display:flex;flex-wrap:wrap;gap:6px}
+    .ed-chip{border:1px solid var(--line);background:#fff;border-radius:20px;padding:6px 12px;font-size:13px;cursor:pointer}
+    .ed-chip.on{background:#8E1A20;border-color:#8E1A20;color:#fff;font-weight:600}
+    .ed-chip small{opacity:.7;margin-inline-start:4px}
+    .ed-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px;padding:12px 14px}
+    .ed-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:#fff}
+    .ed-row.on{border-color:#d9a7a7;background:#FFF7F6}
+    .ed-name small{display:block;color:#999;font-size:11px}
+    .ed-ctl{display:flex;align-items:center;gap:6px}
+    .ed-ctl input{width:78px;text-align:center;font-size:18px;font-weight:700;padding:6px!important}
+    .ed-b{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:#F6E3E1;color:#8E1A20;font-size:22px;font-weight:700;cursor:pointer;line-height:1}
+    .ed-u{color:#8b6b6b;font-size:12px;min-width:34px}
+  </style>`;
+  const tabs=`<div style="display:flex;gap:6px;align-items:center"><button class="cattab ${mode==='branch'?'on':''}" data-act="bo-edit-mode" data-v="branch">حسب الفرع</button><button class="cattab ${mode==='item'?'on':''}" data-act="bo-edit-mode" data-v="item">حسب الصنف</button></div>`;
+  if(mode==='branch'){
+    const br = branches.includes(BO.editBranch) ? BO.editBranch : branches[0]; BO.editBranch=br;
+    const oi=latest.get(br), ix=branches.indexOf(br);
+    const its=(BO.orders[oi].items||[]).filter(x=>+x.qty>0).map(x=>({name:x.name,unit:x.unit,label:boLabel(x.name)})).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
+    const notIn=allItems.filter(it=>!its.some(x=>x.name===it.name));
+    return css+`<div class="panel"><h2>✏️ تعديل طلبية فرع ${tabs}</h2>
+      <div class="pad" style="padding-top:0"><div class="ed-chips">${branches.map(b=>{ const n=(BO.orders[latest.get(b)].items||[]).filter(x=>+x.qty>0).length; return `<button class="ed-chip ${b===br?'on':''}" data-act="bo-edit-br" data-v="${esc(b)}">${esc(b)}<small>${n}</small></button>`; }).join('')}</div></div></div>
+    <div class="panel"><h2 style="font-size:18px">${esc(br)} <em>${its.length} صنف</em>
+        <span style="margin-inline-start:auto;display:flex;gap:6px"><button class="btn sm" data-act="bo-edit-br" data-v="${esc(branches[(ix-1+branches.length)%branches.length])}">◀ الفرع اللي قبله</button><button class="btn sm p" data-act="bo-edit-br" data-v="${esc(branches[(ix+1)%branches.length])}">الفرع اللي بعده ▶</button></span></h2>
+      <div class="ed-list">${its.map(x=>row(oi,x.name,x.label,x.unit,x.label!==x.name?esc(x.name):'')).join('')||'<div class="empty">الفرع ده مالوش أصناف</div>'}</div>
+      ${notIn.length?`<div class="pad" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px dashed var(--line)">
+        <b>+ ضيف صنف للفرع ده:</b><select id="ed-add-item" style="min-width:240px">${notIn.map(it=>`<option value="${esc(it.name)}">${esc(it.label)} (${esc(it.unit)})</option>`).join('')}</select>
+        <input type="number" step="any" min="0" id="ed-add-qty" placeholder="الكمية" style="width:90px;text-align:center"><button class="btn p" data-act="bo-edit-add" data-oi="${oi}">ضيف</button></div>`:''}
+      <div class="hint" style="padding:0 14px 12px">أي رقم تغيّره بيتحفظ في طلبية الفرع على طول. اكتب 0 أو امسح الرقم عشان تشيل الصنف من الطلبية.</div></div>`;
+  }
+  const sel = allItems.some(i=>i.name===BO.editItem) ? BO.editItem : (allItems[0]||{}).name; BO.editItem=sel;
+  const it=allItems.find(i=>i.name===sel)||{label:'',unit:''};
+  const tot=branches.reduce((t,b)=>t+qOf(latest.get(b),sel),0);
+  return css+`<div class="panel"><h2>✏️ تعديل صنف على كل الفروع ${tabs}</h2>
+    <div class="pad" style="padding-top:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>الصنف:</b>
+      <select id="ed-item" style="min-width:280px;font-size:15px">${allItems.map(i=>`<option value="${esc(i.name)}" ${i.name===sel?'selected':''}>${esc(i.label)} — ${fmtP((BO.totals[i.name]||{}).qty||0)} ${esc(i.unit)}</option>`).join('')}</select>
+      <span class="hint">الإجمالي: <b style="font-size:16px;color:#8E1A20">${fmtP(n2(tot))}</b> ${esc(it.unit)} · ${branches.filter(b=>qOf(latest.get(b),sel)>0).length} فرع</span></div></div>
+  <div class="panel"><h2 style="font-size:18px">${esc(it.label)} <em>${esc(it.unit)}</em></h2>
+    <div class="ed-list">${branches.map(b=>row(latest.get(b),sel,b,it.unit,'')).join('')}</div>
+    <div class="hint" style="padding:0 14px 12px">اكتب الكمية قصاد أي فرع — حتى لو ما طلبش الصنف ده، هيتضاف لطلبيته.</div></div>`;
+}
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
   return `<div class="modal" data-close="1"><div class="box" style="max-width:560px">
@@ -9544,6 +9600,12 @@ async function act(a,d){
   if(a==='bo-tbl-exname'){ if(!S.boTblDel) S.boTblDel={}; (S.boTblDel[d.k]=S.boTblDel[d.k]||{})['@'+d.n]=1; await saveMain(); toast(`"${d.n}" اتشال من جدول ${TBL_KINDS[d.k].title}`); if(ui.modal){ ui.modal=boTblModal(d.k); } render(); if(ui.modal) boTblBind(); return; }
   if(a==='bo-tbl-restore'){ if(S.boTblDel&&S.boTblDel[d.k]) delete S.boTblDel[d.k][d.l]; await saveMain(); ui.modal=boTblModal(d.k); render(); boTblBind(); return; }
   if(a==='bo-kg-reset'){ if(S.boKgPer) delete S.boKgPer[d.n]; await saveMain(); return render(); }
+  if(a==='bo-edit-mode'){ BO.editMode=d.v; return render(); }
+  if(a==='bo-edit-br'){ BO.editBranch=d.v; render(); try{ document.querySelector('.ed-list').scrollIntoView({block:'nearest'}); }catch(e){} return; }
+  if(a==='bo-edit-add'){ const o=BO.orders[+d.oi]; const n=($('#ed-add-item')||{}).value, q=+(($('#ed-add-qty')||{}).value||0);
+    if(!o||!n) return; if(!(q>0)) return toast('اكتب الكمية الأول',1);
+    let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
+    const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
   if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
     toast(S.boWeigh[d.n]?`"${d.n}" هيتصرف بالوزن الفعلي لكل فرع`:`"${d.n}" رجع يتصرف بمعامل ثابت`); return render(); }
