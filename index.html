@@ -8617,20 +8617,20 @@ function boGroupTable(LIST,TITLE,KIND){
   const R=boAppetResolve(LIST).filter(e=>e.names.length);
   if(!branches.length) return '';
   if(!R.length) return `<div class="panel"><h2>${TITLE} <em>مفيش أصناف منه في اليوم ده</em>${tblEditBtn(KIND)}</h2></div>`;
-  const rowsH=[]; const brTot=branches.map(()=>0);
-  R.forEach(e=>e.names.forEach(n=>{ const unit=(BO.totals[n]||{}).unit||''; const vals=branches.map(b=>{ const f=(BO.orders[latest.get(b)].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; });
-    const pos=vals.filter(v=>v>0), max=Math.max(0,...pos);
-    rowsH.push(`<tr><th class="bxb"><div style="display:flex;justify-content:space-between;gap:6px"><span>${esc(e.label)}</span>${KIND&&isOwner()?`<button class="btn sm" data-act="bo-tbl-exname" data-k="${KIND}" data-n="${esc(n)}" title="شيله من الجدول ده" style="padding:0 5px;font-size:10px;line-height:16px">✕</button>`:''}</div>${e.names.length>1||n!==e.label?`<small>${esc(n)}</small>`:''}</th>
-      <td class="bxt-tot"><b>${fmtP((BO.totals[n]||{}).qty||0)}</b> <span>${esc(unit)}</span></td><td class="bxc">${pos.length}</td>
-      ${branches.map((b,k)=>{ const v=vals[k]; if(v>0) brTot[k]+=1; const a=v>0&&max>0?0.10+0.45*(v/max):0;
-        return `<td class="bx${v>0?' on':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${latest.get(b)}:${esc(n)}"></td>`; }).join('')}</tr>`); }));
+  // الفروع صفوف والأصناف أعمدة — عشان الجدول كله يتطبع في ورقة واحدة
+  const cols=[]; R.forEach(e=>e.names.forEach(n=>cols.push({label:e.label, name:n, unit:(BO.totals[n]||{}).unit||'', total:(BO.totals[n]||{}).qty||0})));
+  const val=(b,n)=>{ const f=(BO.orders[latest.get(b)].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; };
+  cols.forEach(c=>{ c.vals=branches.map(b=>val(b,c.name)); c.max=Math.max(0,...c.vals); c.n=c.vals.filter(v=>v>0).length; });
+  const body=branches.map((b,k)=>{ const cnt=cols.filter(c=>c.vals[k]>0).length;
+    return `<tr><th class="bxb">${esc(b)}</th>${cols.map(c=>{ const v=c.vals[k]; const a=v>0&&c.max>0?0.10+0.45*(v/c.max):0;
+      return `<td class="bx${v>0?' on':''}" style="${v>0?`background:rgba(142,26,32,${a.toFixed(2)})`:''}" title="${esc(b)} · ${esc(c.label)}"><input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="·" data-bocell="${latest.get(b)}:${esc(c.name)}"></td>`; }).join('')}<td class="bxc">${cnt||'—'}</td></tr>`; }).join('');
   const missing=boAppetResolve(LIST).filter(e=>!e.names.length).map(e=>e.label);
-  return `<div class="panel"><h2>${TITLE} <em>${rowsH.length} صنف · ${branches.length} فرع</em>${tblEditBtn(KIND)}</h2>
+  return `<div class="panel"><h2>${TITLE} <em>${cols.length} صنف · ${branches.length} فرع</em>${tblEditBtn(KIND)}</h2>
     ${missing.length?`<div class="hint" style="margin:-6px 14px 8px">ما اتطلبش النهارده: ${missing.map(esc).join('، ')}</div>`:''}
     <div class="tblwrap bxw"><table class="bxt">
-      <thead><tr><th class="bxb bxh">الصنف</th><th class="bxh">الإجمالي</th><th class="bxh">فروع</th>${branches.map(b=>`<th class="bxh">${esc(b)}</th>`).join('')}</tr></thead>
-      <tbody>${rowsH.join('')}</tbody>
-      <tfoot><tr><th class="bxb" style="background:#8E1A20;color:#fff">أصناف لكل فرع</th><td></td><td></td>${brTot.map(n=>`<td>${n||'—'}</td>`).join('')}</tr></tfoot>
+      <thead><tr><th class="bxb bxh">الفرع</th>${cols.map(c=>`<th class="bxh" title="${esc(c.name)}"><div style="display:flex;gap:4px;justify-content:center;align-items:flex-start">${esc(c.label)}${KIND&&isOwner()?`<button class="btn sm" data-act="bo-tbl-exname" data-k="${KIND}" data-n="${esc(c.name)}" title="شيله من الجدول ده" style="padding:0 4px;font-size:9px;line-height:14px">✕</button>`:''}</div><small>${esc(c.unit)}</small></th>`).join('')}<th class="bxh bxc">أصناف</th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><th class="bxb" style="background:#8E1A20;color:#fff">الإجمالي</th>${cols.map(c=>`<td style="font-size:14px">${fmtP(c.total)}<small style="display:block;font-weight:400;opacity:.8;font-size:10px">${c.n} فرع</small></td>`).join('')}<td></td></tr></tfoot>
     </table></div></div>`;
 }
 /* ضربات صوصات نادر: إجمالي كل صوص بالكيلو ← أنسب تركيبة ضربات (كبيرة/وسط/صغيرة) */
@@ -8749,12 +8749,16 @@ function boPrint(kind){
     } else if(P.nader && naderH){ body+=`<section>${head('ضربات صوصات نادر','')}${naderH}<div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`; }
     else if(P.nader){ body+=`<section>${head('ضربات صوصات نادر','')}<p>مفيش صوصات نادر في الطلبيات دي</p></section>`; }
     const CH=12;
-    for(const [LIST,TT,KK] of [[MEAT_TABLE,'اللحوم','meat'],[APPET_TABLE,'المقبلات','appet']]){ if(!P[KK]) continue; const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[];
-      if(R.length){ const lines=[]; R.forEach(e=>e.names.forEach(n=>lines.push({label:e.label,name:n,unit:(BO.totals[n]||{}).unit||'',total:(BO.totals[n]||{}).qty||0})));
-        for(let k=0;k<branches.length;k+=CH){ const bs=branches.slice(k,k+CH);
-          body+=`<section class="${PB()}">${head(TT,branches.length>CH?`الفروع ${k+1}–${k+bs.length} من ${branches.length}`:'')}
-          <table class="mx"><thead><tr><th>الصنف</th><th style="width:70px">الإجمالي</th>${bs.map(b=>`<th>${esc(b)}</th>`).join('')}</tr></thead>
-          <tbody>${lines.map(it=>`<tr><td class="br">${esc(it.label)} <small style="color:#888;font-weight:400">${esc(it.unit)}</small></td><td class="c" style="background:#F6E3E1">${fmtP(it.total)}</td>${bs.map(b=>{ const v=(byBranch.get(b).get(it.name)||{}).qty||0; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('')}</tbody></table></section>`; } } }
+    for(const [LIST,TT,KK] of [[MEAT_TABLE,'اللحوم','meat'],[APPET_TABLE,'المقبلات','appet']]){ if(!P[KK]) continue;
+      const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[]; if(!R.length) continue;
+      const cols=[]; R.forEach(e=>e.names.forEach(n=>cols.push({label:e.label,name:n,unit:(BO.totals[n]||{}).unit||'',total:(BO.totals[n]||{}).qty||0})));
+      const brs=branches.filter(b=>cols.some(c=>(byBranch.get(b).get(c.name)||{}).qty>0));
+      body+=`<section class="${PB()}">${head(TT,'')}
+        <table class="mx tight"><thead><tr><th style="width:26px">#</th><th>الفرع</th>${cols.map(c=>`<th>${esc(c.label)}<small>${esc(c.unit)}</small></th>`).join('')}</tr></thead>
+        <tbody>${brs.map((b,i)=>`<tr><td class="c">${i+1}</td><td class="br">${esc(b)}</td>${cols.map(c=>{ const v=(byBranch.get(b).get(c.name)||{}).qty||0; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('')}</tbody>
+        <tfoot><tr><td></td><td>الإجمالي</td>${cols.map(c=>`<td class="c">${fmtP(c.total)}</td>`).join('')}</tr></tfoot></table>
+        <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
+    }
     if(P.dist) for(let k=0;k<branches.length;k+=CH){
       const bs=branches.slice(k,k+CH);
       body+=`<section class="${PB()}">${head('توزيع الأصناف على الفروع',branches.length>CH?`الفروع ${k+1}–${k+bs.length} من ${branches.length}`:'')}
@@ -8777,11 +8781,11 @@ function boPrint(kind){
   }
   w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${kind!=='branches'?'شيت التحضير':'أذونات التسليم'} — ${esc(BO.from)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>@page{size:A4 ${kind!=='branches'?'landscape':'portrait'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
+  <style>@page{size:A4 ${(kind==='branches'||kind==='meat'||kind==='appet')?'portrait':'landscape'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
   .hd{display:flex;align-items:center;gap:12px;border-bottom:4px solid #8E1A20;padding-bottom:8px;margin-bottom:10px}.hd img{width:52px;height:52px;object-fit:contain}.hd h1{margin:0;font-size:20px;color:#8E1A20}.hd .s{color:#555;font-size:12px}.hd .r{margin-inline-start:auto;color:#777;font-size:11px}
   table{width:100%;border-collapse:collapse}th{background:#F6E3E1;color:#5a0f14;border:1px solid #bbb;padding:6px 4px;font-size:11.5px}th small{display:block;font-weight:400;color:#888;font-size:10px}td{border:1px solid #bbb;padding:5px 4px}td.c{text-align:center}td.br{font-weight:600;white-space:nowrap}
   .mx td.c{font-size:13px;font-weight:600}.mx tbody tr:nth-child(even){background:#faf6f5}tfoot td{background:#8E1A20;color:#fff;font-weight:700;text-align:center}
-  .ls td{height:28px}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}.meta div{border:1px solid #ccc;border-radius:6px;padding:6px 10px;min-height:42px;font-weight:600}.meta b{display:block;font-size:11px;color:#777;font-weight:400}
+  .ls td{height:28px}.tight td,.tight th{padding:6px 4px!important;font-size:14px}.tight th{font-size:12.5px}.tight td.br{font-size:13px}.tight td.c{font-weight:600}.meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}.meta div{border:1px solid #ccc;border-radius:6px;padding:6px 10px;min-height:42px;font-weight:600}.meta b{display:block;font-size:11px;color:#777;font-weight:400}
   .sig{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:22px}.sig div{border-top:1px solid #333;padding-top:5px;text-align:center;color:#444;font-size:12px}
   .pb{page-break-before:always}tr{page-break-inside:avoid}@media screen{body{max-width:1100px;margin:16px auto;padding:0 14px}}</style></head><body>
   ${body||'<p>مفيش أصناف</p>'}<script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
