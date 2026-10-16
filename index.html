@@ -928,6 +928,19 @@ const BRANCH_APP_CONFIG = {
       { label: "طاووق", match: /طاووق|طاووك|tawo+q|tawook/i },
       { label: "ريش", match: /(^|[\s\-–(])ريش($|[\s\-–)])|\bribs\b|\bchops\b/i, not: /فريش|fresh|بطاط|potato/i }
     ],
+    // جدول الخضروات
+    vegTable: [
+      { label: "طماطم", match: /طماطم|بندور|tomato/i, not: /صوص|sauce|معجون|paste|كاتشب|ketchup/i },
+      { label: "ملح", match: /(^|[\s\-–(])ملح($|[\s\-–)])|\bsalt\b/i },
+      { label: "بهارات بطاطا مشوية", match: /بهارات\s*(ال)?بطاط|بطاط[اس]?\s*مشوي|potato\s*(spice|seasoning)|(spice|seasoning)s?\s*.*potato|roast(ed)?\s*potato/i },
+      { label: "بطاطا فريش", match: /بطاط[اس]?\s*فريش|فريش\s*بطاط|fresh\s*potato|potato\s*fresh/i, not: /بهارات|صوص|sauce|spice|seasoning|مشوي/i },
+      { label: "ليمون", match: /ليمون|lemon/i, not: /عصير|juice|ملح|salt/i },
+      { label: "فلفل أخضر حار", match: /فلفل\s*[اأ]خضر|green\s*(hot\s*)?(chil|pepper)|hot\s*green|فلفل\s*حار/i, not: /صوص|sauce|بهارات|powder|مسحوق/i },
+      { label: "بصل", match: /بصل|onion/i, not: /بهارات|مسحوق|powder|مقرمش|crisp/i },
+      { label: "رمان", match: /رمان|pomegranate/i, not: /دبس|molasses|عصير|juice/i },
+      { label: "خس", match: /(^|[\s\-–(])خس($|[\s\-–)])|lettuce/i },
+      { label: "سماق", match: /سماق|sumac/i }
+    ],
     // جدول المقبلات — كل صنف بيتلاقي في الطلبيات بالاسم التقريبي (match) ومن غير اللي في (not)
     appetizerTable: [
       { label: "صحن حمص", match: /صحن\s*حمص|hommos\s*-\s*180/i },
@@ -952,7 +965,7 @@ const BRANCH_APP_CONFIG = {
       { label: "صوص كوكتيل دجاج", name: "Cocktail Sauce - صوص كوكتيل دجاج", match: /كوكتيل\s*دجاج|cocktail\s*sauce/i },
       { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش", match: /ساندو|sandwich/i },
       { label: "صوص حريقة", name: "Hareqa Sauce - صوص حريقه", match: /حريق|hareq/i },
-      { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace", match: /بطاطا|potato/i },
+      { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace", match: /بطاطا|potato/i, not: /فريش|fresh|بهارات|مشوي|seasoning/i },
       { label: "صوص سطل أبيض", name: "White Sauce - صوص سطل ابيض مع ذره", match: /سطل\s*ابيض|white\s*sauce/i },
       { label: "صوص سطل أحمر", name: "Red Sauce - صوص سطل احمر مع ذره", match: /سطل\s*احمر|red\s*sauce/i },
       { label: "صوص ميكس", name: "Mix sauce - صوص ميكس", match: /(صوص\s*(ال)?ميكس|mix\s*sauce)/i }
@@ -8594,15 +8607,17 @@ function boReviewHtml(){
   </div>
   ${boMeatHtml()}
   ${boNaderHtml()}
-  ${boAppetHtml()}`;
+  ${boAppetHtml()}
+  ${boVegHtml()}`;
 }
 /* جدول المقبلات: كل صنف صف (الإجمالي + كل فرع)، بيتعدل مباشرة زي الجدول الكبير */
 const APPET_TABLE = (BRANCH_APP && BRANCH_APP.appetizerTable) || [];
 const MEAT_TABLE = (BRANCH_APP && BRANCH_APP.meatTable) || [];
+const VEG_TABLE = (BRANCH_APP && BRANCH_APP.vegTable) || [];
 /* الجداول (لحوم/مقبلات/صوصات نادر) قابلة للتعديل من الشاشة: تضيف أي صنف من الطلبيات أو تشيل صنف.
    الإضافات والحذف بيتحفظوا في الإعدادات (boTblAdd / boTblDel) والقوايم الأصلية فاضلة زي ما هي */
-const TBL_KINDS = { meat:{title:'اللحوم', arr:MEAT_TABLE}, appet:{title:'المقبلات', arr:APPET_TABLE}, nader:{title:'صوصات نادر', arr:NADER_SAUCES} };
-const TBL_DEFAULTS = { meat:MEAT_TABLE.slice(), appet:APPET_TABLE.slice(), nader:NADER_SAUCES.slice() };
+const TBL_KINDS = { meat:{title:'اللحوم', arr:MEAT_TABLE}, appet:{title:'المقبلات', arr:APPET_TABLE}, veg:{title:'الخضروات', arr:VEG_TABLE}, nader:{title:'صوصات نادر', arr:NADER_SAUCES} };
+const TBL_DEFAULTS = { meat:MEAT_TABLE.slice(), appet:APPET_TABLE.slice(), veg:VEG_TABLE.slice(), nader:NADER_SAUCES.slice() };
 function applyCustomTables(){
   Object.entries(TBL_KINDS).forEach(([k,t])=>{
     const del=(S.boTblDel||{})[k]||{};
@@ -8648,6 +8663,7 @@ function boAppetResolve(list){
   return list.map(e=>{ const names=keys.filter(k=>!used.has(k) && !ex['@'+k] && e.match.test(k) && !(e.not && e.not.test(k))); names.forEach(n=>used.add(n)); return {...e, names}; });
 }
 function boAppetHtml(){ return boGroupTable(APPET_TABLE,'🥗 المقبلات','appet'); }
+function boVegHtml(){ return boGroupTable(VEG_TABLE,'🥬 الخضروات','veg'); }
 function boMeatHtml(){ return boGroupTable(MEAT_TABLE,'🍗 اللحوم','meat'); }
 const tblEditBtn = k => `<span style="margin-inline-start:auto;display:flex;gap:6px"><button class="btn sm" data-act="bo-print" data-v="${k}" title="اطبع الجدول ده بس">🖨️ طباعة</button>${isOwner()?`<button class="btn sm" data-act="bo-tbl-open" data-k="${k}">✎ أصناف الجدول</button>`:''}</span>`;
 function boGroupTable(LIST,TITLE,KIND){
@@ -8913,7 +8929,7 @@ function boPrint(kind){
   const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">اتطبعت ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
   let body='';
   if(kind!=='branches'){
-    const P = kind==='sheet'?{tot:1,nader:1,meat:1,appet:1,dist:1} : kind==='all'?{tot:1,dist:1} : {[kind]:1};
+    const P = kind==='sheet'?{tot:1,nader:1,meat:1,appet:1,veg:1,dist:1} : kind==='all'?{tot:1,dist:1} : {[kind]:1};
     const PB = () => body?'pb':'';
     const all=boAllItems().map(it=>({...it,label:lbl(it.name),total:(BO.totals[it.name]||{}).qty||0, n:branches.filter(b=>(byBranch.get(b).get(it.name)||{}).qty>0).length}))
       .filter(it=>it.total>0).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
@@ -8939,7 +8955,7 @@ function boPrint(kind){
     } else if(P.nader && naderH){ body+=`<section>${head('ضربات صوصات نادر','')}${naderH}<div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`; }
     else if(P.nader){ body+=`<section>${head('ضربات صوصات نادر','')}<p>مفيش صوصات نادر في الطلبيات دي</p></section>`; }
     const CH=12;
-    for(const [LIST,TT,KK] of [[MEAT_TABLE,'اللحوم','meat'],[APPET_TABLE,'المقبلات','appet']]){ if(!P[KK]) continue;
+    for(const [LIST,TT,KK] of [[MEAT_TABLE,'اللحوم','meat'],[APPET_TABLE,'المقبلات','appet'],[VEG_TABLE,'الخضروات','veg']]){ if(!P[KK]) continue;
       const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[]; if(!R.length) continue;
       const cols=[]; R.forEach(e=>e.names.forEach(n=>cols.push({label:e.label,name:n,unit:(BO.totals[n]||{}).unit||'',total:(BO.totals[n]||{}).qty||0})));
       const brs=branches.filter(b=>cols.some(c=>(byBranch.get(b).get(c.name)||{}).qty>0));
@@ -8971,7 +8987,7 @@ function boPrint(kind){
   }
   w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${kind!=='branches'?'شيت التحضير':'أذونات التسليم'} — ${esc(BO.from)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>@page{size:A4 ${(kind==='branches'||kind==='meat'||kind==='appet')?'portrait':'landscape'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
+  <style>@page{size:A4 ${(kind==='branches'||kind==='meat'||kind==='appet'||kind==='veg')?'portrait':'landscape'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
   .hd{display:flex;align-items:center;gap:12px;border-bottom:4px solid #8E1A20;padding-bottom:8px;margin-bottom:10px}.hd img{width:52px;height:52px;object-fit:contain}.hd h1{margin:0;font-size:20px;color:#8E1A20}.hd .s{color:#555;font-size:12px}.hd .r{margin-inline-start:auto;color:#777;font-size:11px}
   table{width:100%;border-collapse:collapse}th{background:#F6E3E1;color:#5a0f14;border:1px solid #bbb;padding:6px 4px;font-size:11.5px}th small{display:block;font-weight:400;color:#888;font-size:10px}td{border:1px solid #bbb;padding:5px 4px}td.c{text-align:center}td.br{font-weight:600;white-space:nowrap}
   .mx td.c{font-size:13px;font-weight:600}.mx tbody tr:nth-child(even){background:#faf6f5}tfoot td{background:#8E1A20;color:#fff;font-weight:700;text-align:center}
