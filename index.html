@@ -942,9 +942,12 @@ const BRANCH_APP_CONFIG = {
     // أحجام ضربات صوصات نادر (بالكيلو) — النظام بيقترح أقل عدد ضربات يغطي المطلوب بأقل زيادة
     naderBatches: [ {label:'كبيرة', kg:15}, {label:'وسط', kg:7.5}, {label:'صغيرة', kg:4} ],
     naderSauces: [
-      { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم", match: /صوص\s*ثوم|garlic\s*sauce/i },
-      { label: "صوص وردي", name: "pink sauce - صوص وردي", match: /صوص\s*وردي|pink\s*sauce/i },
-      { label: "صوص سبايسي", name: "Spicy sauce - صوص سبايسي", match: /صوص\s*سبايسي|^spicy\s*sauce/i },
+      { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم", match: /صوص\s*ثوم|garlic\s*sauce/i, not: /dubai|دبي/i },
+      { label: "صوص ثوم دبي", name: "Garlic Sauce Dubai- صوص ثوم دبي", match: /(صوص\s*ثوم|garlic\s*sauce).*(dubai|دبي)|(dubai|دبي).*(صوص\s*ثوم|garlic)/i },
+      { label: "صوص وردي", name: "pink sauce - صوص وردي", match: /صوص\s*وردي|pink\s*sauce/i, not: /dubai|دبي/i },
+      { label: "صوص وردي دبي", name: "pink sauce dubai - صوص وردي دبي", match: /(صوص\s*وردي|pink\s*sauce).*(dubai|دبي)|(dubai|دبي).*(وردي|pink)/i },
+      { label: "صوص سبايسي", name: "Spicy sauce - صوص سبايسي", match: /صوص\s*سبايسي|^spicy\s*sauce/i, not: /dubai|دبي/i },
+      { label: "صوص سبايسي دبي", name: "Spicy sauce dubai - صوص سبايسي دبي", match: /(صوص\s*سبايسي|spicy\s*sauce).*(dubai|دبي)|(dubai|دبي).*(سبايسي|spicy)/i },
       { label: "صوص طحينة", name: "Tahina Suace - صوص طحينة", match: /صوص\s*طحين|tahina/i },
       { label: "صوص كوكتيل دجاج", name: "Cocktail Sauce - صوص كوكتيل دجاج", match: /كوكتيل\s*دجاج|cocktail\s*sauce/i },
       { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش", match: /ساندو|sandwich/i },
@@ -992,7 +995,9 @@ const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 const n2 = v => (Math.round((+v||0)*100)/100);
 const fmt = (v,d=2) => {const x=n2(v); return x.toLocaleString('en-US',{minimumFractionDigits:Number.isInteger(x)?0:d,maximumFractionDigits:d});};
 const money = v => fmt(v,2);
-const today = () => new Date().toISOString().slice(0,10);
+// تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
+const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const today = () => ymdLocal(new Date());
 const uid = p => p+Math.random().toString(36).slice(2,9);
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3806,13 +3811,32 @@ function faroojDateRange(from, to){
 
 let BO = { from:'', to:'', loading:false, err:'', totals:{}, orders:[], ordersCount:0, branchesCount:0, view:'totals', openOrder:null, changes:[], changesCount:0, shortages:[], shortagesCount:0, matrixQ:'' };
 
+// كاش للأيام اللي اتجابت قبل كده: اليوم بيظهر فورًا، وبعدين بيتحدث في الخلفية
+const BO_CACHE = {};
 async function fetchBranchOrders(){
-  BO.loading=true; BO.err=''; render();
+  const seq = BO.reqSeq = (BO.reqSeq||0)+1;   // لو دوست على يوم تاني قبل ما اللي قبله يخلص، الرد القديم بيتجاهل
+  const rk = BO.from+'~'+BO.to; const cached = BO_CACHE[rk];
+  BO.err='';
+  if(cached){ boApplyOrders(cached.keys, cached.vals, rk); BO.loading=false; BO.refreshing=true; }
+  else { BO.loading=true; BO.refreshing=false; BO.totals={}; BO.orders=[]; BO.ordersCount=0; BO.branchesCount=0; }
+  render();
   try{
     const dates = faroojDateRange(BO.from, BO.to);
     const listResults = await Promise.all(dates.map(d=>faroojList(`${BRANCH_APP.keyPrefix}:${d}:`)));
-    const allKeys = listResults.flat();
+    if(seq!==BO.reqSeq) return;
+    const allKeys = [...new Set(listResults.flat())];
     const results = await Promise.all(allKeys.map(k=>faroojGet(k).catch(()=>null)));
+    if(seq!==BO.reqSeq) return;
+    BO_CACHE[rk]={keys:allKeys, vals:results};
+    boApplyOrders(allKeys, results, rk);
+  }catch(e){ if(seq!==BO.reqSeq) return; BO.err=e.message; }
+  BO.loading=false; BO.refreshing=false; render();
+  // طلبات التعديل وبلاغات الاستلام بتتجاب بعد ما الطلبيات تظهر — مش بتأخرها
+  await Promise.all([fetchFactoryChangeRequests(), fetchFactoryShortageReports()]);
+  if(seq===BO.reqSeq) render();
+}
+function boApplyOrders(allKeys, results, rk){
+  {
     const totals={}; const branches=new Set(); const orders=[]; let ordersCount=0;
     results.forEach((v,i)=>{
       if(!v) return;
@@ -3826,26 +3850,24 @@ async function fetchBranchOrders(){
     });
     orders.sort((a,b)=> new Date(b.submittedAt) - new Date(a.submittedAt));
     BO.totals=totals; BO.orders=orders; BO.ordersCount=ordersCount; BO.branchesCount=branches.size;
-    BO.fetchedKey=BO.from+'~'+BO.to;
+    BO.fetchedKey=rk;
     // صوص اسمه في تطبيق الفروع مش معروف بالظبط (زي صوص ميكس): بندوّر عليه بالاسم التقريبي
     applyCustomTables();
-    NADER_SAUCES.forEach(ns=>{ if(ns.match && !totals[ns.name]){ const k=Object.keys(totals).find(n=>ns.match.test(n)); if(k) ns.name=k; } });
+    { const ex=(S.boTblDel||{}).nader||{}; const ok=(ns,n)=>ns.match.test(n) && !(ns.not && ns.not.test(n)) && !ex['@'+n];
+      NADER_SAUCES.forEach(ns=>{ if(ns.match && (!totals[ns.name] || !ok(ns,ns.name))){ const k=Object.keys(totals).find(n=>ok(ns,n)); if(k) ns.name=k; } }); }
     // بنحفظ كل فرع ظهر في أي طلبية — عشان نعرف مين ما طلبش في يوم معين
     if(!S.boSeen) S.boSeen={}; let learned=false;
     orders.forEach(o=>{ if(o.branch && (!S.boSeen[o.branch] || String(S.boSeen[o.branch])<String(o.date||''))){ S.boSeen[o.branch]=o.date||BO.from; learned=true; } });
     if(!BO.learnedBack){ BO.learnedBack=true; let done=false; try{ done=localStorage.getItem('bo-learned:'+FACTORY)==='1'; }catch(e){} if(!done || Object.keys(S.boSeen).length<3){ boLearnBranches(); try{ localStorage.setItem('bo-learned:'+FACTORY,'1'); }catch(e){} } }
     if(learned) saveMain();
-  }catch(e){ BO.err=e.message; }
-  await fetchFactoryChangeRequests();
-  await fetchFactoryShortageReports();
-  BO.loading=false; render();
+  }
 }
 
 // أول مرة: بنبص على آخر 14 يوم عشان نتعرف على كل الفروع اللي بتطلب عادةً
 async function boLearnBranches(){
   try{
     const end=new Date(BO.from+'T12:00:00'); const st=new Date(end); st.setDate(st.getDate()-14);
-    const dates=faroojDateRange(st.toISOString().slice(0,10), end.toISOString().slice(0,10));
+    const dates=faroojDateRange(ymdLocal(st), ymdLocal(end));
     const keys=(await Promise.all(dates.map(d=>faroojList(`${BRANCH_APP.keyPrefix}:${d}:`).catch(()=>[])))).flat();
     const vals=await Promise.all(keys.map(k=>faroojGet(k).catch(()=>null)));
     if(!S.boSeen) S.boSeen={}; let n=0;
@@ -3858,15 +3880,27 @@ function boKnownBranches(){
   const set=new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')]);
   return [...set].filter(b=>!(S.boHidden||{})[b]).sort((a,b)=>a.localeCompare(b,'ar'));
 }
+// بنجيب التفاصيل على دفعات صغيرة (5 في المرة) مع إعادة محاولة — الطلبات الكتير مع بعض كانت بتترفض من تطبيق الفروج فيظهر «-»
+async function boFetchLimited(keys, cache, limit){
+  const out=new Array(keys.length).fill(null); let p=0;
+  const one=async k=>{ for(let t=0;t<3;t++){ try{ const v=await faroojGet(k); if(v!=null) return v; return null; }catch(e){ await new Promise(r=>setTimeout(r,400*(t+1))); } } return undefined; };
+  const worker=async()=>{ while(p<keys.length){ const i=p++; const k=keys[i]; if(!k) continue;
+    if(cache[k]!==undefined){ out[i]=cache[k]; continue; } const v=await one(k); if(v!==undefined){ cache[k]=v; out[i]=v; } else out[i]=undefined; } };
+  await Promise.all(Array.from({length:Math.min(limit||5,keys.length)},worker)); return out;
+}
+const boParse = v => { if(v==null) return null; if(typeof v==='object') return v; try{ return JSON.parse(v); }catch(e){ return null; } };
 async function fetchFactoryChangeRequests(){
   try{
     const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:index`);
     const index = idxVal ? JSON.parse(idxVal) : [];
     const sorted = index.slice().sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
-    const details = await Promise.all(sorted.map(r=>faroojGet(`${BRANCH_APP.keyPrefix}_change:${r.id}`).catch(()=>null)));
+    const DC=BO._chgDet||(BO._chgDet={});
+    // النسخة الجديدة من تطبيق الفروج بتكتب نص التعديل في الفهرس نفسه — مش محتاجين نجيب تفاصيل
+    const keys=sorted.map((r,i)=> (r.note || i>=80) ? null : `${BRANCH_APP.keyPrefix}_change:${r.id}`);
+    const details = await boFetchLimited(keys, DC, 5);
     BO.changes = sorted.map((r,i)=>{
-      let note='-';
-      try{ if(details[i]) note = JSON.parse(details[i]).note || '-'; }catch(e){}
+      let note = r.note || '';
+      if(!note){ const d=boParse(details[i]); note = d ? (d.note||d.text||d.message||'(من غير نص)') : (details[i]===undefined ? '⚠ تعذر التحميل — دوس «جلب» تاني' : '-'); }
       return {...r, note};
     });
     BO.changesCount = BO.changes.filter(r=>r.status==='pending').length;
@@ -3879,10 +3913,11 @@ async function fetchFactoryShortageReports(){
     const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:index`);
     const index = idxVal ? JSON.parse(idxVal) : [];
     const sorted = index.slice().sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
-    const details = await Promise.all(sorted.map(r=>faroojGet(`${BRANCH_APP.keyPrefix}_shortage:${r.id}`).catch(()=>null)));
+    const DC=BO._shDet||(BO._shDet={});
+    const details = await boFetchLimited(sorted.map((r,i)=> i<80 ? `${BRANCH_APP.keyPrefix}_shortage:${r.id}` : null), DC, 5);
     BO.shortages = sorted.map((r,i)=>{
       let items=[];
-      try{ if(details[i]) items = JSON.parse(details[i]).items || []; }catch(e){}
+      { const d=boParse(details[i]); if(d) items=d.items||[]; }
       return {...r, items};
     });
     BO.shortagesCount = BO.shortages.filter(r=>r.status==='pending').length;
@@ -4010,7 +4045,7 @@ function viewBranchOrders(){
   applyCustomTables();
   const rows = Object.values(BO.totals);
   const oneDay = BO.from===BO.to;
-  const dShift = n => { const d=new Date(BO.from+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+  const dShift = n => { const d=new Date(BO.from+'T12:00:00'); d.setDate(d.getDate()+n); return ymdLocal(d); };
   const dayName = d => { try{ return new Date(d+'T12:00:00').toLocaleDateString(LANG==='en'?'en-GB':'ar-EG',{weekday:'long',day:'numeric',month:'long'}); }catch(e){ return d; } };
   const multi = (()=>{ const c={}; BO.orders.forEach(o=>c[o.branch]=(c[o.branch]||0)+1); return Object.entries(c).filter(([b,n])=>n>1); })();
   const stepBtn = (v,label,extra='') => `<button class="cattab ${BO.view===v?'on':''}" data-boview="${v}" ${extra}>${label}</button>`;
@@ -4030,7 +4065,7 @@ function viewBranchOrders(){
       <div><label class="f">إلى تاريخ</label><input type="date" id="bo-to" value="${BO.to}" style="width:100%"></div>
       <div style="align-self:end"><button class="btn p" data-act="bo-fetch" ${BO.loading?'disabled':''} style="width:100%">${BO.loading?'جاري الجلب…':'جلب الفترة'}</button></div>
     </div>`:''}
-    ${BO.loading?`<div class="hint" style="margin-top:8px">جاري جلب الطلبيات من تطبيق الفروج…</div>`:''}
+    ${BO.loading?`<div class="hint" style="margin-top:8px">جاري جلب طلبيات يوم ${esc(BO.from)} من تطبيق الفروج…</div>`:(BO.refreshing?`<div class="hint" style="margin-top:8px">⟳ بيتحدث من تطبيق الفروج…</div>`:'')}
     ${BO.err?`<div class="warnbar" style="margin-top:10px">${esc(BO.err)}</div>`:''}
     ${!oneDay&&rows.length?`<div class="warnbar" style="margin-top:10px">انت فاتح فترة أكتر من يوم — الإجمالي بيجمع كل الأيام. للطباعة والتعديل اليومي ارجع لـ«طلبية يوم» واختار يوم واحد.</div>`:''}
     ${(()=>{ if(BO.loading || BO.fetchedKey!==BO.from+'~'+BO.to) return '';
@@ -7944,6 +7979,7 @@ async function boSaveOrder(order){
   delete payload._key;
   const ok = await faroojSet(order._key, JSON.stringify(payload)).catch(()=>false);
   if(!ok){ toast('حصل خطأ أثناء الحفظ في طلبية الفرع',1); return false; }
+  try{ Object.keys(BO_CACHE).forEach(k=>delete BO_CACHE[k]); }catch(e){}
   // نعيد حساب الإجماليات بعد التعديل عشان جدول "الإجمالي المطلوب" يبان صح
   const totals={};
   BO.orders.forEach(o=>(o.items||[]).forEach(it=>{
