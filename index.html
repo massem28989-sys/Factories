@@ -4089,6 +4089,7 @@ function viewBranchOrders(){
   ${(rows.length || BO.changes.length) ?`<div class="panel"><div class="pad">
     <div class="bar">
       <span class="hint">أدوات تانية:</span>
+      ${isOwner()?`<button class="btn sm" data-act="bo-sync-prices" title="يخلي أسعار كتالوج الفروع = سعر تكلفة المصنع للأصناف المتطابقة">🔄 حدّث أسعار الفروع من المصنع</button>`:''}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
@@ -8749,6 +8750,103 @@ function boEditHtml(){
     <div class="ed-list">${branches.map(b=>row(latest.get(b),sel,b,it.unit,'')).join('')}</div>
     <div class="hint" style="padding:0 14px 12px">اكتب الكمية قصاد أي فرع — حتى لو ما طلبش الصنف ده، هيتضاف لطلبيته.</div></div>`;
 }
+/* ===== أسعار المصنع ← تطبيق الفروج =====
+   1) وقت الصرف: بنكتب في طلبية الفرع جنب كل صنف (الكمية اللي اتصرفت + سعر الوحدة بوحدة الفرع + القيمة) — عشان تبان كفاتورة في شاشة الاستلام عند الفرع
+   2) كتالوج الفروع (inv_catalog:items): سعر الصنف بيتحدث لسعر تكلفة المصنع (محوّل لوحدة الفرع) — عشان الجرد والتالف في الفروع يتحسبوا بنفس السعر */
+function boCatFactor(catName, catUnit){
+  // بنعتمد بس على المطابقة المؤكدة (مثبّتة يدوي أو اسم مطابق حرفيًا) — مش الاقتراح التلقائي
+  const m=findMatchingLocalItem(catName); if(!m || boMatchIsSuggested(catName)) return null;
+  const bu=normUnit(catUnit), fu=normUnit(m.unit);
+  if(bu && fu && bu===fu) return {m, f:1};
+  if(bu && m.packUnit && m.packSize>0 && normUnit(m.packUnit)===bu) return {m, f:+m.packSize};
+  const sv=S.boConv?S.boConv[catName]:undefined; if(sv>0 && !boIsWeigh(catName)) return {m, f:+sv};
+  return null;
+}
+function boStampLine(o, name, sentBranchQty, factoryQty, m){
+  const l=(o.items||[]).find(x=>x.name===name); if(!l) return false;
+  const price=+m.price||0, value=n2(factoryQty*price);
+  l.sent=n2(sentBranchQty); l.factoryQty=n2(factoryQty); l.factoryUnit=m.unit; l.value=value;
+  l.price = sentBranchQty>0 ? Math.round(value/sentBranchQty*10000)/10000 : 0; l.pricedAt=today();
+  return true;
+}
+async function boFlushOrders(set){ let ok=0; for(const o of set){ if(await boSaveOrder(o)) ok++; } return ok; }
+async function boSyncCatalogPrices(onlyNames, ask){
+  let raw; try{ raw=await faroojGet('inv_catalog:items'); }catch(e){ raw=null; }
+  if(!raw){ toast('تعذر قراية كتالوج الفروع',1); return 0; }
+  let cat; try{ cat=JSON.parse(raw); }catch(e){ return 0; }
+  const only=onlyNames?new Set(onlyNames):null; const ch=[];
+  cat.forEach(c=>{ if(only && !only.has(c.name)) return; const r=boCatFactor(c.name, c.unit); if(!r) return;
+    const np=Math.round((+r.m.price||0)*r.f*100)/100; if(!(np>0)) return;
+    if(Math.abs((+c.price||0)-np)>0.004) ch.push({c, old:+c.price||0, np}); });
+  if(!ch.length){ if(ask) toast('كل أسعار كتالوج الفروع مطابقة لأسعار المصنع ✓'); return 0; }
+  if(ask && !confirm(`هيتحدث سعر ${ch.length} صنف في كتالوج الفروع لسعر تكلفة المصنع:\n\n${ch.slice(0,15).map(x=>`• ${x.c.name}: ${fmtP(x.old)} ← ${fmtP(x.np)} (${x.c.unit})`).join('\n')}${ch.length>15?`\n… و${ch.length-15} كمان`:''}\n\nتكمل؟`)) return 0;
+  // نقرا الكتالوج تاني قبل الكتابة مباشرة عشان ما نمسحش تعديل اتعمل في الفروع في اللحظة دي
+  try{ const fresh=JSON.parse(await faroojGet('inv_catalog:items')||'[]'); const map=new Map(ch.map(x=>[x.c.name,x.np]));
+    fresh.forEach(c=>{ if(map.has(c.name)){ c.price=map.get(c.name); c.priceFrom='factory'; c.priceAt=today(); } });
+    const ok=await faroojSet('inv_catalog:items', JSON.stringify(fresh)); if(!ok) throw new Error();
+  }catch(e){ toast('حصل خطأ أثناء تحديث كتالوج الفروع',1); return 0; }
+  return ch.length;
+}
+/* شاشة الوزن الفعلي: الفرع طالب بالعدد، والمصنع بيكتب الوزن اللي اتوزن لكل فرع */
+function boWeighLines(n){
+  const out=[]; BO.orders.forEach(o=>{ const l=(o.items||[]).find(x=>x.name===n); if(l && +l.qty>0){ const e=out.find(x=>x.branch===o.branch); if(e) e.qty=n2(e.qty+ +l.qty); else out.push({branch:o.branch, qty:+l.qty, unit:l.unit||''}); } });
+  return out.sort((a,b)=>a.branch.localeCompare(b.branch,'ar'));
+}
+function boWeighModal(n){
+  const m=findMatchingLocalItem(n); if(!m) return '';
+  const L=boWeighLines(n); const avg=S.boConv&&+S.boConv[n]>0?+S.boConv[n]:0;
+  const tq=L.reduce((t,x)=>t+x.qty,0);
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:640px">
+    <h3>⚖️ وزن وصرف: ${esc(n)}</h3>
+    <div class="pad" style="max-height:66vh;overflow:auto">
+      <div class="hint" style="line-height:1.8;margin-bottom:10px">الفروع طالبة بالعدد (${fmtP(tq)} ${esc(L[0]?L[0].unit:'حبة')})، والمخزن بيتخصم بالـ<b>${esc(m.unit)}</b>. اوزن طلبية كل فرع واكتب الوزن قصاده — أو اكتب الوزن الإجمالي ودوس «وزّع» يتقسم على الفروع بنسبة العدد.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;border:1px dashed var(--line);border-radius:10px">
+        <span class="hint">وزن إجمالي:</span><input type="number" step="any" min="0" id="bow-total" style="width:100px;text-align:center"> <span class="hint">${esc(m.unit)}</span>
+        <button class="btn sm" type="button" id="bow-split">وزّع على الفروع</button>
+        ${avg?`<button class="btn sm" type="button" id="bow-avg" title="يملا كل فرع بالعدد × متوسط الحبة">املا بالمتوسط (${fmtP(avg)} ${esc(m.unit)}/حبة)</button>`:''}
+      </div>
+      <table class="gridcols"><thead><tr><th>الفرع</th><th class="n">طلب</th><th class="n">الوزن الفعلي (${esc(m.unit)})</th><th class="n">متوسط الحبة</th></tr></thead><tbody>
+      ${L.map((x,i)=>`<tr><td><div class="iname">${esc(x.branch)}</div></td><td class="n"><b>${fmtP(x.qty)}</b> <span class="chip">${esc(x.unit||'حبة')}</span></td>
+        <td class="n"><input type="number" step="any" min="0" inputmode="decimal" data-bow="${i}" data-pcs="${x.qty}" style="width:100px;text-align:center;font-weight:700"></td>
+        <td class="n hint" data-bowavg="${i}">—</td></tr>`).join('')}
+      </tbody><tfoot><tr><td><b>الإجمالي</b></td><td class="n"><b>${fmtP(tq)}</b></td><td class="n"><b id="bow-sum">0</b> ${esc(m.unit)}</td><td class="n hint" id="bow-avgall">—</td></tr></tfoot></table>
+      <div class="hint" style="margin-top:8px">رصيدك الحالي: ${fmt(calc(m).book)} ${esc(m.unit)} · كل فرع هيتسجل له حركة صرف بالوزن اللي كتبته، ومتوسط الحبة هيتحفظ يساعدك المرة الجاية.</div>
+    </div>
+    <div class="foot"><button class="btn p" data-act="bo-weigh-save" data-n="${esc(n)}">صرف بالأوزان دي</button><button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+function boWeighBind(){
+  const ins=[...document.querySelectorAll('[data-bow]')]; if(!ins.length) return;
+  const upd=()=>{ let s=0,p=0; ins.forEach(i=>{ const v=+i.value||0, pc=+i.dataset.pcs||0; s+=v; if(v>0) p+=pc; const c=document.querySelector(`[data-bowavg="${i.dataset.bow}"]`); if(c) c.textContent=v>0&&pc>0?fmtP(n2(v/pc*1000)/1000):'—'; });
+    const e=$('#bow-sum'); if(e) e.textContent=fmtP(n2(s)); const a=$('#bow-avgall'); if(a) a.textContent=p>0&&s>0?fmtP(Math.round(s/p*1000)/1000):'—'; };
+  ins.forEach(i=>i.oninput=upd);
+  const sp=$('#bow-split'); if(sp) sp.onclick=()=>{ const T=+($('#bow-total')||{}).value||0; if(!(T>0)) return toast('اكتب الوزن الإجمالي الأول',1);
+    const P=ins.reduce((t,i)=>t+(+i.dataset.pcs||0),0); let acc=0; ins.forEach((i,k)=>{ const v=k===ins.length-1?n2(T-acc):n2(T*(+i.dataset.pcs||0)/P); acc=n2(acc+v); i.value=v; }); upd(); };
+  const av=$('#bow-avg'); if(av) av.onclick=()=>{ const n=($('[data-act="bo-weigh-save"]')||{}).dataset.n; const a=+((S.boConv||{})[n])||0; ins.forEach(i=>i.value=n2((+i.dataset.pcs||0)*a)); upd(); };
+  upd();
+}
+async function boWeighSave(n){
+  const m=findMatchingLocalItem(n); if(!m) return;
+  if(boIsDone(n)) return toast('الصنف ده اتصرف قبل كده للفترة دي',1);
+  const L=boWeighLines(n); const ins=[...document.querySelectorAll('[data-bow]')];
+  const rows=L.map((x,i)=>({...x, kg:+((ins[i]||{}).value)||0}));
+  const miss=rows.filter(r=>!(r.kg>0));
+  if(miss.length===rows.length) return toast('اكتب الوزن لفرع واحد على الأقل',1);
+  if(miss.length && !confirm(`${miss.length} فرع مالوش وزن (${miss.map(r=>r.branch).join('، ')}) — مش هيتصرفلهم. تكمل؟`)) return;
+  const go=rows.filter(r=>r.kg>0); const total=n2(go.reduce((t,r)=>t+r.kg,0)), pcs=go.reduce((t,r)=>t+r.qty,0);
+  if(!confirm(`هيتصرف "${m.name}" ${fmt(total)} ${m.unit} على ${go.length} فرع (${fmtP(pcs)} حبة · متوسط ${fmtP(Math.round(total/pcs*1000)/1000)} ${m.unit}/حبة). تأكيد؟`)) return;
+  const failed=[]; const weights={};
+  for(const r of go){ const res=dispenseOut(m.id, n2(r.kg), today(), r.branch, 'صرف للفروع'); if(res.error){ failed.push(`${r.branch}: ${res.error}`); continue; } if(res.move){ res.move.boPcs=r.qty; } weights[r.branch]={kg:n2(r.kg),pcs:r.qty}; }
+  const okKg=n2(Object.values(weights).reduce((t,w)=>t+w.kg,0));
+  if(!okKg){ alert('ما اتصرفش ولا فرع:\n'+failed.join('\n')); return; }
+  S.boDone[boKey(n)]={ at:new Date().toISOString(), qty:okKg, itemId:m.id, branches:Object.keys(weights).length, weights };
+  const okPcs=Object.values(weights).reduce((t,w)=>t+w.pcs,0); if(okPcs>0){ if(!S.boConv) S.boConv={}; S.boConv[n]=Math.round(okKg/okPcs*1000)/1000; }
+  await saveTx(); await saveMain(); ui.modal=null;
+  { const set=new Set(); BO.orders.forEach(o=>{ const w=weights[o.branch]; if(w && boStampLine(o,n,w.pcs,w.kg,m)) set.add(o); }); await boFlushOrders(set); await boSyncCatalogPrices([n]); }
+  toast(`اتصرف ${fmt(okKg)} ${m.unit} من "${m.name}" لـ${Object.keys(weights).length} فرع${failed.length?` — ${failed.length} فرع اتخطى`:''}`);
+  if(failed.length) alert('الفروع دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+failed.join('\n'));
+  render();
+}
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
   return `<div class="modal" data-close="1"><div class="box" style="max-width:560px">
@@ -9606,6 +9704,7 @@ async function act(a,d){
     if(!o||!n) return; if(!(q>0)) return toast('اكتب الكمية الأول',1);
     let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
+  if(a==='bo-sync-prices'){ const n=await boSyncCatalogPrices(null,true); if(n) toast(`اتحدث سعر ${n} صنف في كتالوج الفروع ✓`); return; }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
   if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
     toast(S.boWeigh[d.n]?`"${d.n}" هيتصرف بالوزن الفعلي لكل فرع`:`"${d.n}" رجع يتصرف بمعامل ثابت`); return render(); }
@@ -9649,6 +9748,9 @@ async function act(a,d){
     if(!total){ toast('مفيش أي فرع اتصرفله — الرصيد مش كفاية', 1); if(failed.length) alert(failed.join('\n')); return render(); }
     S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:perBranch.length-failed.length };
     await saveTx(); await saveMain();
+    { const failedBr=new Set(failed.map(x=>x.split(':')[0])); const set=new Set();
+      BO.orders.forEach(o=>{ if(failedBr.has(o.branch)) return; const l=(o.items||[]).find(x=>x.name===faroojName); if(l&&+l.qty>0&&boStampLine(o,faroojName,+l.qty,n2(+l.qty*conv),match)) set.add(o); });
+      await boFlushOrders(set); const nc=await boSyncCatalogPrices([faroojName]); if(nc) toast(`واتحدث سعر "${faroojName}" في كتالوج الفروع`); }
     toast(`تم صرف "${match.name}" لـ${perBranch.length-failed.length} فرع (إجمالي ${fmt(total)} ${match.unit})${autoAny?' — والخامات اتخصمت من الوصفة':''}${failed.length?` — ${failed.length} فرع اتخطى لعدم كفاية الرصيد`:''}`);
     if(failed.length) alert('الفروع دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+failed.join('\n'));
     return render();
@@ -9671,7 +9773,7 @@ async function act(a,d){
     const branchCount = new Set(BO.orders.map(o=>o.branch)).size;
     if(!confirm(`هيتم صرف ${names.length} صنف على ${branchCount} فرع، كل فرع في حركة منفصلة باسمه. تكمل؟`)) return;
 
-    let moveCount=0, autoCount=0; const failedLines=[];
+    let moveCount=0, autoCount=0; const failedLines=[]; const stampSet=new Set();
     for(const faroojName of names){
       const match = findMatchingLocalItem(faroojName);
       let total=0, autoAny=false, brN=0;
@@ -9681,6 +9783,7 @@ async function act(a,d){
         const cf = convFactorOf(faroojName) || 1;
         const res = dispenseOut(match.id, n2(+line.qty*cf), today(), o.branch, 'صرف للفروع');
         if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); continue; }
+        if(boStampLine(o, faroojName, +line.qty, n2(+line.qty*cf), match)) stampSet.add(o);
         if(res.auto) autoAny=true;
         total=n2(total+ +line.qty*cf); brN++; moveCount++;
       }
@@ -9689,6 +9792,8 @@ async function act(a,d){
       S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:brN };
     }
     await saveTx(); await saveMain();
+    await boFlushOrders(stampSet);
+    { const nc=await boSyncCatalogPrices(names); if(nc) setTimeout(()=>toast(`اتحدث سعر ${nc} صنف في كتالوج الفروع لسعر المصنع`),1500); }
     toast(`تم تسجيل ${moveCount} حركة صرف${autoCount?` (${autoCount} صنف خصم خاماته تلقائي)`:''}${failedLines.length?` — ${failedLines.length} حركة اتخطت لعدم كفاية الرصيد`:''}`);
     if(failedLines.length) alert('الحركات دي ما اتسجّلتش لعدم كفاية الرصيد:\n\n'+failedLines.join('\n'));
     return render();
