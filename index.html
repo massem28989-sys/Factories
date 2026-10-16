@@ -920,8 +920,9 @@ const BRANCH_APP_CONFIG = {
     meatTable: [
       { label: "كباب لحم", match: /كباب\s*لحم|kabab\s*(lahm|meat)/i },
       { label: "كباب دجاج", match: /كباب\s*دجاج|kabab\s*chicken/i },
-      { label: "فروج كامل", match: /فروج\s*(كامل|بالعظم)|with\s*bone|whole\s*chicken/i, not: /boneless|مخل|مسحب/i },
-      { label: "فروج مخلي", match: /مخل[يى]|whole\s*chicken\s*boneless/i },
+      // pcsKg: في الطباعة بس بيتحول من كيلو لعدد حبات (الفروجة = 1.1 ك) — في السيستم والصرف بيفضل بالكيلو
+      { label: "فروج كامل", match: /فروج\s*(كامل|بالعظم)|with\s*bone|whole\s*chicken/i, not: /boneless|مخل|مسحب/i, pcsKg: 1.1 },
+      { label: "فروج مخلي", match: /مخل[يى]|whole\s*chicken\s*boneless/i, pcsKg: 1.1 },
       { label: "أفخاد", match: /افخاد|أفخاد|afkhad|thigh/i },
       { label: "جوانح", match: /جوانح|wings/i },
       { label: "دجاج مسحب", match: /مسحب|boneless\s*chicken/i, not: /whole|مخل/i },
@@ -8957,12 +8958,17 @@ function boPrint(kind){
     const CH=12;
     for(const [LIST,TT,KK] of [[MEAT_TABLE,'اللحوم','meat'],[APPET_TABLE,'المقبلات','appet'],[VEG_TABLE,'الخضروات','veg']]){ if(!P[KK]) continue;
       const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[]; if(!R.length) continue;
-      const cols=[]; R.forEach(e=>e.names.forEach(n=>cols.push({label:e.label,name:n,unit:(BO.totals[n]||{}).unit||'',total:(BO.totals[n]||{}).qty||0})));
+      const isKg = u => !u || /كيلو|كجم|كغ|kg|kilo/i.test(String(u));
+      const cols=[]; R.forEach(e=>e.names.forEach(n=>{ const u=(BO.totals[n]||{}).unit||''; const pk=(e.pcsKg>0 && isKg(u))?+e.pcsKg:0;
+        cols.push({label:e.label,name:n,unit:pk?`حبة (${fmtP(pk)} ك)`:u,pk,total:(BO.totals[n]||{}).qty||0}); }));
       const brs=branches.filter(b=>cols.some(c=>(byBranch.get(b).get(c.name)||{}).qty>0));
+      // الفروج: الكيلو بيتحول لعدد حبات في الورقة بس
+      const cell=(c,v)=> c.pk ? Math.round(v/c.pk) : v;
+      cols.forEach(c=>{ if(c.pk){ c.kgTotal=c.total; c.total=brs.reduce((t,b)=>t+cell(c,(byBranch.get(b).get(c.name)||{}).qty||0),0); } });
       body+=`<section class="${PB()}">${head(TT,'')}
         <table class="mx tight"><thead><tr><th style="width:26px">#</th><th>الفرع</th>${cols.map(c=>`<th>${esc(c.label)}<small>${esc(c.unit)}</small></th>`).join('')}</tr></thead>
-        <tbody>${brs.map((b,i)=>`<tr><td class="c">${i+1}</td><td class="br">${esc(b)}</td>${cols.map(c=>{ const v=(byBranch.get(b).get(c.name)||{}).qty||0; return `<td class="c">${v?fmtP(v):''}</td>`; }).join('')}</tr>`).join('')}</tbody>
-        <tfoot><tr><td></td><td>الإجمالي</td>${cols.map(c=>`<td class="c">${fmtP(c.total)}</td>`).join('')}</tr></tfoot></table>
+        <tbody>${brs.map((b,i)=>`<tr><td class="c">${i+1}</td><td class="br">${esc(b)}</td>${cols.map(c=>{ const v=(byBranch.get(b).get(c.name)||{}).qty||0; return `<td class="c">${v?fmtP(cell(c,v)):''}</td>`; }).join('')}</tr>`).join('')}</tbody>
+        <tfoot><tr><td></td><td>الإجمالي</td>${cols.map(c=>`<td class="c">${fmtP(c.total)}${c.pk?`<small style="display:block;font-weight:400">${fmtP(n2(c.kgTotal))} ك</small>`:''}</td>`).join('')}</tr></tfoot></table>
         <div class="sig"><div>جهّزها</div><div>راجعها</div><div>مدير المصنع</div></div></section>`;
     }
     if(P.dist) for(let k=0;k<branches.length;k+=CH){
