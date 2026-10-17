@@ -4142,6 +4142,7 @@ function viewBranchOrders(){
     <div class="bar">
       <span class="hint">أدوات تانية:</span>
       <button class="btn sm" data-act="bo-audit" title="قارن الطلبيات بالصرف اللي اتسجل فعلًا">🔎 مراجعة الصرف</button>
+      ${isOwner()?`<button class="btn sm" data-act="auto-repair-open" title="يلغي الإنتاج التلقائي اللي اتسجل مرتين ويرجّع الخامات">🧹 تنظيف الإنتاج المكرر</button>`:''}
       ${isOwner()?`<button class="btn sm" data-act="bo-sync-prices" title="يخلي أسعار كتالوج الفروع = سعر تكلفة المصنع للأصناف المتطابقة">🔄 حدّث أسعار الفروع من المصنع</button>`:''}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
@@ -7989,14 +7990,20 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
   const r=S.recipes.find(x=>x.outItemId===itemId);
   if(r && r.outQty>0){
     const bal=new Map(), ops=[], short=[];
-    planProduction(itemId, qty, bal, ops, short, 0, new Set([itemId]));
+    // بنصرف من الجاهز في المخزن الأول، وبنصنّع الناقص بس — عشان الإنتاج ما يتكررش لو المنتج اتعمل قبل كده
+    const self=item(itemId); const have=self?Math.max(0,calc(self).book):0; const make=n2(qty-have);
+    if(make>0.0001) planProduction(itemId, make, bal, ops, short, 0, new Set([itemId]));
     if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
     for(const op of ops){
-      const runId=uid('run'); const rr=op.r;
+      const rr=op.r; S.runs=S.runs||[];
+      // تشغيلة تلقائية واحدة لكل وصفة في اليوم (بدل تشغيلة لكل فرع)
+      const ex=S.runs.find(x=>x.auto && x.date===date && x.name===rr.name && !!x.nested===!!op.nested);
+      const runId=ex?ex.id:uid('run');
       for(const l of op.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId});
       const cost=recipeCost(rr)*op.b, outQty=n2(rr.outQty*op.b);
       S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId});
-      S.runs=S.runs||[]; S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
+      if(ex){ ex.batches=n2((+ex.batches||0)+op.b); ex.outQty=n2((+ex.outQty||0)+outQty); ex.cost=n2((+ex.cost||0)+cost); }
+      else S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
     }
     const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
     if(short.length){ m.forced=true; noteShortages(short); }
@@ -9055,7 +9062,7 @@ function boAuditModal(D){
   const pend=A.rows.filter(r=>r.st==='pending'); const ok=A.rows.filter(r=>r.st==='ok'||r.st==='ok?');
   const tbl=(list)=>`<table class="gridcols"><thead><tr><th>الفرع</th><th>صنف المصنع</th><th class="n">المفروض</th><th class="n">اتصرف</th><th>الحالة</th></tr></thead><tbody>${list.map(r=>`<tr><td><div class="iname">${esc(r.branch)}</div></td><td>${esc(r.item)}<div class="hint" style="font-size:11px">${esc(r.names.join(' + '))}</div></td><td class="n">${r.unknown&&!r.qty?'—':fmt(r.qty)} <span class="hint">${esc(r.unit)}</span></td><td class="n"><b>${fmt(r.got)}</b>${r.n>1?` <span class="chip">${r.n} حركات</span>`:''}${r.forced?` <span class="chip a">بالسالب</span>`:''}${r.st==='other-day'?`<div class="hint">${fmt(r.otherQty)} يوم ${esc(r.otherDates.join('، '))}</div>`:''}</td><td><span class="chip ${AUD_ST[r.st][1]}">${AUD_ST[r.st][0]}</span>${r.st==='less'||r.st==='more'?` <b>${fmt(n2(r.got-r.qty))}</b>`:''}</td></tr>`).join('')}</tbody></table>`;
   const box=(t,c,body)=>`<div style="border:1px solid ${c};border-radius:12px;padding:10px 12px;margin-bottom:12px"><b style="color:${c}">${t}</b>${body}</div>`;
-  let h=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">يوم الصرف:</span><input type="date" id="aud-date" value="${A.D}"><button class="btn sm" data-act="bo-audit-copy">📋 انسخ التقرير</button></div>`;
+  let h=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">يوم الصرف:</span><input type="date" id="aud-date" value="${A.D}"><button class="btn sm" data-act="bo-audit-copy">📋 انسخ التقرير</button><button class="btn sm" data-act="auto-repair-open">🧹 تنظيف الإنتاج التلقائي المكرر</button></div>`;
   if(!A.sameDay) h+=`<div class="hint" style="margin-bottom:10px;padding:8px;border:1px dashed #B25E10;border-radius:8px">⚠ الطلبيات المفتوحة دلوقتي (${esc(BO.from)}${BO.to!==BO.from?' → '+esc(BO.to):''}) مش نفس يوم الصرف ${esc(A.D)} — المقارنة بتتعمل على الطلبيات المفتوحة. افتح يوم الطلبية الصح الأول لو المقارنة مش مظبوطة.</div>`;
   h+=`<div class="nkpi" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${[[ok.length,'مظبوط','#2E7D32'],[bad.length,'محتاج مراجعة','#A32D2D'],[pend.length,'لسه ما اتصرفش','#777'],[A.neg.length,'صنف رصيده بالسالب','#B25E10']].map(([v,l,c])=>`<div style="flex:1 1 110px;border:1px solid #eee;border-radius:10px;padding:8px 10px"><div style="font-size:24px;font-weight:800;color:${c}">${v}</div><div class="hint">${l}</div></div>`).join('')}</div>`;
   if(od.length){ const ds=[...new Set(od.flatMap(r=>r.otherDates))].join('، ');
@@ -9091,6 +9098,45 @@ function boAuditText(A){
   L.push('\n== كل الصرف =='); A.rows.forEach(r=>L.push(`${r.branch} | ${r.item} | ${fmt(r.qty)} → ${fmt(r.got)} | ${st(r)}`));
   return L.join('\n');
 }
+/* 🧹 تنظيف الإنتاج التلقائي الزايد:
+   الإنتاج التلقائي بيعمل بالظبط اللي اتصرف — فلو المنتج فاضل ليه رصيد موجب وفيه تشغيلات تلقائية، يبقى الإنتاج اتعمل مرتين
+   (مرة يدوي/تلقائي قبل كده ومرة مع الصرف) وخاماته اتخصمت مرتين. بنلغي الزيادة من أحدث تشغيلة لأقدم، فالخامات ترجع */
+function autoRunRepairPlan(fromDate){
+  const bal=new Map(S.items.map(it=>[it.id, calc(it).book]));
+  const runs=(S.runs||[]).filter(r=>r.auto && (!fromDate || r.date>=fromDate));
+  const byRun=new Map(); S.moves.forEach(m=>{ if(m.runId) (byRun.get(m.runId)||byRun.set(m.runId,[]).get(m.runId)).push(m); });
+  const acts=[]; // {run, factor(0..1 = نسبة اللي هيتلغي), outId, outQty}
+  for(let pass=0; pass<5; pass++){ let changed=false;
+    const prodIds=[...new Set(runs.map(r=>{ const mv=byRun.get(r.id)||[]; const o=mv.find(m=>m.dir==='in'); return o&&o.itemId; }).filter(Boolean))];
+    prodIds.forEach(pid=>{
+      let b=bal.get(pid)||0; if(b<=0.001) return;
+      const rs=runs.filter(r=>{ const mv=byRun.get(r.id)||[]; return mv.some(m=>m.dir==='in'&&m.itemId===pid); })
+        .map(r=>{ const mv=byRun.get(r.id); const a=acts.find(x=>x.run===r); const left=1-(a?a.factor:0); return {r,mv,left,out:mv.find(m=>m.dir==='in').qty*left}; })
+        .filter(x=>x.out>0.0001).sort((x,y)=>String(y.r.date).localeCompare(String(x.r.date)));
+      for(const x of rs){ if(b<=0.001) break; const cut=Math.min(b, x.out); const f=cut/(x.mv.find(m=>m.dir==='in').qty);
+        let a=acts.find(z=>z.run===x.r); if(!a){ a={run:x.r, factor:0, mv:x.mv, pid}; acts.push(a); } a.factor=Math.min(1,a.factor+f);
+        x.mv.forEach(m=>{ bal.set(m.itemId, n2((bal.get(m.itemId)||0) + (m.dir==='in'?-1:1)*m.qty*f)); });
+        b=bal.get(pid); changed=true; }
+    });
+    if(!changed) break;
+  }
+  return {acts, bal};
+}
+function autoRunRepairModal(fromDate){
+  const P=autoRunRepairPlan(fromDate); window.__repair=P;
+  const byP=new Map(); P.acts.forEach(a=>{ const it=item(a.pid); const o=a.mv.find(m=>m.dir==='in'); const e=byP.get(a.pid)||{name:it?it.name:'?',unit:it?it.unit:'',qty:0,runs:0}; e.qty=n2(e.qty+o.qty*a.factor); e.runs++; byP.set(a.pid,e); });
+  const ing=new Map(); P.acts.forEach(a=>a.mv.filter(m=>m.dir==='out').forEach(m=>ing.set(m.itemId, n2((ing.get(m.itemId)||0)+m.qty*a.factor))));
+  const negBefore=S.items.filter(it=>calc(it).book<-0.001).length, negAfter=S.items.filter(it=>(P.bal.get(it.id)||0)<-0.001).length;
+  const body=!P.acts.length?'<div class="empty">مفيش إنتاج تلقائي زايد ✓</div>':`
+    <div class="hint" style="line-height:1.9;margin-bottom:10px">المنتجات دي فاضل ليها رصيد في المخزن رغم إن كل اللي اتعمل منها اتصرف — يعني الإنتاج اتسجل مرتين وخاماتها اتخصمت مرتين. هيتلغي الإنتاج الزايد بس (من أحدث تشغيلة)، والخامات ترجع. <b>الصرف للفروع مش هيتغير.</b></div>
+    <div style="display:flex;gap:10px;margin-bottom:10px"><div style="flex:1;border:1px solid #eee;border-radius:10px;padding:8px"><div class="hint">أصناف بالسالب دلوقتي</div><b style="font-size:22px;color:#A32D2D">${negBefore}</b></div><div style="flex:1;border:1px solid #eee;border-radius:10px;padding:8px"><div class="hint">بعد التنظيف</div><b style="font-size:22px;color:#2E7D32">${negAfter}</b></div></div>
+    <table class="gridcols"><thead><tr><th>المنتج</th><th class="n">إنتاج زايد هيتلغي</th><th class="n">تشغيلات</th></tr></thead><tbody>${[...byP.values()].map(e=>`<tr><td>${esc(e.name)}</td><td class="n"><b>${fmt(e.qty)}</b> ${esc(e.unit)}</td><td class="n">${e.runs}</td></tr>`).join('')}</tbody></table>
+    <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">الخامات اللي هترجع (${ing.size})</summary><table class="gridcols"><tbody>${[...ing.entries()].map(([id,q])=>{ const it=item(id); return `<tr><td>${esc(it?it.name:id)}</td><td class="n">+${fmt(q)} ${esc(it?it.unit:'')}</td><td class="n hint">بعد: ${fmt(P.bal.get(id)||0)}</td></tr>`; }).join('')}</tbody></table></details>`;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🧹 تنظيف الإنتاج التلقائي المكرر</h3>
+    <div class="pad" style="max-height:66vh;overflow:auto"><div style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><span class="hint">راجع التشغيلات من يوم:</span><input type="date" id="rep-from" value="${esc(fromDate||'')}"></div>${body}</div>
+    <div class="foot">${P.acts.length?`<button class="btn p" data-act="auto-repair-apply">نظّف دلوقتي</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
+function autoRepairBind(){ const d=$('#rep-from'); if(d) d.onchange=()=>{ ui.modal=autoRunRepairModal(d.value); render(); autoRepairBind(); }; }
 function boAuditBind(){ const d=$('#aud-date'); if(d) d.onchange=()=>{ ui.modal=boAuditModal(d.value); render(); boAuditBind(); }; }
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
@@ -9958,6 +10004,12 @@ async function act(a,d){
     for(const r of rows){ const res=dispenseOut(r.itemId, r.qty, A.D, r.branch, 'صرف للفروع', true); if(!res.move) continue; n++;
       (r.fns||[]).forEach(fn=>{ const o=BO.orders.find(x=>x.branch===r.branch && (x.items||[]).some(l=>l.name===fn)); const l=o&&o.items.find(x=>x.name===fn); const cv=convFactorOf(fn); if(o&&l&&cv!==null&&boStampLine(o,fn,+l.qty,n2(+l.qty*cv),item(r.itemId))) set.add(o); }); }
     await saveTx(); await saveMain(); await boFlushOrders(set); toast(`اتسجل ${n} صرف ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+  if(a==='auto-repair-open'){ const x=new Date(); x.setDate(x.getDate()-7); ui.modal=autoRunRepairModal(ymdLocal(x)); render(); autoRepairBind(); return; }
+  if(a==='auto-repair-apply'){ const P=window.__repair; if(!P||!P.acts.length) return;
+    if(!confirm(`هيتلغي الإنتاج الزايد في ${P.acts.length} تشغيلة والخامات ترجع. تكمل؟`)) return;
+    P.acts.forEach(a=>{ if(a.factor>=0.9999){ a.mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); S.moves=S.moves.filter(m=>m.runId!==a.run.id); S.runs=S.runs.filter(r=>r.id!==a.run.id); }
+      else { const k=1-a.factor; a.mv.forEach(m=>{ m.qty=n2(m.qty*k); }); a.run.batches=n2((+a.run.batches||0)*k); a.run.outQty=n2((+a.run.outQty||0)*k); a.run.cost=n2((+a.run.cost||0)*k); } });
+    await saveTx(); await saveMain(); ui.modal=null; toast(`اتنظف ✓ — ${P.acts.length} تشغيلة`); return render(); }
   if(a==='bo-audit-copy'){ const t=boAuditText(window.__boAudit||boAudit()); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
   if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); const n=await boSyncCatalogPrices(null,true); toast(`${b?`اتكتب السعر لـ${b} سطر في طلبيات الفروع · `:''}${n?`اتحدث سعر ${n} صنف في الكتالوج`:'الكتالوج مطابق'} ✓`); return; }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
