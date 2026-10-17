@@ -3847,6 +3847,7 @@ async function fetchBranchOrders(){
     boApplyOrders(allKeys, results, rk);
   }catch(e){ if(seq!==BO.reqSeq) return; BO.err=e.message; }
   BO.loading=false; BO.refreshing=false; render();
+  if(seq===BO.reqSeq && isOwner() && !BO.err){ boBackfillPrices().catch(()=>{}); }
   // طلبات التعديل وبلاغات الاستلام بتتجاب بعد ما الطلبيات تظهر — مش بتأخرها
   await Promise.all([fetchFactoryChangeRequests(), fetchFactoryShortageReports()]);
   if(seq===BO.reqSeq) render();
@@ -4140,6 +4141,7 @@ function viewBranchOrders(){
   ${(rows.length || BO.changes.length) ?`<div class="panel"><div class="pad">
     <div class="bar">
       <span class="hint">أدوات تانية:</span>
+      <button class="btn sm" data-act="bo-audit" title="قارن الطلبيات بالصرف اللي اتسجل فعلًا">🔎 مراجعة الصرف</button>
       ${isOwner()?`<button class="btn sm" data-act="bo-sync-prices" title="يخلي أسعار كتالوج الفروع = سعر تكلفة المصنع للأصناف المتطابقة">🔄 حدّث أسعار الفروع من المصنع</button>`:''}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
@@ -7975,7 +7977,13 @@ function planProduction(itemId, qty, bal, ops, short, depth, stack){
   ops.push({r, b, lines, nested: depth>0});
   return true;
 }
-function dispenseOut(itemId, qty, date, party, reason, force=false){
+// الصرف بيكمل دايمًا: الوصفات (والخامات الوسيطة) بتتصنّع تلقائي، ولو خامة رصيدها ناقص بتتسجل بالسالب وبيظهر تنبيه — من غير ما يوقف الصرف
+const DISPENSE_ALWAYS = true;
+let __shortNote=null;
+function noteShortages(list){ if(!list||!list.length) return; __shortNote=__shortNote||new Map(); list.forEach(x=>{ const e=__shortNote.get(x.name)||0; __shortNote.set(x.name, n2(e+Math.max(0,x.need-x.bal))); });
+  clearTimeout(noteShortages.t); noteShortages.t=setTimeout(()=>{ const m=__shortNote; __shortNote=null; if(!m||!m.size) return; const arr=[...m.entries()].sort((a,b)=>b[1]-a[1]);
+    toast(`اتصرف ✓ — بس ${arr.length} خامة رصيدها نزل تحت الصفر: ${arr.slice(0,4).map(([n,q])=>`${n} (−${fmt(q)})`).join('، ')}${arr.length>4?' …':''} — سجّل الوارد بتاعها`, 1); }, 900); }
+function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
   // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة (ووصفات الخامات الوسيطة لو رصيدها ناقص). لو الرصيد مش كفاية بيرفض ومايسجّلش أي حاجة —
   // إلا لو force=true (الصرف حصل فعلاً حتى لو الخامات عندنا رصيدها ناقص)
   const r=S.recipes.find(x=>x.outItemId===itemId);
@@ -7991,6 +7999,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=false){
       S.runs=S.runs||[]; S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
     }
     const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
+    if(short.length){ m.forced=true; noteShortages(short); }
     S.moves.push(m);
     return {move:m, auto:true, nested:ops.some(o=>o.nested), shortages: short.length?short:undefined};
   }
@@ -8000,6 +8009,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=false){
     if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`, shortages:[{name:it?it.name:'غير معروف', need:qty, bal}]};
   }
   const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
+  if(qty>bal+1e-9){ m.forced=true; noteShortages([{name:it?it.name:'غير معروف', need:qty, bal:Math.max(0,bal)}]); }
   S.moves.push(m);
   return {move:m, auto:false, shortages: (qty>bal && force)?[{name:it?it.name:'غير معروف', need:qty, bal}]:undefined};
 }
@@ -8075,8 +8085,19 @@ function buildProductionPlan(){
     }
   });
 
-  const rows = Object.values(needed).map(n=>{
-    const bal = calc(n.it).book;
+  // الخامات الوسيطة (ليها وصفة في المصنع): الناقص منها بيتصنّع — فبنحسب خاماتها هي كمان بدل ما تظهر في قايمة الشراء
+  for(let pass=0; pass<4; pass++){
+    let changed=false;
+    Object.keys(needed).forEach(id=>{ const n=needed[id]; const rec=S.recipes.find(x=>x.outItemId===id && x.outQty>0); if(!rec) return;
+      const bal=calc(n.it).book; const want=n2(Math.max(0,n.qty-bal)-(n.made||0)); if(!(want>0.0001)) return;
+      const b=want/rec.outQty; n.made=n2((n.made||0)+want); changed=true;
+      products.push({ name:n.it.name, item:n.it, demand:want, onHand:Math.max(0,bal), toProduce:want, batches:n2(b), cost:n2(recipeCost(rec)*b), rec, status:'produce', nested:true });
+      rec.lines.forEach(l=>{ const li=item(l.itemId); if(!li) return; if(!needed[l.itemId]) needed[l.itemId]={it:li, qty:0}; needed[l.itemId].qty=n2(needed[l.itemId].qty + l.qty*b); });
+    });
+    if(!changed) break;
+  }
+  const rows = Object.values(needed).filter(n=>!(n.made>0 && n2(calc(n.it).book + n.made) >= n.qty-0.0001)).map(n=>{
+    const bal = n2(calc(n.it).book + (n.made||0));
     const short = n2(Math.max(0, n.qty-bal));
     return {...n, bal, short, shortCost: n2(short*(n.it.price||0)) };
   }).sort((a,b)=> b.short - a.short || a.it.name.localeCompare(b.it.name,'ar'));
@@ -8120,7 +8141,7 @@ function viewProductionPlan(){
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>المنتج</th><th class="n">مطلوب من الفروع</th><th class="n">جاهز عندك</th><th class="n hl">محتاج تنتج</th><th class="n">عدد التشغيلات</th><th class="n">تكلفة الإنتاج</th><th></th></tr></thead>
       <tbody>${toProduceList.map(p=>`<tr>
-        <td><div class="iname">${esc(p.item.name)}</div>${p.rec?`<div class="idesc">وصفة: ${esc(p.rec.name)}</div>`:''}</td>
+        <td><div class="iname">${esc(p.item.name)}${p.nested?' <span class="chip b" title="خامة وسيطة بتدخل في منتج تاني">وسيط</span>':''}</div>${p.rec?`<div class="idesc">وصفة: ${esc(p.rec.name)}</div>`:''}</td>
         <td class="n">${fmt(p.demand)} <span class="chip">${esc(p.item.unit)}</span></td>
         <td class="n" style="color:var(--green)">${fmt(p.onHand)}</td>
         <td class="n hl">${fmt(p.toProduce)}</td>
@@ -8903,6 +8924,17 @@ function boStampLine(o, name, sentBranchQty, factoryQty, m){
   l.price = sentBranchQty>0 ? Math.round(value/sentBranchQty*10000)/10000 : 0; l.pricedAt=today();
   return true;
 }
+// أصناف اتصرفت قبل ما ميزة الأسعار تشتغل (أو من جهاز بنسخة قديمة) — بنكتب سعرها في طلبية الفرع عشان يبان في تشييك الاستلام
+async function boBackfillPrices(){
+  const set=new Set(); let n=0;
+  Object.keys(BO.totals||{}).forEach(fn=>{ if(!boIsDone(fn)) return; const m=findMatchingLocalItem(fn); if(!m || !(+m.price>0)) return;
+    const done=S.boDone[boKey(fn)]||{}; const weigh=boIsWeigh(fn); const conv=weigh?null:convFactorOf(fn);
+    BO.orders.forEach(o=>{ const l=(o.items||[]).find(x=>x.name===fn); if(!l || !(+l.qty>0) || l.price!=null) return;
+      if(weigh){ const w=(done.weights||{})[o.branch]; if(!w) return; if(boStampLine(o,fn,w.pcs,w.kg,m)){ set.add(o); n++; } }
+      else if(conv!==null){ if(boStampLine(o,fn,+l.qty,n2(+l.qty*conv),m)){ set.add(o); n++; } } }); });
+  if(set.size) await boFlushOrders(set);
+  return n;
+}
 async function boFlushOrders(set){ let ok=0; for(const o of set){ if(await boSaveOrder(o)) ok++; } return ok; }
 async function boSyncCatalogPrices(onlyNames, ask){
   let raw; try{ raw=await faroojGet('inv_catalog:items'); }catch(e){ raw=null; }
@@ -8981,6 +9013,70 @@ async function boWeighSave(n){
   if(failed.length) alert('الفروع دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+failed.join('\n'));
   render();
 }
+/* ===== 🔎 مراجعة صرف الفروع =====
+   بتقارن طلبيات اليوم المفتوح بحركات «صرف للفروع» المسجلة فعلًا، وبتطلّع أي حاجة غريبة: ناقص/زيادة/متكرر/متعلّم اتصرف من غير حركة/رصيد بالسالب */
+function boAudit(D){
+  D=D||today();
+  const moves=S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.date===D);
+  const got=new Map(); moves.forEach(m=>{ const k=m.itemId+'|'+m.party; const e=got.get(k)||{qty:0,n:0,forced:0}; e.qty=n2(e.qty+m.qty); e.n++; if(m.forced) e.forced++; got.set(k,e); });
+  const exp=new Map(); const notMatched=[]; const notDone=[]; const doneNoMove=[];
+  Object.keys(BO.totals||{}).forEach(fn=>{
+    const m=findMatchingLocalItem(fn); if(!m){ notMatched.push(fn); return; }
+    const weigh=boIsWeigh(fn); const conv=weigh?null:convFactorOf(fn); const done=(S.boDone||{})[boKey(fn)];
+    BO.orders.forEach(o=>{ const l=(o.items||[]).find(x=>x.name===fn); if(!l||!(+l.qty>0)) return;
+      const k=m.id+'|'+o.branch; const e=exp.get(k)||{itemId:m.id, branch:o.branch, qty:0, names:[], weigh:false, unknown:false, done:false};
+      if(weigh){ const w=done&&done.weights&&done.weights[o.branch]; if(w) e.qty=n2(e.qty+w.kg); else e.unknown=true; e.weigh=true; }
+      else if(conv===null) e.unknown=true; else e.qty=n2(e.qty+ +l.qty*conv);
+      e.names.push(`${boLabel?boLabel(fn):fn} ${fmtP(+l.qty)} ${l.unit||''}`); if(done) e.done=true; exp.set(k,e); });
+    if(!done) notDone.push(fn);
+  });
+  const rows=[];
+  exp.forEach((e,k)=>{ const g=got.get(k); const it=item(e.itemId); const r={...e, item:it?it.name:'?', unit:it?it.unit:'', got:g?g.qty:0, n:g?g.n:0, forced:g?g.forced:0};
+    if(!g) r.st = e.done ? 'done-no-move' : 'pending';
+    else if(g.n>1 && !e.weigh && Math.abs(g.qty-e.qty)>0.01 && Math.abs(g.qty-e.qty*g.n)<0.01) r.st='dup';
+    else if(e.unknown) r.st='ok?';
+    else if(Math.abs(g.qty-e.qty)<=0.01) r.st='ok';
+    else r.st = g.qty<e.qty ? 'less' : 'more';
+    rows.push(r); });
+  const extra=[]; got.forEach((g,k)=>{ if(!exp.has(k)){ const [id,br]=k.split('|'); const it=item(id); extra.push({item:it?it.name:'?', unit:it?it.unit:'', branch:br, got:g.qty, n:g.n}); } });
+  const neg=S.items.map(it=>({it, b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
+  const runs=(S.runs||[]).filter(r=>r.date===D && r.auto);
+  const forced=moves.filter(m=>m.forced);
+  return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
+}
+const AUD_ST={ ok:['✓ مظبوط','g'], 'ok?':['✓ اتصرف (من غير تحويل للمقارنة)','b'], less:['ناقص','r'], more:['زيادة','a'], dup:['متكرر — اتصرف أكتر من مرة','r'], 'done-no-move':['متعلّم «اتصرف» بس مفيش حركة','r'], pending:['لسه ما اتصرفش','']};
+function boAuditModal(D){
+  const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st));
+  const pend=A.rows.filter(r=>r.st==='pending'); const ok=A.rows.filter(r=>r.st==='ok'||r.st==='ok?');
+  const tbl=(list)=>`<table class="gridcols"><thead><tr><th>الفرع</th><th>صنف المصنع</th><th class="n">المفروض</th><th class="n">اتصرف</th><th>الحالة</th></tr></thead><tbody>${list.map(r=>`<tr><td><div class="iname">${esc(r.branch)}</div></td><td>${esc(r.item)}<div class="hint" style="font-size:11px">${esc(r.names.join(' + '))}</div></td><td class="n">${r.unknown&&!r.qty?'—':fmt(r.qty)} <span class="hint">${esc(r.unit)}</span></td><td class="n"><b>${fmt(r.got)}</b>${r.n>1?` <span class="chip">${r.n} حركات</span>`:''}${r.forced?` <span class="chip a">بالسالب</span>`:''}</td><td><span class="chip ${AUD_ST[r.st][1]}">${AUD_ST[r.st][0]}</span>${r.st==='less'||r.st==='more'?` <b>${fmt(n2(r.got-r.qty))}</b>`:''}</td></tr>`).join('')}</tbody></table>`;
+  const box=(t,c,body)=>`<div style="border:1px solid ${c};border-radius:12px;padding:10px 12px;margin-bottom:12px"><b style="color:${c}">${t}</b>${body}</div>`;
+  let h=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">يوم الصرف:</span><input type="date" id="aud-date" value="${A.D}"><button class="btn sm" data-act="bo-audit-copy">📋 انسخ التقرير</button></div>`;
+  if(!A.sameDay) h+=`<div class="hint" style="margin-bottom:10px;padding:8px;border:1px dashed #B25E10;border-radius:8px">⚠ الطلبيات المفتوحة دلوقتي (${esc(BO.from)}${BO.to!==BO.from?' → '+esc(BO.to):''}) مش نفس يوم الصرف ${esc(A.D)} — المقارنة بتتعمل على الطلبيات المفتوحة. افتح يوم الطلبية الصح الأول لو المقارنة مش مظبوطة.</div>`;
+  h+=`<div class="nkpi" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${[[ok.length,'مظبوط','#2E7D32'],[bad.length,'محتاج مراجعة','#A32D2D'],[pend.length,'لسه ما اتصرفش','#777'],[A.neg.length,'صنف رصيده بالسالب','#B25E10']].map(([v,l,c])=>`<div style="flex:1 1 110px;border:1px solid #eee;border-radius:10px;padding:8px 10px"><div style="font-size:24px;font-weight:800;color:${c}">${v}</div><div class="hint">${l}</div></div>`).join('')}</div>`;
+  if(bad.length) h+=box('❗ محتاج مراجعة','#A32D2D',tbl(bad)+`<div class="hint" style="margin-top:6px">«متكرر» = نفس الصنف اتصرف لنفس الفرع أكتر من مرة — امسح الحركة الزيادة من تبويب «منصرف». «متعلّم اتصرف بس مفيش حركة» = غالبًا اتصرف من جهاز تاني بتاريخ مختلف، أو الحركة اتمسحت.</div>`);
+  if(A.extra.length) h+=box('صرف لفرع مش طالب الصنف ده في الطلبيات المفتوحة','#B25E10',`<table class="gridcols"><tbody>${A.extra.map(x=>`<tr><td>${esc(x.branch)}</td><td>${esc(x.item)}</td><td class="n">${fmt(x.got)} ${esc(x.unit)}${x.n>1?` (${x.n} حركات)`:''}</td></tr>`).join('')}</tbody></table>`);
+  if(A.neg.length) h+=box('أصناف رصيدها بالسالب','#B25E10',`<div class="hint" style="margin:4px 0">ده معناه إن اتصرف/اتصنّع منها أكتر من المسجّل — سجّل الوارد أو الإنتاج الناقص.</div><table class="gridcols"><tbody>${A.neg.map(x=>`<tr><td>${esc(x.it.name)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.b)}</b> ${esc(x.it.unit)}</td></tr>`).join('')}</tbody></table>`);
+  if(A.runs.length) h+=box(`إنتاج تلقائي اتسجل يوم ${A.D} (${A.runs.length})`,'#555',`<div class="hint" style="margin:4px 0">لما بتصرف منتج ليه وصفة، خاماته بتتخصم تلقائي. «وسيط» = خامة ليها وصفة اتعملت عشان رصيدها كان ناقص.</div><table class="gridcols"><tbody>${A.runs.map(r=>`<tr><td>${esc(r.name)}${r.nested?' <span class="chip b">وسيط</span>':''}</td><td class="n">${fmt(r.outQty)}</td></tr>`).join('')}</tbody></table>`);
+  if(A.notMatched.length) h+=box('أصناف في الطلبيات مش متربطة بصنف في المصنع (ما بتتصرفش)','#777',`<div style="font-size:12px;line-height:1.9">${A.notMatched.map(esc).join(' · ')}</div>`);
+  if(pend.length) h+=`<details style="margin-bottom:12px"><summary class="hint" style="cursor:pointer">لسه ما اتصرفش (${pend.length})</summary>${tbl(pend)}</details>`;
+  if(ok.length) h+=`<details><summary class="hint" style="cursor:pointer">مظبوط (${ok.length})</summary>${tbl(ok)}</details>`;
+  window.__boAudit=A;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:860px"><h3>🔎 مراجعة صرف الفروع</h3><div class="pad" style="max-height:70vh;overflow:auto">${h}</div><div class="foot"><button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
+function boAuditText(A){
+  const L=[`مراجعة صرف الفروع — يوم ${A.D} — طلبيات ${BO.from}${BO.to!==BO.from?'→'+BO.to:''}`];
+  const st=r=>AUD_ST[r.st][0];
+  const bad=A.rows.filter(r=>!['ok','ok?','pending'].includes(r.st));
+  L.push(`مظبوط: ${A.rows.filter(r=>r.st==='ok'||r.st==='ok?').length} · محتاج مراجعة: ${bad.length} · لسه: ${A.rows.filter(r=>r.st==='pending').length} · سالب: ${A.neg.length}`);
+  if(bad.length){ L.push('\n== محتاج مراجعة =='); bad.forEach(r=>L.push(`${r.branch} | ${r.item} | المفروض ${fmt(r.qty)} | اتصرف ${fmt(r.got)} (${r.n} حركة) | ${st(r)}`)); }
+  if(A.extra.length){ L.push('\n== صرف لفرع مش طالب =='); A.extra.forEach(x=>L.push(`${x.branch} | ${x.item} | ${fmt(x.got)}`)); }
+  if(A.neg.length){ L.push('\n== رصيد بالسالب =='); A.neg.forEach(x=>L.push(`${x.it.name}: ${fmt(x.b)} ${x.it.unit}`)); }
+  if(A.runs.length){ L.push('\n== إنتاج تلقائي =='); A.runs.forEach(r=>L.push(`${r.name}${r.nested?' (وسيط)':''}: ${fmt(r.outQty)}`)); }
+  if(A.notMatched.length){ L.push('\n== مش متربط =='); L.push(A.notMatched.join(' · ')); }
+  L.push('\n== كل الصرف =='); A.rows.forEach(r=>L.push(`${r.branch} | ${r.item} | ${fmt(r.qty)} → ${fmt(r.got)} | ${st(r)}`));
+  return L.join('\n');
+}
+function boAuditBind(){ const d=$('#aud-date'); if(d) d.onchange=()=>{ ui.modal=boAuditModal(d.value); render(); boAuditBind(); }; }
 function boBranchesModal(){
   const all=[...new Set([...Object.keys(S.boSeen||{}), ...(S.branches||[]).filter(b=>b && b!=='الفرع الرئيسي')])].sort((a,b)=>a.localeCompare(b,'ar'));
   return `<div class="modal" data-close="1"><div class="box" style="max-width:560px">
@@ -9832,7 +9928,9 @@ async function act(a,d){
     if(!o||!n) return; if(!(q>0)) return toast('اكتب الكمية الأول',1);
     let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
-  if(a==='bo-sync-prices'){ const n=await boSyncCatalogPrices(null,true); if(n) toast(`اتحدث سعر ${n} صنف في كتالوج الفروع ✓`); return; }
+  if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
+  if(a==='bo-audit-copy'){ const t=boAuditText(window.__boAudit||boAudit()); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
+  if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); const n=await boSyncCatalogPrices(null,true); toast(`${b?`اتكتب السعر لـ${b} سطر في طلبيات الفروع · `:''}${n?`اتحدث سعر ${n} صنف في الكتالوج`:'الكتالوج مطابق'} ✓`); return; }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
   if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
     toast(S.boWeigh[d.n]?`"${d.n}" هيتصرف بالوزن الفعلي لكل فرع`:`"${d.n}" رجع يتصرف بمعامل ثابت`); return render(); }
