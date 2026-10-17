@@ -1313,6 +1313,18 @@ async function sb(path,opts={}){
   if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,180)||('HTTP '+r.status)); }
   const t=await r.text(); return t?JSON.parse(t):null;
 }
+// جدول التشغيلات في القاعدة مفيهوش عمود «تلقائي» — بنعرفه من حركات التشغيلة نفسها
+function markAutoRuns(){ const au=new Set(), ne=new Set(); (S.moves||[]).forEach(m=>{ if(!m.runId) return; if(m.dir==='in' && /^إنتاج تلقائي/.test(m.party||'')) au.add(m.runId); if(/وسيطة/.test(m.reason||'')) ne.add(m.runId); });
+  (S.runs||[]).forEach(r=>{ if(au.has(r.id)) r.auto=true; if(ne.has(r.id)) r.nested=true; }); }
+// Supabase بيرجّع 1000 صف بالكتير في الطلب الواحد — فلازم نجيب على صفحات، وإلا الحركات الزيادة عن 1000 بتختفي من الشاشة والأرصدة بتتحسب غلط
+async function sbAll(path, opts={}){
+  const out=[]; const sep=path.includes('?')?'&':'?'; const hasOrder=/[?&]order=/.test(path);
+  for(let off=0; off<500000; off+=1000){
+    const rows=await sb(path+sep+(hasOrder?'':'order=id.asc&')+'limit=1000&offset='+off, {...opts, prefer:'return=representation'})||[];
+    out.push(...rows); if(rows.length<1000) break;
+  }
+  return out;
+}
 // بيرجّع العدد الحقيقي لصفوف جدول من غير ما ينزّل البيانات نفسها (بيستخدم هيدر Content-Range من Supabase)
 async function sbCount(table){
   const base=DB.url.replace(/\/+$/,'');
@@ -1359,7 +1371,7 @@ let dashboardLoading = false;
 // بيجيب ملخص خفيف لكل مصنع (مش الحساب الكامل زي calc()) عشان اللوحة تفتح بسرعة حتى مع مصانع كتير
 async function fetchFactorySummary(fid){
   try{
-    const items = await sb('stock_items?'+fEqFor(fid)+'&select=id,opening,price')||[];
+    const items = await sbAll('stock_items?'+fEqFor(fid)+'&select=id,opening,price')||[];
     const approxValue = n2(items.reduce((s,i)=>s+(+i.opening||0)*(+i.price||0),0));
     let pendingPurchases=0, pendingInbox=0;
     try{
@@ -1447,7 +1459,7 @@ async function pushMovesLegacy(F,P,errors){
     let fetchOk = false;
     let mergedMoves = S.moves;
     try{
-      const serverMoves = await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=*',{prefer:'return=representation'}) || [];
+      const serverMoves = await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=*',{prefer:'return=representation'}) || [];
       const localIds = new Set(S.moves.map(m=>m.id));
       const extra = serverMoves
         .filter(m=>!localIds.has(m.id) && !DELETED_MOVE_IDS.has(m.id))
@@ -1600,7 +1612,7 @@ async function pushAll(quiet){
     // **مهم**: لو القراءة فشلت، لازم نوقف تمامًا وما نمسحش حاجة، عشان ميحصلش نفس اللي حصل مع الحركات.
     let remote = {}; let countsFetchOk = false;
     try{
-      const cur = await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=item_id,qty',{prefer:'return=representation'})||[];
+      const cur = await sbAll('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=item_id,qty',{prefer:'return=representation'})||[];
       cur.forEach(r=>{ remote[r.item_id]=+r.qty||0; });
       countsFetchOk = true;
     }catch(e){ countsFetchOk = false; }
@@ -1643,7 +1655,7 @@ async function pushAll(quiet){
       try{ if(rrows.length) await sb('stock_recipes',{...UPSERT,body:rrows}); upOk=true; }
       catch(e){ if(!/unique|exclusion|42P10|conflict/i.test(e.message)) throw e; }
       if(upOk){
-        const srv = await sb('stock_recipes?'+fEq()+'&select=id',{prefer:'return=representation'})||[];
+        const srv = await sbAll('stock_recipes?'+fEq()+'&select=id',{prefer:'return=representation'})||[];
         const keep = new Set(S.recipes.map(r=>r.id));
         const gone = srv.map(x=>x.id).filter(id=>!keep.has(id));
         for(let i=0;i<gone.length;i+=100){
@@ -1715,19 +1727,20 @@ async function pullAll(silent){
     const F=FACTORY;
     const st=await sb('stock_settings?'+fEq()+'&k=eq.state&select=v',{prefer:'return=representation'});
     const period=(st&&st[0]&&st[0].v&&st[0].v.period)||S.period||'2026-07';
-    const items=await sb('stock_items?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
+    const items=await sbAll('stock_items?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
-    const mv=await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
-    const ct=await sb('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    const ct=await sbAll('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty); COUNTS_LOADED_AT=Date.now();
-    const rc=await sb('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
+    const rc=await sbAll('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
     S.recipes=rc.map(r=>({id:r.id,name:r.name,outItemId:r.out_item,outQty:+r.out_qty,lines:r.lines||[]}));
-    const rn=await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    const rn=await sbAll('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.runs=rn.map(r=>({id:r.id,date:r.run_date,name:r.name,batches:+r.batches,outQty:+r.out_qty,cost:+r.cost}));
+    markAutoRuns();
     const pd=await sb('stock_periods?'+fEq()+'&select=*&order=period',{prefer:'return=representation'})||[];
     S.closed=pd.map(p=>({period:p.period,value:+p.value,date:p.closed_at,items:p.snapshot||[]}));
     if(ROLE!=='manager'){ await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed}); }
@@ -2390,7 +2403,7 @@ async function invoiceArchiveRun(uptoPeriod, localMoves){
   if(!DB.on) return {skipped:'مش متصل بالقاعدة'};
   const facName = (FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name;
   // 1) كل حركات الوارد اللي عندها صورة لسه على السيرفر، لحد الشهر المقفول
-  let rows = await sb('stock_moves?'+fEq()+'&period=lte.'+encodeURIComponent(uptoPeriod)+'&invoice=not.is.null&select=id,period,move_date,party,item_id,qty,invoice',{prefer:'return=representation'}) || [];
+  let rows = await sbAll('stock_moves?'+fEq()+'&period=lte.'+encodeURIComponent(uptoPeriod)+'&invoice=not.is.null&select=id,period,move_date,party,item_id,qty,invoice',{prefer:'return=representation'}) || [];
   if(localMoves && localMoves.length){
     const byId=new Map(rows.map(r=>[r.id,r]));
     for(const m of localMoves) if(m.invoice) byId.set(m.id,{id:m.id,period:uptoPeriod,move_date:m.date,party:m.party,item_id:m.itemId,qty:m.qty,invoice:m.invoice});
@@ -2521,7 +2534,7 @@ async function branchPortal(){
     if(!DB_CONFIGURED) throw new Error('النظام مش متوصل بقاعدة البيانات');
     DB.on=true;
     BP.cfg=await koGetCfg();
-    const its=await sb('stock_items?'+fEq()+'&select=id,name,unit,cat',{prefer:'return=representation'})||[];
+    const its=await sbAll('stock_items?'+fEq()+'&select=id,name,unit,cat',{prefer:'return=representation'})||[];
     const allow=new Set(BP.cfg.items); BP.items=its.filter(i=>allow.has(i.id)).sort((a,b)=>(a.cat||'').localeCompare(b.cat||'','ar')||a.name.localeCompare(b.name,'ar'));
     BP.allItems=BP.items;
     try{ const s=JSON.parse(sessionStorage.getItem('bp:'+FACTORY)||'null'); if(s && BP.cfg.pins[s.branch]===s.h) BP.branch=s.branch; }catch(e){}
@@ -9072,6 +9085,8 @@ function boAuditModal(D){
   if(dnm.length) h+=box(`↪ متعلّم «اتصرف» بس مفيش حركة خالص (${dnm.length} سطر)`,'#A32D2D',`<div class="hint" style="margin:4px 0 8px;line-height:1.8">دي فروع ما اتسجلهاش صرف — غالبًا وقت الصرف الرصيد كان ناقص فالفرع ده اتخطى، والصنف اتعلّم «اتصرف» عشان باقي الفروع اتصرفلها. لو البضاعة طلعت فعلًا للفروع دي، دوس الزرار وهتتسجل دلوقتي (والسعر يتكتب في طلبية الفرع).</div>
       <button class="btn sm p" data-act="bo-audit-fill">↪ سجّل الصرف الناقص (${dnm.length})</button>
       <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">التفاصيل</summary>${tbl(dnm)}</details>`);
+  const dups=bad.filter(r=>r.st==='dup');
+  if(dups.length) h+=box(`🗑 صرف متكرر (${dups.length} سطر)`,'#A32D2D',`<div class="hint" style="margin:4px 0 8px">نفس الصنف اتسجل صرفه لنفس الفرع أكتر من مرة بنفس الكمية. الزرار بيسيب أول حركة ويمسح التكرار — وبعدها افتح «🧹 تنظيف الإنتاج المكرر» عشان الخامات اللي اتخصمت زيادة ترجع.</div><button class="btn sm danger" data-act="bo-audit-dedup">🗑 امسح الصرف المكرر</button>`);
   const bad2=bad.filter(r=>r.st!=='done-no-move');
   if(bad2.length) h+=box('❗ محتاج مراجعة','#A32D2D',tbl(bad2)+`<div class="hint" style="margin-top:6px">«متكرر» = نفس الصنف اتصرف لنفس الفرع أكتر من مرة — امسح الحركة الزيادة من تبويب «منصرف». «متعلّم اتصرف بس مفيش حركة» = غالبًا اتصرف من جهاز تاني بتاريخ مختلف، أو الحركة اتمسحت.</div>`);
   if(A.extra.length) h+=box('صرف لفرع مش طالب الصنف ده في الطلبيات المفتوحة','#B25E10',`<table class="gridcols"><tbody>${A.extra.map(x=>`<tr><td>${esc(x.branch)}</td><td>${esc(x.item)}</td><td class="n">${fmt(x.got)} ${esc(x.unit)}${x.n>1?` (${x.n} حركات)`:''}</td></tr>`).join('')}</tbody></table>`);
@@ -9102,6 +9117,7 @@ function boAuditText(A){
    الإنتاج التلقائي بيعمل بالظبط اللي اتصرف — فلو المنتج فاضل ليه رصيد موجب وفيه تشغيلات تلقائية، يبقى الإنتاج اتعمل مرتين
    (مرة يدوي/تلقائي قبل كده ومرة مع الصرف) وخاماته اتخصمت مرتين. بنلغي الزيادة من أحدث تشغيلة لأقدم، فالخامات ترجع */
 function autoRunRepairPlan(fromDate){
+  markAutoRuns();
   const bal=new Map(S.items.map(it=>[it.id, calc(it).book]));
   const runs=(S.runs||[]).filter(r=>r.auto && (!fromDate || r.date>=fromDate));
   const byRun=new Map(); S.moves.forEach(m=>{ if(m.runId) (byRun.get(m.runId)||byRun.set(m.runId,[]).get(m.runId)).push(m); });
@@ -9134,8 +9150,12 @@ function autoRunRepairModal(fromDate){
     <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">الخامات اللي هترجع (${ing.size})</summary><table class="gridcols"><tbody>${[...ing.entries()].map(([id,q])=>{ const it=item(id); return `<tr><td>${esc(it?it.name:id)}</td><td class="n">+${fmt(q)} ${esc(it?it.unit:'')}</td><td class="n hint">بعد: ${fmt(P.bal.get(id)||0)}</td></tr>`; }).join('')}</tbody></table></details>`;
   return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🧹 تنظيف الإنتاج التلقائي المكرر</h3>
     <div class="pad" style="max-height:66vh;overflow:auto"><div style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><span class="hint">راجع التشغيلات من يوم:</span><input type="date" id="rep-from" value="${esc(fromDate||'')}"></div>${body}</div>
+    ${(()=>{ const M=autoRunMergePlan(); const n=M.reduce((t,a)=>t+a.length,0); return M.length?`<div class="pad" style="border-top:1px solid #eee"><b>📦 تشغيلات تلقائية مقسّمة</b><div class="hint" style="margin:4px 0 8px">${n} تشغيلة تلقائية لـ${M.length} وصفة/يوم (كانت بتتسجل تشغيلة لكل فرع). جمعهم = تشغيلة واحدة لكل وصفة في اليوم — الأرصدة مش هتتغير.</div><button class="btn sm" data-act="auto-merge-apply">اجمعهم (${n} ← ${M.length})</button></div>`:''; })()}
     <div class="foot">${P.acts.length?`<button class="btn p" data-act="auto-repair-apply">نظّف دلوقتي</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
 }
+// تشغيلات تلقائية كتير لنفس الوصفة في نفس اليوم (واحدة لكل فرع من النسخة القديمة) → تشغيلة واحدة
+function autoRunMergePlan(){ markAutoRuns(); const g=new Map(); (S.runs||[]).filter(r=>r.auto).forEach(r=>{ const k=r.date+'|'+r.name+'|'+(r.nested?1:0); (g.get(k)||g.set(k,[]).get(k)).push(r); });
+  return [...g.values()].filter(a=>a.length>1); }
 function autoRepairBind(){ const d=$('#rep-from'); if(d) d.onchange=()=>{ ui.modal=autoRunRepairModal(d.value); render(); autoRepairBind(); }; }
 function boAuditBind(){ const d=$('#aud-date'); if(d) d.onchange=()=>{ ui.modal=boAuditModal(d.value); render(); boAuditBind(); }; }
 function boBranchesModal(){
@@ -9997,6 +10017,12 @@ async function act(a,d){
     S.moves.forEach((m,i)=>{ if(ids.has(m.id)){ m.date=A.D; n++; for(let j=i-1;j>=0 && j>=i-40;j--){ const p=S.moves[j]; if(!p.runId || !others.has(p.date)) break; p.date=A.D; } } });
     (S.runs||[]).forEach(r=>{ if(others.has(r.date) && S.moves.some(m=>m.runId===r.id && m.date===A.D)) r.date=A.D; });
     await saveTx(); await saveMain(); toast(`اتنقلت ${n} حركة ليوم ${A.D} ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+  if(a==='bo-audit-dedup'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='dup'); if(!rows.length) return;
+    const del=[]; rows.forEach(r=>{ const mv=A.moves.filter(m=>m.itemId===r.itemId && m.party===r.branch); const per=r.qty; let kept=0;
+      mv.forEach(m=>{ if(kept<per-0.001){ kept=n2(kept+m.qty); } else del.push(m.id); }); });
+    if(!del.length) return; if(!confirm(`هيتمسح ${del.length} حركة صرف مكررة. تكمل؟`)) return;
+    const ids=new Set(del); ids.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(m=>!ids.has(m.id));
+    await saveTx(); toast(`اتمسح ${del.length} صرف مكرر ✓ — افتح «تنظيف الإنتاج المكرر» دلوقتي`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='bo-audit-fill'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='done-no-move'&&!r.unknown&&r.qty>0);
     if(!rows.length) return toast('مفيش سطور ينفع تتسجل تلقائي (أصناف الوزن سجّلها من شاشة الوزن)',1);
     if(!confirm(`هيتسجل صرف ${rows.length} سطر بتاريخ ${A.D} (اللي رصيده ناقص هيبقى بالسالب). تكمل؟`)) return;
@@ -10005,6 +10031,12 @@ async function act(a,d){
       (r.fns||[]).forEach(fn=>{ const o=BO.orders.find(x=>x.branch===r.branch && (x.items||[]).some(l=>l.name===fn)); const l=o&&o.items.find(x=>x.name===fn); const cv=convFactorOf(fn); if(o&&l&&cv!==null&&boStampLine(o,fn,+l.qty,n2(+l.qty*cv),item(r.itemId))) set.add(o); }); }
     await saveTx(); await saveMain(); await boFlushOrders(set); toast(`اتسجل ${n} صرف ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='auto-repair-open'){ const x=new Date(); x.setDate(x.getDate()-7); ui.modal=autoRunRepairModal(ymdLocal(x)); render(); autoRepairBind(); return; }
+  if(a==='auto-merge-apply'){ const M=autoRunMergePlan(); if(!M.length) return;
+    let n=0; M.forEach(arr=>{ const keep=arr[0]; const ids=new Set(arr.slice(1).map(r=>r.id));
+      S.moves.forEach(m=>{ if(ids.has(m.runId)) m.runId=keep.id; });
+      arr.slice(1).forEach(r=>{ keep.batches=n2((+keep.batches||0)+(+r.batches||0)); keep.outQty=n2((+keep.outQty||0)+(+r.outQty||0)); keep.cost=n2((+keep.cost||0)+(+r.cost||0)); n++; });
+      S.runs=S.runs.filter(r=>!ids.has(r.id)); });
+    await saveTx(); await saveMain(); toast(`اتجمعت ${n+M.length} تشغيلة في ${M.length} ✓`); ui.modal=autoRunRepairModal(($('#rep-from')||{}).value); render(); autoRepairBind(); return; }
   if(a==='auto-repair-apply'){ const P=window.__repair; if(!P||!P.acts.length) return;
     if(!confirm(`هيتلغي الإنتاج الزايد في ${P.acts.length} تشغيلة والخامات ترجع. تكمل؟`)) return;
     P.acts.forEach(a=>{ if(a.factor>=0.9999){ a.mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); S.moves=S.moves.filter(m=>m.runId!==a.run.id); S.runs=S.runs.filter(r=>r.id!==a.run.id); }
@@ -10635,7 +10667,7 @@ async function act(a,d){
     if(!DB.on) return toast('لازم تكون متصل بالقاعدة الأول',1);
     const period = d.period;
     try{
-      const mv = await sb('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=id',{prefer:'return=representation'}) || [];
+      const mv = await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=id',{prefer:'return=representation'}) || [];
       ARCHIVE_SIZES[period] = mv.length;
       render();
     }catch(e){ toast('تعذر الحساب: '+e.message,1); }
@@ -10666,8 +10698,8 @@ async function act(a,d){
     try{
       let mv=[], ct=[];
       if(DB.on){
-        mv = await sb('stock_moves?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*',{prefer:'return=representation'}) || [];
-        ct = await sb('stock_counts?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*',{prefer:'return=representation'}) || [];
+        mv = await sbAll('stock_moves?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*',{prefer:'return=representation'}) || [];
+        ct = await sbAll('stock_counts?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*',{prefer:'return=representation'}) || [];
       }
       const snapMap = {}; last.items.forEach(x=>snapMap[x.id]=x);
       for(const it of S.items){
