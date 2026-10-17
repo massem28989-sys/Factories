@@ -8756,22 +8756,24 @@ const NADER_CSS=`.npl{display:inline-flex;align-items:center;gap:3px;border-radi
 // screen=true بيضيف خانات إدخال وزن الوحدة + أزرار؛ false للطباعة (فيها خانة ✓ للتجهيز)
 function naderBody(M, screen){
   const {B,bCols,pCols,bBr,pBr,grand}=M; let h='';
+  // في الطباعة: الجدول لازم يتقفل جوه عرض الورقة — عمود الفرع ثابت والباقي بيتقسم بالتساوي والشارات بتنزل سطر لو محتاجة
+  if(!screen) h+=`<style>.tblwrap{overflow:visible!important}table.nt{table-layout:fixed}table.nt td.b,table.nt th.b{width:24%!important;white-space:normal;font-size:11.5px}table.nt td.ck,table.nt th.ck{width:26px!important}table.nt th{font-size:11.5px}.npl{font-size:10.5px;padding:1px 5px}.npl b{font-size:12px}</style>`;
   if(bCols.length){
     h+=`<div class="nkpi">${B.map((b,j)=>`<div><div class="l"><span class="sw" style="background:${NADER_TONES[Math.min(j,2)]}"></span>ضربة ${esc(b.label)} · ${fmtP(b.kg)} ك</div><div class="v">${grand[j]||0}</div></div>`).join('')}
       <div><div class="l">إجمالي الإنتاج</div><div class="v">${fmtP(M.kgOut)} <small style="font-size:13px">ك</small></div><div class="l">المطلوب ${fmtP(M.kgReq)} ك</div></div></div>`;
     const miss=bCols.filter(c=>c.k===null);
     if(screen && miss.length) h+=`<div class="hint" style="margin:0 0 8px;padding:8px 10px;border:1px dashed #C2484B;border-radius:10px">⚠ حدد وزن الوحدة عشان الضربات تتحسب: ${miss.map(c=>`<span style="white-space:nowrap;margin-inline-end:12px"><b>${esc(c.r.label)}</b> — 1 ${esc(c.r.unit||'وحدة')} = <input type="number" step="any" min="0" data-bokg="${esc(c.r.name)}" placeholder="؟" style="width:60px;text-align:center"> كجم</span>`).join('')}</div>`;
     h+=`<div class="nsec"><span class="no">١</span>صوصات الضربات <small>كل فرع بياخد ضربات كاملة على قد طلبه</small></div>
-    <div class="tblwrap" style="max-height:none;overflow:auto"><table class="nt"><thead><tr><th style="text-align:start">الفرع</th>${bCols.map(c=>`<th>${esc(naderHd(c.r.label))}${c.k&&c.k!==1?`<small>1 ${esc(c.r.unit)} = ${fmtP(c.k)} ك${screen?` <button class="btn sm" data-act="bo-kg-reset" data-n="${esc(c.r.name)}" title="غيّر الوزن" style="padding:0 5px;font-size:10px">✎</button>`:''}</small>`:''}</th>`).join('')}${screen?'':'<th>✓</th>'}</tr></thead>
+    <div class="tblwrap" style="max-height:none;overflow:auto"><table class="nt"><thead><tr><th class="b" style="text-align:start">الفرع</th>${bCols.map(c=>`<th>${esc(naderHd(c.r.label))}${c.k&&c.k!==1?`<small>1 ${esc(c.r.unit)} = ${fmtP(c.k)} ك${screen?` <button class="btn sm" data-act="bo-kg-reset" data-n="${esc(c.r.name)}" title="غيّر الوزن" style="padding:0 5px;font-size:10px">✎</button>`:''}</small>`:''}</th>`).join('')}${screen?'':'<th class="ck">✓</th>'}</tr></thead>
     <tbody>${bBr.map(x=>`<tr><td class="b">${esc(x.branch)}</td>${bCols.map(c=>{ const v=x.cells[c.i]; if(!v.q) return '<td class="e">—</td>';
         if(!v.p) return `<td>${fmtP(v.q)} ${esc(c.r.unit)}<span class="kg">حدد الوزن</span></td>`;
-        return `<td><span style="white-space:nowrap">${naderPills(v.p.cnt,B)}</span><span class="kg" title="يطلع ${fmtP(n2(v.p.sum))} ك">طلب ${fmtP(v.kg)} ك</span></td>`; }).join('')}${screen?'':'<td class="ck"><i></i></td>'}</tr>`).join('')}</tbody>
+        return `<td><span style="${screen?'white-space:nowrap':''}">${naderPills(v.p.cnt,B)}</span><span class="kg" title="يطلع ${fmtP(n2(v.p.sum))} ك">طلب ${fmtP(v.kg)} ك</span></td>`; }).join('')}${screen?'':'<td class="ck"><i></i></td>'}</tr>`).join('')}</tbody>
     <tfoot><tr><td class="b">الضربات</td>${bCols.map(c=>`<td>${naderPills(c.cnt,B)||'—'}</td>`).join('')}${screen?'':'<td></td>'}</tr>
       <tr class="lt"><td class="b">الكيلو</td>${bCols.map(c=>`<td>${fmtP(c.out)} ك<span class="kg">المطلوب ${fmtP(c.req)} ك</span></td>`).join('')}${screen?'':'<td></td>'}</tr></tfoot></table></div>`;
   }
   if(pCols.length){
     h+=`<div class="nsec${!screen&&bCols.length?' pb':''}"><span class="no">${bCols.length?'٢':'١'}</span>صوصات بالكمية <small>بتطلع زي ما الفروع طلبت بالظبط — من غير ضربات</small></div>
-    <div class="tblwrap" style="max-height:none;overflow:auto"><table class="nt"><thead><tr><th style="text-align:start">الفرع</th>${pCols.map(c=>`<th>${esc(naderHd(c.r.label))}<small>${esc(c.u)}</small></th>`).join('')}${screen?'':'<th>✓</th>'}</tr></thead>
+    <div class="tblwrap" style="max-height:none;overflow:auto"><table class="nt"><thead><tr><th class="b" style="text-align:start">الفرع</th>${pCols.map(c=>`<th>${esc(naderHd(c.r.label))}<small>${esc(c.u)}</small></th>`).join('')}${screen?'':'<th class="ck">✓</th>'}</tr></thead>
     <tbody>${pBr.map(x=>`<tr><td class="b">${esc(x.branch)}</td>${pCols.map(c=>{ const q=x.cells[c.i].q; return q?`<td class="q">${fmtP(q)}</td>`:'<td class="e">—</td>'; }).join('')}${screen?'':'<td class="ck"><i></i></td>'}</tr>`).join('')}</tbody>
     <tfoot><tr><td class="b">الإجمالي</td>${pCols.map(c=>`<td style="font-size:15px">${fmtP(c.tot)}<span class="kg">${esc(c.u)}</span></td>`).join('')}${screen?'':'<td></td>'}</tr></tfoot></table></div>`;
   }
