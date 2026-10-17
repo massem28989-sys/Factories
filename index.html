@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const uid = p => p+Math.random().toString(36).slice(2,9);
+const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
  
@@ -8126,6 +8126,24 @@ let __shortNote=null;
 function noteShortages(list){ if(!list||!list.length) return; __shortNote=__shortNote||new Map(); list.forEach(x=>{ const e=__shortNote.get(x.name)||0; __shortNote.set(x.name, n2(e+Math.max(0,x.need-x.bal))); });
   clearTimeout(noteShortages.t); noteShortages.t=setTimeout(()=>{ const m=__shortNote; __shortNote=null; if(!m||!m.size) return; const arr=[...m.entries()].sort((a,b)=>b[1]-a[1]);
     toast(`اتصرف ✓ — بس ${arr.length} خامة رصيدها نزل تحت الصفر: ${arr.slice(0,4).map(([n,q])=>`${n} (−${fmt(q)})`).join('، ')}${arr.length>4?' …':''} — سجّل الوارد بتاعها`, 1); }, 900); }
+// بيسجّل تشغيلات الإنتاج المخططة (من planProduction): تشغيلة واحدة لكل وصفة في اليوم، وحركة واحدة لكل خامة
+function commitProduction(ops, date){
+  for(const op of ops){
+    const rr=op.r; S.runs=S.runs||[];
+    // تشغيلة تلقائية واحدة لكل وصفة في اليوم (بدل تشغيلة لكل فرع)
+    const ex=S.runs.find(x=>x.auto && x.date===date && x.name===rr.name && !!x.nested===!!op.nested);
+    const runId=ex?ex.id:uid('run');
+    // حركة واحدة لكل خامة في التشغيلة اليومية (بدل حركة لكل فرع) — عشان عدد الحركات ما يبقاش بالآلاف
+    for(const l of op.lines){ const em=ex && S.moves.find(m=>m.runId===runId && m.dir==='out' && m.itemId===l.itemId && m.date===date);
+      if(em) em.qty=n2(em.qty+l.qty); else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
+    const cost=recipeCost(rr)*op.b, outQty=n2(rr.outQty*op.b);
+    { const ei=ex && S.moves.find(m=>m.runId===runId && m.dir==='in' && m.itemId===rr.outItemId && m.date===date);
+      if(ei){ const q=n2(ei.qty+outQty); ei.price=q?n2(((+ei.price||0)*ei.qty+cost)/q):0; ei.qty=q; }
+      else S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId}); }
+    if(ex){ ex.batches=n2((+ex.batches||0)+op.b); ex.outQty=n2((+ex.outQty||0)+outQty); ex.cost=n2((+ex.cost||0)+cost); }
+    else S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
+  }
+}
 function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
   // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة (ووصفات الخامات الوسيطة لو رصيدها ناقص). لو الرصيد مش كفاية بيرفض ومايسجّلش أي حاجة —
   // إلا لو force=true (الصرف حصل فعلاً حتى لو الخامات عندنا رصيدها ناقص)
@@ -8136,21 +8154,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
     const self=item(itemId); const have=self?Math.max(0,calc(self).book):0; const make=n2(qty-have);
     if(make>0.0001) planProduction(itemId, make, bal, ops, short, 0, new Set([itemId]));
     if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
-    for(const op of ops){
-      const rr=op.r; S.runs=S.runs||[];
-      // تشغيلة تلقائية واحدة لكل وصفة في اليوم (بدل تشغيلة لكل فرع)
-      const ex=S.runs.find(x=>x.auto && x.date===date && x.name===rr.name && !!x.nested===!!op.nested);
-      const runId=ex?ex.id:uid('run');
-      // حركة واحدة لكل خامة في التشغيلة اليومية (بدل حركة لكل فرع) — عشان عدد الحركات ما يبقاش بالآلاف
-      for(const l of op.lines){ const em=ex && S.moves.find(m=>m.runId===runId && m.dir==='out' && m.itemId===l.itemId && m.date===date);
-        if(em) em.qty=n2(em.qty+l.qty); else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
-      const cost=recipeCost(rr)*op.b, outQty=n2(rr.outQty*op.b);
-      { const ei=ex && S.moves.find(m=>m.runId===runId && m.dir==='in' && m.itemId===rr.outItemId && m.date===date);
-        if(ei){ const q=n2(ei.qty+outQty); ei.price=q?n2(((+ei.price||0)*ei.qty+cost)/q):0; ei.qty=q; }
-        else S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId}); }
-      if(ex){ ex.batches=n2((+ex.batches||0)+op.b); ex.outQty=n2((+ex.outQty||0)+outQty); ex.cost=n2((+ex.cost||0)+cost); }
-      else S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
-    }
+    commitProduction(ops, date);
     const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
     if(short.length){ m.forced=true; noteShortages(short); }
     S.moves.push(m);
@@ -9259,8 +9263,18 @@ function balanceExplain(id){
   if(mis.length) why.push({lvl:'warn',t:`${mis.length} تشغيلة خصمت كمية مختلفة عن الوصفة الحالية — غالبًا الوصفة اتعدلت بعد الإنتاج، أو التشغيلة اتظبطت يدوي.`});
   if(c.has) why.push({lvl:c.diff?'warn':'ok',t:`الجرد الفعلي ${fmt(c.real)} — الفرق عن الدفتري ${c.diff>0?'+':''}${fmt(c.diff)}.`});
   if(!why.length) why.push({lvl:'ok',t:'الرصيد ماشي مع الحركات — مفيش حاجة غريبة.'});
-  return {it,c,ins,outs,runRows,why};
+  // يوم بيوم: اتصرف كام واتصنّع كام — بيبيّن اليوم اللي الصرف فيه عدّى الإنتاج
+  const days=new Map(); mv.forEach(m=>{ const d=days.get(m.date)||{date:m.date,made:0,inO:0,out:0,used:0}; const q=+m.qty||0;
+    if(m.dir==='in'){ if(m.runId) d.made=n2(d.made+q); else d.inO=n2(d.inO+q); } else { if(m.runId) d.used=n2(d.used+q); else d.out=n2(d.out+q); } days.set(m.date,d); });
+  let run=+it.opening||0; const dayRows=[...days.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(d=>{ const start=run; run=n2(run+d.made+d.inO-d.out-d.used); return {...d,start,end:run, gap:own?n2(Math.max(0,-(run))-Math.max(0,-(start))):0}; });
+  const firstNeg=dayRows.find(d=>d.end<-0.001);
+  const short = own && c.book<-0.001 ? {qty:n2(-c.book), date:(dayRows.slice().reverse().find(d=>d.out>0)||firstNeg||{}).date||today(), recipe:own} : null;
+  if(short){ const per=(own.lines||[]).map(l=>{ const x=item(l.itemId); return `${x?x.name:'?'} ${fmt(n2(l.qty*short.qty/own.outQty))}`; }).join('، ');
+    why.unshift({lvl:'tip',t:`لو الكمية دي اتصرفت فعلًا للفروع، يبقى المفروض كانت اتصنّعت. دوس «⚙ صنّع الناقص» وهتتسجل تشغيلة «${own.name}» بـ ${fmt(short.qty)} ${it.unit||''} يوم ${short.date} وتتخصم خاماتها حسب الوصفة: ${per}.`}); }
+  if(firstNeg && own) why.push({lvl:'warn',t:`أول يوم الرصيد نزل فيه تحت الصفر: ${firstNeg.date} — اتصرف ${fmt(firstNeg.out)} واتصنّع ${fmt(firstNeg.made)}.`});
+  return {it,c,ins,outs,runRows,why,dayRows,short,own};
 }
+function shortMakeList(){ return S.items.filter(it=>!isUntracked(it.id) && S.recipes.some(r=>r.outItemId===it.id && r.outQty>0)).map(it=>({it,b:calc(it).book})).filter(x=>x.b<-0.001); }
 function balanceModal(id){
   const E=balanceExplain(id); if(!E) return '';
   const {it,c}=E; const u=esc(it.unit||''); const col={bad:'#A32D2D',warn:'#B25E10',ok:'#2E7D32',tip:'#2F5E8A'}, ic={bad:'⛔',warn:'⚠️',ok:'✅',tip:'💡'};
@@ -9276,6 +9290,9 @@ function balanceModal(id){
         ${E.outs.map(g=>line('−',g.label,g.qty,g.n,'neg')).join('')}
         <tr style="border-top:2px solid #333"><td><b>= الرصيد الدفتري</b></td><td class="n"><b style="color:${c.book<0?'#A32D2D':'inherit'}">${fmt(c.book)}</b> ${u}</td></tr>
       </tbody></table>
+      ${E.own&&E.dayRows.length?`<b style="display:block;margin:14px 0 4px">يوم بيوم: اتصرف كام واتصنّع كام</b>
+      <div class="tblwrap"><table class="gridcols"><thead><tr><th>اليوم</th><th class="n">أول اليوم</th><th class="n">اتصنّع</th><th class="n">وارد تاني</th><th class="n">اتصرف</th><th class="n">دخل في إنتاج</th><th class="n">آخر اليوم</th></tr></thead>
+      <tbody>${E.dayRows.map(d=>`<tr style="${d.end<-0.001?'background:#FBEAEA':''}"><td>${esc(d.date)}</td><td class="n">${fmt(d.start)}</td><td class="n pos">${d.made?'+'+fmt(d.made):'—'}</td><td class="n pos">${d.inO?'+'+fmt(d.inO):'—'}</td><td class="n neg">${d.out?'−'+fmt(d.out):'—'}</td><td class="n neg">${d.used?'−'+fmt(d.used):'—'}</td><td class="n"><b style="color:${d.end<-0.001?'#A32D2D':'inherit'}">${fmt(d.end)}</b></td></tr>`).join('')}</tbody></table></div>`:''}
       ${E.runRows.length?`<b style="display:block;margin:14px 0 4px">الإنتاج اللي سحب من «${esc(it.name)}» اتعمل بناءً على إيه</b>
       <div class="hint" style="margin-bottom:6px;line-height:1.8">الإنتاج التلقائي بيحصل لما بتصرف منتج للفروع ورصيده الجاهز مش كفاية: بيصنّع الناقص بس، وبيخصم الخامات = (كمية الخامة في الوصفة ÷ ناتج الوصفة) × اللي اتصنّع.</div>
       <div class="tblwrap"><table class="gridcols"><thead><tr><th>اليوم</th><th>المنتج اللي اتعمل</th><th class="n">اتصنّع</th><th>الوصفة بتقول</th><th class="n">خصم من الصنف ده</th><th>اتعمل عشان</th><th class="n">فاضل من المنتج</th></tr></thead>
@@ -9293,7 +9310,7 @@ function balanceModal(id){
         ${S.moves.filter(m=>m.itemId===id).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(m=>`<tr><td>${esc(m.date)}</td><td>${m.dir==='in'?'<span class="pos">وارد</span>':'<span class="neg">منصرف</span>'}</td><td class="n">${fmt(m.qty)}</td><td style="font-size:12px">${esc(m.party||'')}${m.reason?' · '+esc(m.reason):''}</td></tr>`).join('')}
         </tbody></table></details>
     </div>
-    <div class="foot">${E.runRows.some(r=>r.auto&&r.outBal>0.01)?`<button class="btn p" data-act="auto-repair-open">🧹 افتح التنظيف</button>`:''}<button class="btn" data-act="hc-open">🩺 رجوع للفحص</button><button class="btn" data-close="1">قفل</button></div>
+    <div class="foot">${E.short?`<button class="btn p" data-act="make-short" data-id="${esc(it.id)}">⚙ صنّع الناقص (${fmt(E.short.qty)} ${u})</button>`:''}${E.runRows.some(r=>r.auto&&r.outBal>0.01)?`<button class="btn p" data-act="auto-repair-open">🧹 افتح التنظيف</button>`:''}<button class="btn" data-act="hc-open">🩺 رجوع للفحص</button><button class="btn" data-close="1">قفل</button></div>
   </div></div>`;
 }
 /* ================= 🩺 الفحص اليومي — شاشة واحدة بتقول «كله سليم» أو فين المشكلة بالظبط ================= */
@@ -9316,6 +9333,9 @@ function healthCheck(){
   add({id:'neg',lvl:neg.length?'bad':'ok',title:neg.length?`${neg.length} صنف رصيده بالسالب`:'مفيش أرصدة بالسالب',
     desc:neg.length?'السبب واحد من تلاتة: وارد/شراء ما اتسجلش، أو إنتاج اتسجل مرتين، أو كمية غلط في الوصفة. لو الصنف ده مش بتتابع مخزونه أصلًا (زي الثلج والمياه) دوس «مش بنتتبعه».':'',
     rows:neg.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['hc-untrack','مش بنتتبعه',x.it.id]}))});
+  { const SM=shortMakeList(); if(SM.length) add({id:'short',lvl:'bad',title:`${SM.length} منتج ليه وصفة واتصرف أكتر من اللي اتصنّع`,
+      desc:'المنتجات دي اتصرفت للفروع بس جزء منها ما اتسجلش له إنتاج، فرصيدها بالسالب وخاماتها ما اتخصمتش. لو الصرف ده حصل فعلًا، «صنّع الناقص» بيسجل الإنتاج للكمية الناقصة بس ويخصم الخامات حسب الوصفة.',
+      rows:SM.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['make-short','⚙ صنّع الناقص',x.it.id]})), act:['make-short-all',`⚙ صنّع الناقص للكل (${SM.length})`]}); }
   // 4) سجل التشغيلات مطابق للحركات؟
   const byRun=new Map(); S.moves.forEach(m=>{ if(m.runId){ const e=byRun.get(m.runId)||{inQ:0,n:0}; e.n++; if(m.dir==='in') e.inQ=n2(e.inQ+(+m.qty||0)); byRun.set(m.runId,e); } });
   const runIds=new Set((S.runs||[]).map(r=>r.id));
@@ -9368,6 +9388,7 @@ function healthCheck(){
   const steps=[]; if(isBad('save')) steps.push('الحفظ الأول — استنى أو دوس «احفظ تاني»');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
+  if(isBad('short')) steps.push('المنتجات اللي اتصرفت من غير إنتاج: «صنّع الناقص» (بعد التنظيف، مش قبله)');
   if(isBad('runs')) steps.push('بعد كده بس: «طابق السجل مع الحركات»');
   if(isBad('neg')) steps.push('آخر حاجة: الأرصدة السالبة اللي فاضلة — دي اللي محتاجة وارد أو تعديل وصفة');
   return {R, score, D, steps, moves:S.moves.length, runs:(S.runs||[]).length};
@@ -10353,6 +10374,15 @@ async function act(a,d){
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
   if(a==='hc-open'){ ui.hcOpen=true; HC_CACHE.k=''; ui.modal=healthModal(); return render(); }
   if(a==='why-bal'){ ui.modal=balanceModal(d.id); return render(); }
+  if(a==='make-short' || a==='make-short-all'){
+    const list=(a==='make-short'?[d.id]:shortMakeList().map(x=>x.it.id)).map(id=>balanceExplain(id)).filter(E=>E&&E.short);
+    if(!list.length) return toast('مفيش ناقص يتصنّع',1);
+    if(!confirm(`هيتسجل إنتاج للكمية الناقصة بس:\n\n${list.slice(0,12).map(E=>`• ${E.it.name}: ${fmt(E.short.qty)} ${E.it.unit||''} (يوم ${E.short.date})`).join('\n')}${list.length>12?`\n… و${list.length-12} كمان`:''}\n\nالخامات هتتخصم حسب الوصفات (ولو خامة وسيطة رصيدها ناقص هتتصنّع هي كمان). تكمل؟`)) return;
+    const g=await guardBulk(a==='make-short'?'تصنيع الناقص — '+list[0].it.name:'تصنيع الناقص لـ'+list.length+' منتج'); if(!g) return;
+    let n=0;
+    for(const E of list){ const bal=new Map(), ops=[], short=[]; if(planProduction(E.it.id, E.short.qty, bal, ops, short, 0, new Set([E.it.id])) !== false && ops.length){ commitProduction(ops, E.short.date); n++; if(short.length) noteShortages(short); } }
+    markAutoRuns(); await saveTx(); await logOp(g, `${n} منتج اتصنّع الناقص منه: `+list.map(E=>`${E.it.name} ${fmt(E.short.qty)}`).join('، ').slice(0,400));
+    toast(`اتسجل إنتاج ${n} منتج ✓`); ui.modal=a==='make-short'?balanceModal(d.id):healthModal(); return render(); }
   if(a==='hc-copy'){ const t=healthText(); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
   if(a==='hc-untrack'){ if(!S.untracked) S.untracked={}; S.untracked[d.id]=1; await saveMain(); toast(`"${(item(d.id)||{}).name}" مش هيتحسب في الأرصدة السالبة ولا طلبات الشراء`); ui.modal=healthModal(); return render(); }
   if(a==='hc-backup-now'){ const r=await snapshotBefore('نسخة يدوية من الفحص اليومي'); if(r.ok){ BACKUPS_LIST=await listBackups(); backupsLoaded=true; toast('اتاخدت نسخة ✓'); } else toast('النسخة فشلت: '+r.err,1); ui.modal=healthModal(); return render(); }
