@@ -1462,7 +1462,7 @@ async function connectDB(){
  
 function schedulePush(){
   if(!DB.on) return;
-  DB.dirty=true; clearTimeout(pushTimer);
+  DB.dirty=true; if(DB.busy) PUSH_AGAIN=true; clearTimeout(pushTimer);
   pushTimer=setTimeout(()=>pushAll(true),1500);
 }
  
@@ -1513,9 +1513,11 @@ async function pushMovesLegacy(F,P,errors){
     }
   }catch(e){ errors.push('الحركات: '+e.message); }
 }
+let PUSH_AGAIN=false;
 async function pushAll(quiet){
-  if(!DB.on||DB.busy) return false;
-  DB.busy=true; DB.err=''; if(!quiet) render();
+  if(!DB.on) return false;
+  if(DB.busy){ PUSH_AGAIN=true; return false; } // حفظ شغال دلوقتي — التعديل الجديد هيترفع أول ما يخلص (قبل كده كان بيضيع)
+  PUSH_AGAIN=false; DB.busy=true; DB.err=''; if(!quiet) render();
   const P=S.period, F=FACTORY;
   const errors=[];
 
@@ -1600,10 +1602,10 @@ async function pushAll(quiet){
     const changed = S.moves.filter(m=>MOVE_SIG.get(m.id)!==sig(m));
     const upsertChunks = async (full) => {
       for(let i=0;i<changed.length;i+=300){
-        const part=changed.slice(i,i+300);
+        const part=changed.slice(i,i+300); const sg=part.map(m=>sig(m)); // البصمة وقت الإرسال — لو الحركة اتعدلت أثناء الرفع تفضل «متغيرة» وتترفع تاني
         let last=null; for(let t=0;t<3;t++){ try{ await sb('stock_moves',{...UPSERT, body:part.map(m=>toRow(m,full))}); last=null; break; }catch(e){ last=e; if(/unique|exclusion|42P10|conflict|42703|column/i.test(e.message)) break; await new Promise(r=>setTimeout(r,700*(t+1))); } }
         if(last) throw last;
-        part.forEach(m=>MOVE_SIG.set(m.id, sig(m)));
+        part.forEach((m,k)=>MOVE_SIG.set(m.id, sg[k]));
       }
     };
     let upsertOk = false;
@@ -1617,11 +1619,11 @@ async function pushAll(quiet){
     if(upsertOk && DELETED_MOVE_IDS.size){
       const ids = [...DELETED_MOVE_IDS];
       for(let i=0;i<ids.length;i+=100){
-        const list = ids.slice(i,i+100).map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
+        const part = ids.slice(i,i+100); const list = part.map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
         await sb('stock_moves?'+fEq()+'&id=in.('+encodeURIComponent(list)+')',{method:'DELETE'});
+        part.forEach(id=>{ DELETED_MOVE_IDS.delete(id); MOVE_SIG.delete(id); }); // بنشيل بس اللي اتمسح فعلًا — أي حذف جديد حصل أثناء الحفظ يفضل مستني
       }
     }
-    DELETED_MOVE_IDS.clear(); // بنمسح القائمة بس بعد ما الحذف اتنفذ فعلاً على السيرفر
   }catch(e){
     // خطة بديلة: لو القاعدة مش بتدعم الـ upsert على id، نستخدم الطريقة القديمة بكل حماياتها
     if(/unique|exclusion|42P10|conflict/i.test(e.message)){
@@ -1730,6 +1732,7 @@ async function pushAll(quiet){
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
   DB.busy=false;
+  const again=PUSH_AGAIN; if(again){ PUSH_AGAIN=false; DB.dirty=true; clearTimeout(pushTimer); pushTimer=setTimeout(()=>pushAll(true),300); }
   if(errors.length){
     DB.err=errors.join(' | ');
     if(!isTypingCount()) render();
@@ -1737,7 +1740,7 @@ async function pushAll(quiet){
     return false;
   }
   DB.err='';
-  DB.last=new Date().toLocaleString('en-GB'); DB.dirty=false;
+  DB.last=new Date().toLocaleString('en-GB'); DB.dirty=again;
   if(!isTypingCount()) render();
   if(!quiet) toast('البيانات اترفعت للقاعدة'); return true;
 }
@@ -1835,7 +1838,17 @@ async function snapshotBefore(label){
   }catch(e){ return {ok:false, err:e.message}; }
 }
 // بيتنادى قبل أي أداة بتغيّر حركات كتير مرة واحدة. لو النسخة فشلت بنسأل قبل ما نكمل
+// بيستنى أي حفظ شغال يخلص ويرفع أي تعديل لسه ما اترفعش — قبل أي عملية جماعية
+async function flushSave(maxMs=120000){
+  if(!DB.on) return true; const t0=Date.now();
+  while(DB.busy && Date.now()-t0<maxMs) await new Promise(r=>setTimeout(r,400));
+  if(DB.dirty || PUSH_AGAIN || DELETED_MOVE_IDS.size){ clearTimeout(pushTimer); pushTimer=null; await pushAll(true);
+    while(DB.busy && Date.now()-t0<maxMs) await new Promise(r=>setTimeout(r,400)); }
+  return !DB.busy && !DB.err;
+}
 async function guardBulk(label){
+  toast('بنستنى الحفظ يخلص…');
+  if(!await flushSave() && !confirm('⚠️ الحفظ على السيرفر لسه ما كملش'+(DB.err?' ('+String(DB.err).slice(0,100)+')':'')+'.\n\nالأفضل تستنى أو تدوس «احفظ تاني» الأول. تكمل برضه؟')) return null;
   toast('بناخد نسخة احتياطية قبل العملية…');
   const r=await snapshotBefore(label);
   if(!r.ok && !confirm('⚠️ ما قدرناش ناخد نسخة احتياطية قبل العملية دي ('+String(r.err||'').slice(0,120)+').\n\nلو كملت مش هتقدر ترجع بسهولة. تكمل برضه؟')) return null;
@@ -9224,6 +9237,12 @@ function healthCheck(){
   const M=autoRunMergePlan(); const nSplit=M.reduce((t,a)=>t+a.length,0);
   add({id:'split',lvl:M.length?'warn':'ok',title:M.length?`${nSplit} تشغيلة تلقائية ممكن تتجمع في ${M.length}`:'مفيش تشغيلات تلقائية مقسّمة',
     desc:M.length?'نفس الوصفة في نفس اليوم متسجلة كذا تشغيلة — جمعهم بيقلل الحركات ومش بيغيّر الأرصدة.':'', act:M.length?['auto-repair-open','📦 افتح أداة الجمع']:null});
+  // 5ب) إنتاج تلقائي زايد عن اللي اتصرف (اتسجل أكتر من مرة) — ده اللي بيخلي الخامات تنزل بالسالب
+  { const x=new Date(); x.setDate(x.getDate()-7); const RP=autoRunRepairPlan(ymdLocal(x));
+    const byP=new Map(); RP.acts.forEach(a=>{ const o=a.mv.find(m=>m.dir==='in'); const it=item(a.pid); const e=byP.get(a.pid)||{n:it?it.name:'?',u:it?it.unit:'',q:0}; e.q=n2(e.q+(o?o.qty*a.factor:0)); byP.set(a.pid,e); });
+    add({id:'surplus',lvl:RP.acts.length?'bad':'ok',title:RP.acts.length?`${byP.size} منتج اتصنّع زيادة عن اللي اتصرف`:'مفيش إنتاج تلقائي زايد',
+      desc:RP.acts.length?'الإنتاج التلقائي اتسجل أكتر من اللازم، فخاماته اتخصمت زيادة — وده سبب أغلب الأرصدة السالبة في الخامات. التنظيف بيلغي الزيادة بس ويرجّع الخامات.':'',
+      rows:[...byP.values()].map(e=>({c:[e.n, '+'+fmt(e.q)+' '+e.u]})), act:RP.acts.length?['auto-repair-open','🧹 افتح التنظيف']:null}); }
   // 6) صرف الفروع النهارده مقارنة بالطلبيات
   if(BO.orders && BO.orders.length && BO.from===D && BO.to===D){
     const A=boAudit(D); const c=st=>A.rows.filter(r=>r.st===st).length;
@@ -9250,7 +9269,14 @@ function healthCheck(){
   const seen=new Set(); let dupId=0; S.moves.forEach(m=>{ if(seen.has(m.id)) dupId++; else seen.add(m.id); });
   if(dupId) add({id:'dupid',lvl:'bad',title:`${dupId} حركة متكررة بنفس الرقم`,desc:'اعمل ريفريش للصفحة. لو فضلت، ابعت صورة الشاشة دي.'});
   const score={bad:0,warn:0,ok:0,info:0}; R.forEach(r=>score[r.lvl]++);
-  return {R, score, D, moves:S.moves.length, runs:(S.runs||[]).length};
+  // ترتيب الإصلاح: كل خطوة بتأثر على اللي بعدها
+  const isBad=id=>{ const r=R.find(x=>x.id===id); return r && (r.lvl==='bad'||r.lvl==='warn'); };
+  const steps=[]; if(isBad('save')) steps.push('الحفظ الأول — استنى أو دوس «احفظ تاني»');
+  if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
+  if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
+  if(isBad('runs')) steps.push('بعد كده بس: «طابق السجل مع الحركات»');
+  if(isBad('neg')) steps.push('آخر حاجة: الأرصدة السالبة اللي فاضلة — دي اللي محتاجة وارد أو تعديل وصفة');
+  return {R, score, D, steps, moves:S.moves.length, runs:(S.runs||[]).length};
 }
 let HC_CACHE={k:'',v:null}, HC_BK_REQ=false;
 function healthBadge(){ // عدّاد خفيف للهيدر
@@ -9278,12 +9304,13 @@ function healthModal(){
     <h3>🩺 الفحص اليومي — ${esc(H.D)}</h3>
     <div class="pad" style="max-height:72vh;overflow:auto">${top}
       <div class="hint" style="margin-top:6px">${H.moves} حركة · ${H.runs} تشغيلة · ${S.items.length} صنف · ${S.recipes.length} وصفة</div>
+      ${H.steps.length>1?`<div style="border:1px dashed #5F6B73;border-radius:10px;padding:10px 12px;margin-top:10px"><b>🧭 اصلح بالترتيب ده</b><ol style="margin:6px 0 0;padding-inline-start:22px;line-height:1.9">${H.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></div>`:''}
       ${L.map(card).join('')}</div>
     <div class="foot"><button class="btn" data-act="hc-open">🔄 افحص تاني</button><button class="btn" data-act="hc-copy">📋 انسخ التقرير</button><button class="btn" data-close="1">قفل</button></div>
   </div></div>`;
 }
 function healthText(){ const H=healthCheck(); const ic={bad:'⛔',warn:'⚠️',ok:'✅',info:'ℹ️'};
-  return `فحص يومي — ${(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name} — ${H.D}\n${H.moves} حركة · ${H.runs} تشغيلة\n\n`+H.R.map(r=>`${ic[r.lvl]} ${r.title}${r.desc?'\n   '+r.desc:''}${r.rows.length?'\n'+r.rows.slice(0,25).map(x=>'   - '+x.c.join(' | ')).join('\n'):''}`).join('\n\n'); }
+  return `فحص يومي — ${(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name} — ${H.D}\n${H.moves} حركة · ${H.runs} تشغيلة\n\n`+(H.steps.length>1?'الترتيب:\n'+H.steps.map((x,i)=>`${i+1}) ${x}`).join('\n')+'\n\n':'')+H.R.map(r=>`${ic[r.lvl]} ${r.title}${r.desc?'\n   '+r.desc:''}${r.rows.length?'\n'+r.rows.slice(0,25).map(x=>'   - '+x.c.join(' | ')).join('\n'):''}`).join('\n\n'); }
 const AUD_ST={ 'other-day':['اتصرف بس بتاريخ تاني','a'], ok:['✓ مظبوط','g'], 'ok?':['✓ اتصرف (من غير تحويل للمقارنة)','b'], less:['ناقص','r'], more:['زيادة','a'], dup:['متكرر — اتصرف أكتر من مرة','r'], 'done-no-move':['متعلّم «اتصرف» بس مفيش حركة','r'], pending:['لسه ما اتصرفش','']};
 function boAuditModal(D){
   const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st)); const od=A.rows.filter(r=>r.st==='other-day'); const dnm=A.rows.filter(r=>r.st==='done-no-move');
@@ -10235,6 +10262,7 @@ async function act(a,d){
   if(a==='hc-untrack'){ if(!S.untracked) S.untracked={}; S.untracked[d.id]=1; await saveMain(); toast(`"${(item(d.id)||{}).name}" مش هيتحسب في الأرصدة السالبة ولا طلبات الشراء`); ui.modal=healthModal(); return render(); }
   if(a==='hc-backup-now'){ const r=await snapshotBefore('نسخة يدوية من الفحص اليومي'); if(r.ok){ BACKUPS_LIST=await listBackups(); backupsLoaded=true; toast('اتاخدت نسخة ✓'); } else toast('النسخة فشلت: '+r.err,1); ui.modal=healthModal(); return render(); }
   if(a==='hc-fix-runs'){
+    { const x=new Date(); x.setDate(x.getDate()-7); if(autoRunRepairPlan(ymdLocal(x)).acts.length && !confirm('⚠️ في إنتاج تلقائي زايد لسه ما اتنظفش. لو طابقت السجل دلوقتي، الزيادة هتتثبت في السجل. الأفضل تنظف الأول.\n\nتطابق برضه؟')) return; }
     if(!confirm('هيتظبط سجل التشغيلات عشان يطابق الحركات (تشغيلات من غير حركات هتتشال، والكميات تتحسب من الحركات). الأرصدة مش هتتغير. تكمل؟')) return;
     const g=await guardBulk('مطابقة سجل التشغيلات'); if(!g) return;
     const by=new Map(); S.moves.forEach(m=>{ if(!m.runId) return; const e=by.get(m.runId)||{ins:[],outs:[]}; (m.dir==='in'?e.ins:e.outs).push(m); by.set(m.runId,e); });
