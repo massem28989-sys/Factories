@@ -7955,39 +7955,66 @@ function readBulkInHeader(){
   const dt=$('#bi-date'); if(dt) ui.bulkIn.date=dt.value;
 }
  
+/* خطة إنتاج متداخلة: لو خامة في الوصفة رصيدها مش كفاية وهي نفسها ليها وصفة (منتج وسيط زي صوص الكوكتيل اللي بيدخل في صوص الساندوتش)،
+   بنصنّع الناقص منها تلقائي من خاماتها الأول — بدل ما الصرف يقف. بنحسب كله على رصيد افتراضي قبل ما نسجل أي حركة */
+function planProduction(itemId, qty, bal, ops, short, depth, stack){
+  const r=S.recipes.find(x=>x.outItemId===itemId); if(!r || !(r.outQty>0)) return false;
+  const b=qty/r.outQty; const lines=[];
+  for(const l of r.lines){
+    const need=n2(l.qty*b); const li=item(l.itemId);
+    if(!bal.has(l.itemId)) bal.set(l.itemId, li?calc(li).book:0);
+    let have=bal.get(l.itemId);
+    if(need>have+1e-9 && depth<4 && !stack.has(l.itemId) && S.recipes.some(x=>x.outItemId===l.itemId && x.outQty>0)){
+      stack.add(l.itemId); planProduction(l.itemId, n2(need-Math.max(0,have)), bal, ops, short, depth+1, stack); stack.delete(l.itemId);
+      have=bal.get(l.itemId);
+    }
+    if(need>have+1e-9) short.push({name:li?li.name:'غير معروفة', need, bal:Math.max(0,n2(have))});
+    bal.set(l.itemId, n2(have-need)); lines.push({itemId:l.itemId, qty:need});
+  }
+  bal.set(itemId, n2((bal.has(itemId)?bal.get(itemId):(item(itemId)?calc(item(itemId)).book:0)) + n2(r.outQty*b)));
+  ops.push({r, b, lines, nested: depth>0});
+  return true;
+}
 function dispenseOut(itemId, qty, date, party, reason, force=false){
-  // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة. لو الرصيد مش كفاية (للصنف نفسه أو لأي خامة في وصفته)، بيرفض ومايسجّلش أي حاجة خالص —
-  // إلا لو force=true (بتُستخدم في أدوات المطابقة مع الصرف الفعلي، لأن الشيت بيمثل حقيقة مؤكدة حصلت فعلاً حتى لو الخامات عندنا رصيدها ناقص)
+  // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة (ووصفات الخامات الوسيطة لو رصيدها ناقص). لو الرصيد مش كفاية بيرفض ومايسجّلش أي حاجة —
+  // إلا لو force=true (الصرف حصل فعلاً حتى لو الخامات عندنا رصيدها ناقص)
   const r=S.recipes.find(x=>x.outItemId===itemId);
   if(r && r.outQty>0){
-    const b = qty / r.outQty;
-    const shortages=[];
-    for(const l of r.lines){
-      const need = n2(l.qty*b);
-      const li = item(l.itemId);
-      const bal = li ? calc(li).book : 0;
-      if(need > bal){
-        if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${li?li.name:'غير معروفة'}" (متاح ${fmt(bal)}، مطلوب ${fmt(need)})`};
-        shortages.push({name: li?li.name:'غير معروفة', need, bal});
-      }
+    const bal=new Map(), ops=[], short=[];
+    planProduction(itemId, qty, bal, ops, short, 0, new Set([itemId]));
+    if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
+    for(const op of ops){
+      const runId=uid('run'); const rr=op.r;
+      for(const l of op.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId});
+      const cost=recipeCost(rr)*op.b, outQty=n2(rr.outQty*op.b);
+      S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId});
+      S.runs=S.runs||[]; S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
     }
-    const runId=uid('run');
-    for(const l of r.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*b),date,price:0,party:r.name,reason:'صرف للإنتاج (تلقائي)',runId});
-    const cost=recipeCost(r)*b, outQty=n2(r.outQty*b);
-    S.moves.push({id:uid('m'),dir:'in',itemId:r.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+r.name,runId});
-    S.runs=S.runs||[]; S.runs.push({id:runId,date,name:r.name,batches:n2(b),outQty,cost,auto:true});
     const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
     S.moves.push(m);
-    return {move:m, auto:true, shortages: shortages.length?shortages:undefined};
+    return {move:m, auto:true, nested:ops.some(o=>o.nested), shortages: short.length?short:undefined};
   }
   const it=item(itemId);
   const bal = it ? calc(it).book : 0;
   if(qty > bal){
-    if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`};
+    if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`, shortages:[{name:it?it.name:'غير معروف', need:qty, bal}]};
   }
   const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
   S.moves.push(m);
   return {move:m, auto:false, shortages: (qty>bal && force)?[{name:it?it.name:'غير معروف', need:qty, bal}]:undefined};
+}
+// ملخص النواقص مجمّع بالخامة (بدل سطر لكل فرع)، ومعاه اختيار «اصرف برضه» لو البضاعة طلعت فعلًا
+function boShortSummary(fails){
+  const g=new Map();
+  fails.forEach(f=>(f.shortages||[{name:f.itemName,need:f.qty,bal:0}]).forEach(x=>{ const e=g.get(x.name)||{name:x.name,need:0,bal:x.bal,br:new Set(),items:new Set()}; e.need=n2(e.need+x.need); e.bal=Math.min(e.bal,x.bal); e.br.add(f.branch); e.items.add(f.itemName); g.set(x.name,e); }));
+  return [...g.values()].map(e=>`• ${e.name}: الرصيد ${fmt(e.bal)} — المطلوب ${fmt(e.need)}\n   (لـ${e.br.size} فرع${[...e.items].some(n=>n!==e.name)?` — داخلة في: ${[...e.items].join('، ')}`:''})`).join('\n');
+}
+async function boOfferForce(fails, onDone){
+  if(!fails.length) return 0;
+  const ok=confirm(`${fails.length} صرف ما اتسجلش عشان الرصيد مش كفاية:\n\n${boShortSummary(fails)}\n\nالحل الصح: سجّل الوارد أو الإنتاج الناقص الأول وبعدين اصرف تاني.\n\nلو البضاعة طلعت فعلًا للفروع ودوست «OK»، الصرف هيتسجل برضه والرصيد هيبقى بالسالب لحد ما تسجل الوارد/الإنتاج.`);
+  if(!ok) return 0;
+  let n=0; for(const f of fails){ const res=dispenseOut(f.itemId, f.qty, today(), f.branch, 'صرف للفروع', true); if(res.move){ if(res.move) res.move.forced=true; n++; if(onDone) onDone(f,res); } }
+  return n;
 }
 async function boSaveOrder(order){
   if(!order || !order._key) { toast('تعذر تحديد الطلبية',1); return false; }
@@ -9839,21 +9866,21 @@ async function act(a,d){
     });
     if(!perBranch.length) return toast('مفيش كميات مطلوبة للصنف ده',1);
 
-    let autoAny=false, total=0; const failed=[];
+    let autoAny=false, total=0; let failed=[]; const fails=[];
     for(const b of perBranch){
       const res = dispenseOut(match.id, b.qty, today(), b.branch, 'صرف للفروع');
-      if(res.error){ failed.push(`${b.branch}: ${res.error}`); continue; }
+      if(res.error){ failed.push(`${b.branch}: ${res.error}`); fails.push({branch:b.branch, itemId:match.id, itemName:match.name, qty:b.qty, shortages:res.shortages}); continue; }
       if(res.auto) autoAny=true;
       total = n2(total + b.qty);
     }
-    if(!total){ toast('مفيش أي فرع اتصرفله — الرصيد مش كفاية', 1); if(failed.length) alert(failed.join('\n')); return render(); }
+    if(fails.length){ const nf=await boOfferForce(fails, f=>{ total=n2(total+f.qty); }); if(nf){ const okB=new Set(fails.map(f=>f.branch)); failed=failed.filter(x=>!okB.has(x.split(':')[0])); } }
+    if(!total){ toast('مفيش أي فرع اتصرفله — الرصيد مش كفاية', 1); return render(); }
     S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:perBranch.length-failed.length };
     await saveTx(); await saveMain();
     { const failedBr=new Set(failed.map(x=>x.split(':')[0])); const set=new Set();
       BO.orders.forEach(o=>{ if(failedBr.has(o.branch)) return; const l=(o.items||[]).find(x=>x.name===faroojName); if(l&&+l.qty>0&&boStampLine(o,faroojName,+l.qty,n2(+l.qty*conv),match)) set.add(o); });
       await boFlushOrders(set); const nc=await boSyncCatalogPrices([faroojName]); if(nc) toast(`واتحدث سعر "${faroojName}" في كتالوج الفروع`); }
     toast(`تم صرف "${match.name}" لـ${perBranch.length-failed.length} فرع (إجمالي ${fmt(total)} ${match.unit})${autoAny?' — والخامات اتخصمت من الوصفة':''}${failed.length?` — ${failed.length} فرع اتخطى لعدم كفاية الرصيد`:''}`);
-    if(failed.length) alert('الفروع دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+failed.join('\n'));
     return render();
   }
   if(a==='bo-undo'){
@@ -9874,7 +9901,7 @@ async function act(a,d){
     const branchCount = new Set(BO.orders.map(o=>o.branch)).size;
     if(!confirm(`هيتم صرف ${names.length} صنف على ${branchCount} فرع، كل فرع في حركة منفصلة باسمه. تكمل؟`)) return;
 
-    let moveCount=0, autoCount=0; const failedLines=[]; const stampSet=new Set();
+    let moveCount=0, autoCount=0; let failedLines=[]; const stampSet=new Set(); const allFails=[];
     for(const faroojName of names){
       const match = findMatchingLocalItem(faroojName);
       let total=0, autoAny=false, brN=0;
@@ -9883,7 +9910,7 @@ async function act(a,d){
         if(!line || !(+line.qty>0)) continue;
         const cf = convFactorOf(faroojName) || 1;
         const res = dispenseOut(match.id, n2(+line.qty*cf), today(), o.branch, 'صرف للفروع');
-        if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); continue; }
+        if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); allFails.push({branch:o.branch, itemId:match.id, itemName:match.name, qty:n2(+line.qty*cf), shortages:res.shortages, o, faroojName, bq:+line.qty}); continue; }
         if(boStampLine(o, faroojName, +line.qty, n2(+line.qty*cf), match)) stampSet.add(o);
         if(res.auto) autoAny=true;
         total=n2(total+ +line.qty*cf); brN++; moveCount++;
@@ -9892,11 +9919,14 @@ async function act(a,d){
       if(autoAny) autoCount++;
       S.boDone[boKey(faroojName)] = { at:new Date().toISOString(), qty:total, itemId:match.id, branches:brN };
     }
+    if(allFails.length){ const nf=await boOfferForce(allFails, (f)=>{ moveCount++; if(boStampLine(f.o, f.faroojName, f.bq, f.qty, item(f.itemId))) stampSet.add(f.o);
+        const k=boKey(f.faroojName); const d=S.boDone[k]; if(d){ d.qty=n2(d.qty+f.qty); d.branches=(d.branches||0)+1; } else S.boDone[k]={at:new Date().toISOString(), qty:f.qty, itemId:f.itemId, branches:1}; });
+      if(nf) failedLines=[]; }
     await saveTx(); await saveMain();
     await boFlushOrders(stampSet);
     { const nc=await boSyncCatalogPrices(names); if(nc) setTimeout(()=>toast(`اتحدث سعر ${nc} صنف في كتالوج الفروع لسعر المصنع`),1500); }
     toast(`تم تسجيل ${moveCount} حركة صرف${autoCount?` (${autoCount} صنف خصم خاماته تلقائي)`:''}${failedLines.length?` — ${failedLines.length} حركة اتخطت لعدم كفاية الرصيد`:''}`);
-    if(failedLines.length) alert('الحركات دي ما اتسجّلتش لعدم كفاية الرصيد:\n\n'+failedLines.join('\n'));
+
     return render();
   }
   if(a==='set-lock'){
