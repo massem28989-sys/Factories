@@ -1061,7 +1061,7 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1085,7 +1085,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1317,6 +1317,18 @@ async function sb(path,opts={}){
 function markAutoRuns(){ const au=new Set(), ne=new Set(); (S.moves||[]).forEach(m=>{ if(!m.runId) return; if(m.dir==='in' && /^إنتاج تلقائي/.test(m.party||'')) au.add(m.runId); if(/وسيطة/.test(m.reason||'')) ne.add(m.runId); });
   (S.runs||[]).forEach(r=>{ if(au.has(r.id)) r.auto=true; if(ne.has(r.id)) r.nested=true; }); }
 // Supabase بيرجّع 1000 صف بالكتير في الطلب الواحد — فلازم نجيب على صفحات، وإلا الحركات الزيادة عن 1000 بتختفي من الشاشة والأرصدة بتتحسب غلط
+// سجل التشغيلات لازم يطابق حركات الإنتاج نفسها: أي runId موجود في الحركات ومالوش تشغيلة بنعيد بناءها منه
+function rebuildRunsFromMoves(){
+  S.runs=S.runs||[]; const have=new Set(S.runs.map(r=>r.id)); const g=new Map();
+  S.moves.forEach(m=>{ if(!m.runId || have.has(m.runId)) return; const e=g.get(m.runId)||{ins:[],outs:[]}; (m.dir==='in'?e.ins:e.outs).push(m); g.set(m.runId,e); });
+  let n=0;
+  g.forEach((e,id)=>{ const inn=e.ins[0]; if(!inn) return; const auto=/^إنتاج تلقائي/.test(inn.party||'');
+    const nm=String(inn.party||'').replace(/^إنتاج( تلقائي)?:\s*/,'') || ((S.recipes.find(r=>r.outItemId===inn.itemId)||{}).name) || ((item(inn.itemId)||{}).name) || '?';
+    const outQty=n2(e.ins.reduce((t,m)=>t+(+m.qty||0),0)); const cost=n2(e.outs.reduce((t,m)=>{ const it=item(m.itemId); return t+(+m.qty||0)*((it&&it.price)||0); },0));
+    const rec=S.recipes.find(r=>r.outItemId===inn.itemId); const batches=rec&&rec.outQty>0?n2(outQty/rec.outQty):0;
+    S.runs.push({id, date:inn.date, name:nm, batches, outQty, cost, auto:auto||undefined, nested:e.outs.some(m=>/وسيطة/.test(m.reason||''))||undefined}); n++; });
+  return n;
+}
 async function sbAll(path, opts={}){
   const out=[]; const sep=path.includes('?')?'&':'?'; const hasOrder=/[?&]order=/.test(path);
   let ord=hasOrder?'':'order=id.asc&';
@@ -1682,6 +1694,7 @@ async function pushAll(quiet){
   }catch(e){ errors.push('الوصفات: '+e.message); }
 
   try{
+    rebuildRunsFromMoves();
     let runsSafe = true;
     if(!(S.runs||[]).length){
       try{ const existing = await sb('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=id&limit=1',{prefer:'return=representation'}); if(existing && existing.length) runsSafe = false; }
@@ -1709,10 +1722,10 @@ async function pushAll(quiet){
       if(sv){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
-        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1742,7 +1755,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     MOVE_SIG.clear(); S.moves.forEach(m=>MOVE_SIG.set(m.id, moveSig(m))); // دي اللي على السيرفر فعلًا
@@ -1753,6 +1766,7 @@ async function pullAll(silent){
     const rn=await sbAll('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.runs=rn.map(r=>({id:r.id,date:r.run_date,name:r.name,batches:+r.batches,outQty:+r.out_qty,cost:+r.cost}));
     markAutoRuns();
+    if(rebuildRunsFromMoves()) setTimeout(()=>{ saveTx(); }, 500);
     const pd=await sb('stock_periods?'+fEq()+'&select=*&order=period',{prefer:'return=representation'})||[];
     S.closed=pd.map(p=>({period:p.period,value:+p.value,date:p.closed_at,items:p.snapshot||[]}));
     if(ROLE!=='manager'){ await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed}); }
@@ -1776,7 +1790,7 @@ async function maybeAutoBackup(){
     if(existing && existing.length) return; // النهاردة أصلاً معمول لها نسخة
     const snapshot = {
       items:S.items, recipes:S.recipes, moves:S.moves, counts:S.counts, runs:S.runs,
-      period:S.period, takenAt:new Date().toISOString()
+      period:S.period, takenAt:new Date().toISOString(), meta:snapMeta('نسخة يومية تلقائية')
     };
     await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:_backupKey(d),v:snapshot}]});
     // تنظيف: نمسح أي نسخة أقدم من BACKUP_KEEP_DAYS يوم
@@ -1788,15 +1802,76 @@ async function maybeAutoBackup(){
   }catch(e){ /* النسخ الاحتياطي التلقائي ميوقفش الشغل العادي لو فشل لأي سبب */ }
 }
 
+// بنجيب بيانات وصفية بس (مش النسخة كلها) — كل نسخة فيها آلاف الحركات، وتنزيلهم كلهم عشان نعرض القايمة كان تقيل جدًا
+function snapMeta(label){ return { label, items:S.items.length, recipes:S.recipes.length, moves:S.moves.length, runs:(S.runs||[]).length,
+  period:S.period, by:(AUTH&&AUTH.user&&AUTH.user.email)||ROLE||'', takenAt:new Date().toISOString() }; }
 async function listBackups(){
+  const shape = r=>{ const m=r.meta||{}; return { date:r.k.replace('backup_',''), label:m.label||(r.k.length>17?'نسخة قبل عملية':'نسخة يومية تلقائية'),
+    itemsCount:m.items??r.ic??'-', recipesCount:m.recipes??r.rc??'-', movesCount:m.moves??r.mc??'-', takenAt:m.takenAt||r.takenAt, period:m.period||r.period, by:m.by||'' }; };
   try{
-    const rows = await sb('stock_settings?'+fEq()+'&k=like.backup_*&select=k,v',{prefer:'return=representation'})||[];
-    return rows.map(r=>({date:r.k.replace('backup_',''), itemsCount:(r.v.items||[]).length, recipesCount:(r.v.recipes||[]).length,
-      movesCount:(r.v.moves||[]).length, takenAt:r.v.takenAt, period:r.v.period}))
-      .sort((a,b)=>b.date.localeCompare(a.date));
-  }catch(e){ return []; }
+    const rows = await sb('stock_settings?'+fEq()+'&k=like.backup_*&select=k,meta:v->meta,takenAt:v->>takenAt,period:v->>period',{prefer:'return=representation'})||[];
+    return rows.map(shape).sort((a,b)=>b.date.localeCompare(a.date));
+  }catch(e){
+    try{ const rows = await sb('stock_settings?'+fEq()+'&k=like.backup_*&select=k,v',{prefer:'return=representation'})||[];
+      return rows.map(r=>shape({k:r.k, meta:r.v.meta, takenAt:r.v.takenAt, period:r.v.period, ic:(r.v.items||[]).length, rc:(r.v.recipes||[]).length, mc:(r.v.moves||[]).length}))
+        .sort((a,b)=>b.date.localeCompare(a.date)); }catch(e2){ return []; }
+  }
 }
 
+/* ===== نسخة تلقائية قبل أي عملية جماعية + سجل العمليات ===== */
+const PREOP_KEEP = 15; // آخر 15 نسخة «قبل عملية» (غير النسخ اليومية)
+let OPLOG = null, OPLOG_LOADING = false;
+async function snapshotBefore(label){
+  const at=new Date(), hh=x=>String(x).padStart(2,'0');
+  const id=today()+'_'+hh(at.getHours())+hh(at.getMinutes())+hh(at.getSeconds());
+  const snap=JSON.parse(JSON.stringify({ factory:FACTORY, period:S.period, items:S.items, recipes:S.recipes, moves:S.moves, counts:S.counts, runs:S.runs||[],
+    takenAt:at.toISOString(), meta:snapMeta(label) })); // نسخة مستقلة — أي تعديل بعد كده ما يلمسهاش
+  if(!DB.on){ try{ await sset('kunafa:preop:v1:'+FACTORY, snap); return {ok:true, id, local:true}; }catch(e){ return {ok:false, err:e.message}; } }
+  try{
+    await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:_backupKey(id),v:snap}]});
+    try{ const all=(await sb('stock_settings?'+fEq()+'&k=like.backup_*&select=k',{prefer:'return=representation'})||[]).map(r=>r.k).filter(k=>k.length>17).sort().reverse();
+      for(const k of all.slice(PREOP_KEEP)) await sb('stock_settings?'+fEq()+'&k=eq.'+encodeURIComponent(k),{method:'DELETE'}).catch(()=>{}); }catch(e){}
+    backupsLoaded=false; return {ok:true, id};
+  }catch(e){ return {ok:false, err:e.message}; }
+}
+// بيتنادى قبل أي أداة بتغيّر حركات كتير مرة واحدة. لو النسخة فشلت بنسأل قبل ما نكمل
+async function guardBulk(label){
+  toast('بناخد نسخة احتياطية قبل العملية…');
+  const r=await snapshotBefore(label);
+  if(!r.ok && !confirm('⚠️ ما قدرناش ناخد نسخة احتياطية قبل العملية دي ('+String(r.err||'').slice(0,120)+').\n\nلو كملت مش هتقدر ترجع بسهولة. تكمل برضه؟')) return null;
+  return { ...r, label, movesBefore:S.moves.length, runsBefore:(S.runs||[]).length };
+}
+async function logOp(g, details){
+  if(!g) return;
+  const e={ at:new Date().toISOString(), by:(AUTH&&AUTH.user&&AUTH.user.email)||ROLE||'', action:g.label, details:details||'',
+    movesBefore:g.movesBefore, movesAfter:S.moves.length, runsBefore:g.runsBefore, runsAfter:(S.runs||[]).length, backup:g.ok?g.id:'' };
+  try{
+    let list=[];
+    if(DB.on){ const r=await sb('stock_settings?'+fEq()+'&k=eq.oplog&select=v',{prefer:'return=representation'}); list=(r&&r[0]&&r[0].v&&r[0].v.list)||[]; }
+    else { const v=await sget('kunafa:oplog:v1:'+FACTORY); list=(v&&v.list)||[]; }
+    list=[e, ...list].slice(0,300);
+    if(DB.on) await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'oplog',v:{list}}]});
+    else await sset('kunafa:oplog:v1:'+FACTORY,{list});
+    OPLOG=list;
+  }catch(err){ (OPLOG=OPLOG||[]).unshift(e); }
+}
+async function loadOpLog(){
+  if(OPLOG_LOADING) return; OPLOG_LOADING=true;
+  try{ if(DB.on){ const r=await sb('stock_settings?'+fEq()+'&k=eq.oplog&select=v',{prefer:'return=representation'}); OPLOG=(r&&r[0]&&r[0].v&&r[0].v.list)||[]; }
+    else { const v=await sget('kunafa:oplog:v1:'+FACTORY); OPLOG=(v&&v.list)||[]; } }catch(e){ OPLOG=OPLOG||[]; }
+  OPLOG_LOADING=false; render();
+}
+// الحفظ بقى بيبعت الحركات المتغيرة بس — فعند الاسترجاع لازم نعلّم أي حركة على السيرفر مش موجودة في النسخة عشان تتمسح،
+// وإلا الحركات اللي اتسجلت بعد النسخة كانت هترجع تاني مع أول تحميل
+async function prepRestoreMoves(snap){
+  if(!DB.on) return;
+  const keep=new Set((snap.moves||[]).map(m=>m.id));
+  const per=snap.period||S.period;
+  const srv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(per)+'&select=id',{prefer:'return=representation'})||[];
+  keep.forEach(id=>DELETED_MOVE_IDS.delete(id)); // حركة في النسخة كانت مستنية تتمسح من عملية قبل كده — لازم تفضل
+  srv.forEach(r=>{ if(!keep.has(r.id)) DELETED_MOVE_IDS.add(r.id); });
+  MOVE_SIG.clear(); // كل حركات النسخة تتبعت من جديد
+}
  
 async function loadFactories(){
   try{
@@ -5836,8 +5911,11 @@ async function extLoadSnapshot(date){
 async function applySnapshot(snap){
   if(!snap || !Array.isArray(snap.items)) throw new Error('الملف مش نسخة احتياطية صالحة');
   if(snap.factory && snap.factory!==FACTORY && !confirm(`النسخة دي تبع مصنع تاني (${snap.factory}). متأكد إنك عايز تسترجعها هنا؟`)) return false;
+  const g=await guardBulk('قبل الاسترجاع'); if(!g) return false;
+  await prepRestoreMoves(snap);
   S.items=snap.items||[]; ITEMS_FULL_REPLACE=true; S.recipes=snap.recipes||[]; S.moves=snap.moves||[]; S.counts=snap.counts||{}; S.runs=snap.runs||[];
   await saveMain(); await saveTx(); if(DB.on) await pushAll(true);
+  await logOp(g, 'استرجاع نسخة '+(snap.takenAt?new Date(snap.takenAt).toLocaleString('en-GB'):''));
   return true;
 }
 function viewExternalBackups(){
@@ -5881,9 +5959,10 @@ function viewBackups(){
     <h2>النسخ المتاحة <em>${BACKUPS_LIST.length}</em>
       <button class="btn sm" data-act="backups-refresh" style="margin-inline-start:auto">${backupsLoaded?'تحديث':'جاري التحميل…'}</button></h2>
     <div class="tblwrap"><table class="gridcols">
-      <thead><tr><th>التاريخ</th><th class="n">عدد الأصناف</th><th class="n">عدد الوصفات</th><th class="n">عدد الحركات</th><th>وقت النسخ</th><th></th></tr></thead>
+      <thead><tr><th>التاريخ</th><th>النوع</th><th class="n">عدد الأصناف</th><th class="n">عدد الوصفات</th><th class="n">عدد الحركات</th><th>وقت النسخ</th><th></th></tr></thead>
       <tbody>${BACKUPS_LIST.length? BACKUPS_LIST.map(b=>`<tr>
-        <td><div class="iname">${esc(b.date)}</div></td>
+        <td><div class="iname">${esc(b.date.slice(0,10))}</div></td>
+        <td style="font-size:12px">${/^نسخة يومية/.test(b.label)?'<span class="hint">📅 يومية تلقائي</span>':'<b style="color:#B25E10">🛡 '+esc(b.label)+'</b>'}${b.by?`<div class="hint">${esc(b.by)}</div>`:''}</td>
         <td class="n">${b.itemsCount}</td>
         <td class="n">${b.recipesCount}</td>
         <td class="n">${b.movesCount}</td>
@@ -5892,22 +5971,42 @@ function viewBackups(){
           ${b.itemsCount?`<button class="btn sm p" data-act="backup-items" data-date="${esc(b.date)}">رجّع الأصناف بس</button>`:''}
           ${b.recipesCount?`<button class="btn sm p" data-act="backup-recipes" data-date="${esc(b.date)}">رجّع الوصفات بس</button>`:''}
           <button class="btn sm danger" data-act="backup-restore-open" data-date="${esc(b.date)}">استرجاع من النسخة دي</button></div></td>
-      </tr>`).join('') : `<tr><td colspan="6" class="empty">${backupsLoaded?'لسه مفيش نسخ — هتتكوّن أول نسخة تلقائي أول ما تفتح النظام النهاردة':'جاري التحميل...'}</td></tr>`}</tbody>
+      </tr>`).join('') : `<tr><td colspan="7" class="empty">${backupsLoaded?'لسه مفيش نسخ — هتتكوّن أول نسخة تلقائي أول ما تفتح النظام النهاردة':'جاري التحميل...'}</td></tr>`}</tbody>
     </table></div>
   </div>
+  ${viewOpLog()}
   ${viewExternalBackups()}`;
 }
 
+function viewOpLog(){
+  if(OPLOG===null) loadOpLog();
+  const L=OPLOG||[]; const fmt=x=>x?new Date(x).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-';
+  return `<div class="panel">
+    <h2>📜 سجل العمليات الجماعية <em>${L.length}</em></h2>
+    <div class="pad"><div class="hint">أي أداة بتغيّر حركات كتير مرة واحدة (تنظيف، جمع، مسح مكرر، استبدال من شيت، إقفال شهر، استرجاع) بتاخد <b>نسخة كاملة قبلها تلقائي</b> وبتتسجل هنا.
+      لو نتيجة أي عملية طلعت غلط، دوس «رجّع لقبلها».</div></div>
+    <div class="tblwrap"><table class="gridcols">
+      <thead><tr><th>الوقت</th><th>العملية</th><th>التفاصيل</th><th class="n">حركات قبل ← بعد</th><th>مين</th><th></th></tr></thead>
+      <tbody>${L.length? L.map(e=>`<tr>
+        <td style="font-size:12px;white-space:nowrap">${fmt(e.at)}</td>
+        <td><b>${esc(e.action||'')}</b></td>
+        <td style="font-size:12px">${esc(e.details||'')}</td>
+        <td class="n" style="white-space:nowrap">${e.movesBefore??'-'} ← ${e.movesAfter??'-'}</td>
+        <td style="font-size:12px">${esc(e.by||'')}</td>
+        <td>${e.backup&&BACKUPS_LIST.some(b=>b.date===e.backup)?`<button class="btn sm danger" data-act="backup-restore-open" data-date="${esc(e.backup)}">↩ رجّع لقبلها</button>`:(e.backup?'<span class="hint">النسخة اتمسحت</span>':'<span class="hint">من غير نسخة</span>')}</td>
+      </tr>`).join('') : `<tr><td colspan="6" class="empty">${OPLOG===null?'جاري التحميل…':'لسه مفيش عمليات جماعية'}</td></tr>`}</tbody>
+    </table></div></div>`;
+}
 function backupRestoreModal(date){
   const b = BACKUPS_LIST.find(x=>x.date===date);
   if(!b) return `<div class="modal" data-close="1"><div class="box"><div class="pad">تعذر إيجاد النسخة دي</div><div class="foot"><button class="btn" data-close="1">إغلاق</button></div></div></div>`;
   return `<div class="modal" data-close="1"><div class="box" style="max-width:460px">
-    <h3 style="color:var(--red)">⚠️ استرجاع نسخة ${esc(date)}</h3>
+    <h3 style="color:var(--red)">⚠️ استرجاع نسخة ${esc(date.slice(0,10))}${date.length>10?' — '+esc(b.label):''}</h3>
     <div class="pad">
       <div class="warnbar">
         هيتم استبدال <b>كارت الأصناف والوصفات وكل حركات الفترة الحالية</b> بنسخة يوم ${esc(date)} بالظبط
         (${b.itemsCount} صنف، ${b.recipesCount} وصفة، ${b.movesCount} حركة).<br><br>
-        <b>أي حاجة اتسجلت بعد التاريخ ده هتضيع.</b> العملية دي مش هترجع.
+        <b>أي حاجة اتسجلت بعد النسخة دي هتضيع.</b> (هتتاخد نسخة من الوضع الحالي الأول، فتقدر ترجع لو غيّرت رأيك.)
       </div>
       <label class="f" style="margin-top:10px">للتأكيد، اكتب "استرجاع" بالظبط</label>
       <input type="text" id="backup-confirm-text" style="width:100%">
@@ -7997,7 +8096,7 @@ function planProduction(itemId, qty, bal, ops, short, depth, stack){
       stack.add(l.itemId); planProduction(l.itemId, n2(need-Math.max(0,have)), bal, ops, short, depth+1, stack); stack.delete(l.itemId);
       have=bal.get(l.itemId);
     }
-    if(need>have+1e-9) short.push({name:li?li.name:'غير معروفة', need, bal:Math.max(0,n2(have))});
+    if(need>have+1e-9 && !isUntracked(l.itemId)) short.push({name:li?li.name:'غير معروفة', need, bal:Math.max(0,n2(have))});
     bal.set(l.itemId, n2(have-need)); lines.push({itemId:l.itemId, qty:need});
   }
   bal.set(itemId, n2((bal.has(itemId)?bal.get(itemId):(item(itemId)?calc(item(itemId)).book:0)) + n2(r.outQty*b)));
@@ -8006,6 +8105,8 @@ function planProduction(itemId, qty, bal, ops, short, depth, stack){
 }
 // الصرف بيكمل دايمًا: الوصفات (والخامات الوسيطة) بتتصنّع تلقائي، ولو خامة رصيدها ناقص بتتسجل بالسالب وبيظهر تنبيه — من غير ما يوقف الصرف
 const DISPENSE_ALWAYS = true;
+// خامات مش بنتتبع رصيدها (زي الثلج والمياه): بتتخصم عادي بس ما بتطلعش في النواقص ولا الأرصدة السالبة ولا قايمة الشراء
+const isUntracked = id => !!(S.untracked && S.untracked[id]);
 let __shortNote=null;
 function noteShortages(list){ if(!list||!list.length) return; __shortNote=__shortNote||new Map(); list.forEach(x=>{ const e=__shortNote.get(x.name)||0; __shortNote.set(x.name, n2(e+Math.max(0,x.need-x.bal))); });
   clearTimeout(noteShortages.t); noteShortages.t=setTimeout(()=>{ const m=__shortNote; __shortNote=null; if(!m||!m.size) return; const arr=[...m.entries()].sort((a,b)=>b[1]-a[1]);
@@ -8025,9 +8126,13 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
       // تشغيلة تلقائية واحدة لكل وصفة في اليوم (بدل تشغيلة لكل فرع)
       const ex=S.runs.find(x=>x.auto && x.date===date && x.name===rr.name && !!x.nested===!!op.nested);
       const runId=ex?ex.id:uid('run');
-      for(const l of op.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId});
+      // حركة واحدة لكل خامة في التشغيلة اليومية (بدل حركة لكل فرع) — عشان عدد الحركات ما يبقاش بالآلاف
+      for(const l of op.lines){ const em=ex && S.moves.find(m=>m.runId===runId && m.dir==='out' && m.itemId===l.itemId && m.date===date);
+        if(em) em.qty=n2(em.qty+l.qty); else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
       const cost=recipeCost(rr)*op.b, outQty=n2(rr.outQty*op.b);
-      S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId});
+      { const ei=ex && S.moves.find(m=>m.runId===runId && m.dir==='in' && m.itemId===rr.outItemId && m.date===date);
+        if(ei){ const q=n2(ei.qty+outQty); ei.price=q?n2(((+ei.price||0)*ei.qty+cost)/q):0; ei.qty=q; }
+        else S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId}); }
       if(ex){ ex.batches=n2((+ex.batches||0)+op.b); ex.outQty=n2((+ex.outQty||0)+outQty); ex.cost=n2((+ex.cost||0)+cost); }
       else S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
     }
@@ -8129,7 +8234,7 @@ function buildProductionPlan(){
     });
     if(!changed) break;
   }
-  const rows = Object.values(needed).filter(n=>!(n.made>0 && n2(calc(n.it).book + n.made) >= n.qty-0.0001)).map(n=>{
+  const rows = Object.values(needed).filter(n=>!isUntracked(n.it.id) && !(n.made>0 && n2(calc(n.it).book + n.made) >= n.qty-0.0001)).map(n=>{
     const bal = n2(calc(n.it).book + (n.made||0));
     const short = n2(Math.max(0, n.qty-bal));
     return {...n, bal, short, shortCost: n2(short*(n.it.price||0)) };
@@ -9077,7 +9182,7 @@ function boAudit(D){
     else r.st = g.qty<e.qty ? 'less' : 'more';
     rows.push(r); });
   const extra=[]; got.forEach((g,k)=>{ if(!exp.has(k)){ const [id,br]=k.split('|'); const it=item(id); extra.push({item:it?it.name:'?', unit:it?it.unit:'', branch:br, got:g.qty, n:g.n}); } });
-  const neg=S.items.map(it=>({it, b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
+  const neg=S.items.filter(it=>!isUntracked(it.id)).map(it=>({it, b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
   const runs=(S.runs||[]).filter(r=>r.date===D && r.auto);
   const forced=moves.filter(m=>m.forced);
   return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
@@ -9100,10 +9205,12 @@ function boAuditModal(D){
       <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">التفاصيل</summary>${tbl(dnm)}</details>`);
   const dups=bad.filter(r=>r.st==='dup');
   if(dups.length) h+=box(`🗑 صرف متكرر (${dups.length} سطر)`,'#A32D2D',`<div class="hint" style="margin:4px 0 8px">نفس الصنف اتسجل صرفه لنفس الفرع أكتر من مرة بنفس الكمية. الزرار بيسيب أول حركة ويمسح التكرار — وبعدها افتح «🧹 تنظيف الإنتاج المكرر» عشان الخامات اللي اتخصمت زيادة ترجع.</div><button class="btn sm danger" data-act="bo-audit-dedup">🗑 امسح الصرف المكرر</button>`);
+  const mores=bad.filter(r=>r.st==='more' && !r.unknown);
+  if(mores.length) h+=box(`➕ اتصرف أكتر من الطلبية (${mores.length} سطر)`,'#B25E10',`<div class="hint" style="margin:4px 0 8px;line-height:1.8">الفرع اتسجله صرف أكتر من اللي في طلبيته (غالبًا الصنف اتصرف أكتر من مرة بكميات مختلفة، أو اتضاف من «مقارنة الصرف الفعلي»). لو الزيادة دي ما طلعتش فعلًا، الزرار بيرجّع كل سطر للكمية المطلوبة (بيمسح/يقلل آخر الحركات) — وبعدها شغّل «🧹 تنظيف الإنتاج المكرر».</div><button class="btn sm" data-act="bo-audit-trim">✂ رجّعهم للمطلوب</button>`);
   const bad2=bad.filter(r=>r.st!=='done-no-move');
   if(bad2.length) h+=box('❗ محتاج مراجعة','#A32D2D',tbl(bad2)+`<div class="hint" style="margin-top:6px">«متكرر» = نفس الصنف اتصرف لنفس الفرع أكتر من مرة — امسح الحركة الزيادة من تبويب «منصرف». «متعلّم اتصرف بس مفيش حركة» = غالبًا اتصرف من جهاز تاني بتاريخ مختلف، أو الحركة اتمسحت.</div>`);
   if(A.extra.length) h+=box('صرف لفرع مش طالب الصنف ده في الطلبيات المفتوحة','#B25E10',`<table class="gridcols"><tbody>${A.extra.map(x=>`<tr><td>${esc(x.branch)}</td><td>${esc(x.item)}</td><td class="n">${fmt(x.got)} ${esc(x.unit)}${x.n>1?` (${x.n} حركات)`:''}</td></tr>`).join('')}</tbody></table>`);
-  if(A.neg.length) h+=box('أصناف رصيدها بالسالب','#B25E10',`<div class="hint" style="margin:4px 0">ده معناه إن اتصرف/اتصنّع منها أكتر من المسجّل — سجّل الوارد أو الإنتاج الناقص.</div><table class="gridcols"><tbody>${A.neg.map(x=>`<tr><td>${esc(x.it.name)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.b)}</b> ${esc(x.it.unit)}</td></tr>`).join('')}</tbody></table>`);
+  if(A.neg.length) h+=box('أصناف رصيدها بالسالب','#B25E10',`<div class="hint" style="margin:4px 0">ده معناه إن اتصرف/اتصنّع منها أكتر من المسجّل — سجّل الوارد أو الإنتاج الناقص.</div><div class="hint" style="margin:0 0 6px">لو خامة زي الثلج أو المياه مش بتسجّل لها وارد، دوس «مش بنتتبعها» وهتختفي من هنا ومن النواقص وقايمة الشراء (وبتفضل تتخصم عادي). وللباقي: سجّل الوارد الناقص أو اعمل جرد.</div><table class="gridcols"><tbody>${A.neg.map(x=>`<tr><td>${esc(x.it.name)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.b)}</b> ${esc(x.it.unit)}</td><td style="text-align:end">${isOwner()?`<button class="btn sm" data-act="untrack-toggle" data-id="${esc(x.it.id)}">مش بنتتبعها</button>`:''}</td></tr>`).join('')}</tbody></table>${Object.keys(S.untracked||{}).length?`<div class="hint" style="margin-top:6px">مش بنتتبع: ${Object.keys(S.untracked).map(id=>{ const it=item(id); return it?`${esc(it.name)} <button class="btn sm" data-act="untrack-toggle" data-id="${esc(id)}" style="padding:0 6px;font-size:10px">رجّعها</button>`:''; }).join(' · ')}</div>`:''}`);
   if(A.runs.length) h+=box(`إنتاج تلقائي اتسجل يوم ${A.D} (${A.runs.length})`,'#555',`<div class="hint" style="margin:4px 0">لما بتصرف منتج ليه وصفة، خاماته بتتخصم تلقائي. «وسيط» = خامة ليها وصفة اتعملت عشان رصيدها كان ناقص.</div><table class="gridcols"><tbody>${A.runs.map(r=>`<tr><td>${esc(r.name)}${r.nested?' <span class="chip b">وسيط</span>':''}</td><td class="n">${fmt(r.outQty)}</td></tr>`).join('')}</tbody></table>`);
   if(A.notMatched.length) h+=box('أصناف في الطلبيات مش متربطة بصنف في المصنع (ما بتتصرفش)','#777',`<div style="font-size:12px;line-height:1.9">${A.notMatched.map(esc).join(' · ')}</div>`);
   if(pend.length) h+=`<details style="margin-bottom:12px"><summary class="hint" style="cursor:pointer">لسه ما اتصرفش (${pend.length})</summary>${tbl(pend)}</details>`;
@@ -9530,7 +9637,7 @@ async function act(a,d){
   }
   if(a==='dashboard-refresh'){ DASHBOARD_DATA=null; return loadDashboard(); }
   if(a==='backups-refresh'){
-    backupsLoaded=false; render();
+    backupsLoaded=false; OPLOG=null; render();
     BACKUPS_LIST = await listBackups(); backupsLoaded=true;
     return render();
   }
@@ -9561,10 +9668,13 @@ async function act(a,d){
       const rows = await sb('stock_settings?'+fEq()+'&k=eq.'+_backupKey(date)+'&select=v',{prefer:'return=representation'});
       const snap = rows && rows[0] && rows[0].v;
       if(!snap){ toast('تعذر إيجاد بيانات النسخة، حاول تحديث القائمة والمحاولة تاني',1); return; }
+      const g=await guardBulk('قبل الاسترجاع'); if(!g) return;
+      await prepRestoreMoves(snap);
       S.items = snap.items||[]; ITEMS_FULL_REPLACE=true; S.recipes = snap.recipes||[]; S.moves = snap.moves||[];
       S.counts = snap.counts||{}; S.runs = snap.runs||[];
       await saveMain(); await saveTx();
       await pushAll(true);
+      await logOp(g, 'استرجاع نسخة '+date);
       ui.modal=null;
       toast(`تم الاسترجاع من نسخة ${date} بنجاح`);
     }catch(e){ toast('حصل خطأ أثناء الاسترجاع: '+e.message,1); }
@@ -9816,6 +9926,7 @@ async function act(a,d){
 
     const typed = prompt(`للتأكيد النهائي، اكتب "استبدال" بالظبط:`);
     if(typed !== 'استبدال'){ toast('الكلمة مطابقتش، اتلغت العملية',1); return; }
+    const g=await guardBulk('استبدال الصرف من الشيت'); if(!g) return;
 
     // 1) نمسح بس حركات الأيام الموجودة فعليًا في الشيت
     S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)).forEach(m=>DELETED_MOVE_IDS.add(m.id));
@@ -9829,7 +9940,7 @@ async function act(a,d){
       if(res.shortages) res.shortages.forEach(s=>shortageReport.push(`${s.name}`));
       done++;
     }
-    await saveTx();
+    await saveTx(); await logOp(g, `اتمسح ${toDelete.length} حركة واتسجل ${done} من الشيت`);
     ACTUAL_PARSED = null; INV_SEL && INV_SEL.clear && INV_SEL.clear();
     toast(`تم الاستبدال: اتمسح ${toDelete.length} حركة، واتسجّل ${done} حركة جديدة من الشيت${blocked.length?` — ${blocked.length} اتخطوا`:''}`);
     if(blocked.length) alert('الحركات دي ما اتسجلتش:\n\n'+blocked.slice(0,30).join('\n')+(blocked.length>30?`\n… و${blocked.length-30} كمان`:''));
@@ -10025,36 +10136,54 @@ async function act(a,d){
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
   if(a==='bo-audit-redate'){ const A=boAudit(($('#aud-date')||{}).value); const ids=new Set(A.rows.filter(r=>r.st==='other-day').flatMap(r=>r.otherIds||[]));
     if(!ids.size) return; if(!confirm(`هتتنقل ${ids.size} حركة صرف (ومعاها حركات الإنتاج التلقائي بتاعتها) ليوم ${A.D}. الرصيد مش هيتغير. تكمل؟`)) return;
+    const g=await guardBulk('نقل حركات ليوم '+A.D); if(!g) return;
     const mv=S.moves.filter(m=>ids.has(m.id)); const others=new Set(mv.map(m=>m.date)); let n=0;
     // حركات الإنتاج التلقائي اللي اتعملت في نفس اللحظة بتتنقل معاها (نفس اليوم القديم وجاية قبلها مباشرة في السجل)
     S.moves.forEach((m,i)=>{ if(ids.has(m.id)){ m.date=A.D; n++; for(let j=i-1;j>=0 && j>=i-40;j--){ const p=S.moves[j]; if(!p.runId || !others.has(p.date)) break; p.date=A.D; } } });
     (S.runs||[]).forEach(r=>{ if(others.has(r.date) && S.moves.some(m=>m.runId===r.id && m.date===A.D)) r.date=A.D; });
-    await saveTx(); await saveMain(); toast(`اتنقلت ${n} حركة ليوم ${A.D} ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+    await saveTx(); await saveMain(); await logOp(g, `${n} حركة صرف اتنقلت ليوم ${A.D}`); toast(`اتنقلت ${n} حركة ليوم ${A.D} ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+  if(a==='untrack-toggle'){ if(!S.untracked) S.untracked={}; if(S.untracked[d.id]) delete S.untracked[d.id]; else S.untracked[d.id]=1; await saveMain(); ui.modal=boAuditModal(($('#aud-date')||{}).value); render(); boAuditBind(); return; }
+  if(a==='bo-audit-trim'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='more' && !r.unknown); if(!rows.length) return;
+    if(!confirm(`هيترجع ${rows.length} سطر للكمية المطلوبة في الطلبية (الزيادة هتتمسح من آخر الحركات). تكمل؟`)) return;
+    const g=await guardBulk('رجّع الزيادة للمطلوب — '+A.D); if(!g) return;
+    let del=0, cut=0;
+    rows.forEach(r=>{ let extra=n2(r.got-r.qty); const mv=A.moves.filter(m=>m.itemId===r.itemId && m.party===r.branch).slice().reverse();
+      for(const m of mv){ if(extra<=0.0001) break; if(m.qty<=extra+0.0001){ extra=n2(extra-m.qty); DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(x=>x.id!==m.id); del++; } else { m.qty=n2(m.qty-extra); extra=0; cut++; } } });
+    await saveTx(); await logOp(g, `${rows.length} سطر: ${del} حركة اتمسحت و${cut} اتقللت`); toast(`اتظبط ✓ — ${del} حركة اتمسحت و${cut} اتقللت. افتح «تنظيف الإنتاج المكرر» دلوقتي`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='bo-audit-dedup'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='dup'); if(!rows.length) return;
     const del=[]; rows.forEach(r=>{ const mv=A.moves.filter(m=>m.itemId===r.itemId && m.party===r.branch); const per=r.qty; let kept=0;
       mv.forEach(m=>{ if(kept<per-0.001){ kept=n2(kept+m.qty); } else del.push(m.id); }); });
     if(!del.length) return; if(!confirm(`هيتمسح ${del.length} حركة صرف مكررة. تكمل؟`)) return;
+    const g=await guardBulk('مسح صرف مكرر — '+A.D); if(!g) return;
     const ids=new Set(del); ids.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(m=>!ids.has(m.id));
-    await saveTx(); toast(`اتمسح ${del.length} صرف مكرر ✓ — افتح «تنظيف الإنتاج المكرر» دلوقتي`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+    await saveTx(); await logOp(g, `${del.length} حركة صرف مكررة اتمسحت`); toast(`اتمسح ${del.length} صرف مكرر ✓ — افتح «تنظيف الإنتاج المكرر» دلوقتي`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='bo-audit-fill'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='done-no-move'&&!r.unknown&&r.qty>0);
     if(!rows.length) return toast('مفيش سطور ينفع تتسجل تلقائي (أصناف الوزن سجّلها من شاشة الوزن)',1);
     if(!confirm(`هيتسجل صرف ${rows.length} سطر بتاريخ ${A.D} (اللي رصيده ناقص هيبقى بالسالب). تكمل؟`)) return;
+    const g=await guardBulk('تسجيل صرف ناقص — '+A.D); if(!g) return;
     const set=new Set(); let n=0;
     for(const r of rows){ const res=dispenseOut(r.itemId, r.qty, A.D, r.branch, 'صرف للفروع', true); if(!res.move) continue; n++;
       (r.fns||[]).forEach(fn=>{ const o=BO.orders.find(x=>x.branch===r.branch && (x.items||[]).some(l=>l.name===fn)); const l=o&&o.items.find(x=>x.name===fn); const cv=convFactorOf(fn); if(o&&l&&cv!==null&&boStampLine(o,fn,+l.qty,n2(+l.qty*cv),item(r.itemId))) set.add(o); }); }
-    await saveTx(); await saveMain(); await boFlushOrders(set); toast(`اتسجل ${n} صرف ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+    await saveTx(); await saveMain(); await boFlushOrders(set); await logOp(g, `${n} صرف اتسجل من الطلبيات`); toast(`اتسجل ${n} صرف ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='auto-repair-open'){ const x=new Date(); x.setDate(x.getDate()-7); ui.modal=autoRunRepairModal(ymdLocal(x)); render(); autoRepairBind(); return; }
   if(a==='auto-merge-apply'){ const M=autoRunMergePlan(); if(!M.length) return;
+    if(!confirm(`هيتجمعوا ${M.reduce((t,x)=>t+x.length,0)} تشغيلة في ${M.length} (حركة واحدة لكل خامة). الأرصدة مش هتتغير. تكمل؟`)) return;
+    const g=await guardBulk('جمع التشغيلات التلقائية'); if(!g) return;
     let n=0; M.forEach(arr=>{ const keep=arr[0]; const ids=new Set(arr.slice(1).map(r=>r.id));
       S.moves.forEach(m=>{ if(ids.has(m.runId)) m.runId=keep.id; });
       arr.slice(1).forEach(r=>{ keep.batches=n2((+keep.batches||0)+(+r.batches||0)); keep.outQty=n2((+keep.outQty||0)+(+r.outQty||0)); keep.cost=n2((+keep.cost||0)+(+r.cost||0)); n++; });
-      S.runs=S.runs.filter(r=>!ids.has(r.id)); });
-    await saveTx(); await saveMain(); toast(`اتجمعت ${n+M.length} تشغيلة في ${M.length} ✓`); ui.modal=autoRunRepairModal(($('#rep-from')||{}).value); render(); autoRepairBind(); return; }
+      S.runs=S.runs.filter(r=>!ids.has(r.id));
+      // نجمع حركات التشغيلة: حركة واحدة لكل خامة (ولكل منتج ناتج)
+      const byK=new Map(); S.moves.forEach(m=>{ if(m.runId!==keep.id) return; const k=m.dir+'|'+m.itemId+'|'+m.date; const f=byK.get(k);
+        if(!f){ byK.set(k,m); return; } if(m.dir==='in'){ const q=n2(f.qty+m.qty); f.price=q?n2(((+f.price||0)*f.qty+(+m.price||0)*m.qty)/q):0; f.qty=q; } else f.qty=n2(f.qty+m.qty); m.__drop=true; DELETED_MOVE_IDS.add(m.id); });
+      S.moves=S.moves.filter(m=>!m.__drop); });
+    await saveTx(); await saveMain(); await logOp(g, `${n+M.length} تشغيلة اتجمعت في ${M.length}`); toast(`اتجمعت ${n+M.length} تشغيلة في ${M.length} ✓`); ui.modal=autoRunRepairModal(($('#rep-from')||{}).value); render(); autoRepairBind(); return; }
   if(a==='auto-repair-apply'){ const P=window.__repair; if(!P||!P.acts.length) return;
     if(!confirm(`هيتلغي الإنتاج الزايد في ${P.acts.length} تشغيلة والخامات ترجع. تكمل؟`)) return;
+    const g=await guardBulk('تنظيف الإنتاج المكرر'); if(!g) return;
     P.acts.forEach(a=>{ if(a.factor>=0.9999){ a.mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); S.moves=S.moves.filter(m=>m.runId!==a.run.id); S.runs=S.runs.filter(r=>r.id!==a.run.id); }
       else { const k=1-a.factor; a.mv.forEach(m=>{ m.qty=n2(m.qty*k); }); a.run.batches=n2((+a.run.batches||0)*k); a.run.outQty=n2((+a.run.outQty||0)*k); a.run.cost=n2((+a.run.cost||0)*k); } });
-    await saveTx(); await saveMain(); ui.modal=null; toast(`اتنظف ✓ — ${P.acts.length} تشغيلة`); return render(); }
+    await saveTx(); await saveMain(); await logOp(g, `${P.acts.length} تشغيلة اتلغت أو اتقللت`); ui.modal=null; toast(`اتنظف ✓ — ${P.acts.length} تشغيلة`); return render(); }
   if(a==='bo-audit-copy'){ const t=boAuditText(window.__boAudit||boAudit()); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
   if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); const n=await boSyncCatalogPrices(null,true); toast(`${b?`اتكتب السعر لـ${b} سطر في طلبيات الفروع · `:''}${n?`اتحدث سعر ${n} صنف في الكتالوج`:'الكتالوج مطابق'} ✓`); return; }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
@@ -10658,6 +10787,7 @@ async function act(a,d){
     { const empty=S.items.filter(it=>S.counts[it.id]===undefined).length;
       if(!confirm(`إقفال ${periodLabel(S.period)}؟ الجرد الفعلي هيبقى أول المدة للشهر الجاي.`+
         (empty?`\n\n⚠️ فيه ${empty} صنف ما اتكتبلوش رقم في الجرد — هياخدوا رصيدهم الدفتري زي ما هو (مش صفر).\nلو دول مش موجودين فعلًا، دوس «إلغاء» ودوس «اللي فاضي = صفر» الأول.`:''))) return; }
+    const g=await guardBulk('إقفال شهر '+S.period); if(!g) return;
     const t=totals(); const closedPeriod=S.period; const closedMoves=S.moves.filter(m=>m.dir==='in'&&m.invoice).map(m=>({...m}));
     S.closed.push({period:closedPeriod,value:t.value,date:today(),
       items:S.items.map(i=>({id:i.id,name:i.name,unit:i.unit,openingBefore:i.opening,closing:(S.counts[i.id]!==undefined?+S.counts[i.id]:calc(i).book),price:i.price}))});
@@ -10665,7 +10795,7 @@ async function act(a,d){
     S.moves=[]; S.counts={}; S.runs=[];
     const [y,m]=closedPeriod.split('-').map(Number); const nd=new Date(y,m,1);
     S.period=`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`;
-    await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed});
+    await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed}); await logOp(g, 'اتقفل '+closedPeriod+' وبدأ '+S.period);
     toast('الشهر اتقفل — بدأنا '+periodLabel(S.period)); render();
     if(DB.on){
       try{
