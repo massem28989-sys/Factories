@@ -5036,7 +5036,8 @@ function viewProd(){
           <td class="rec-act">
             <button class="btn sm g" data-run="${r.id}">تشغيل</button>
             <button class="btn sm" data-act="edit-recipe" data-id="${r.id}">تعديل</button>
-            <button class="btn sm danger" data-delr="${r.id}">حذف</button></td></tr>`;
+            <button class="btn sm danger" data-delr="${r.id}">حذف</button>
+            ${(()=>{ const st=recipeStaleRuns(r); return st.length?`<div style="margin-top:4px"><button class="btn sm" data-act="reapply-recipe" data-id="${r.id}" style="background:#FDF3E6;color:#8A4A0B;border-color:#E9C79A" title="تشغيلات الشهر دي اتسجلت بمكونات غير الوصفة الحالية">⚠ ${st.length} تشغيلة بمكونات قديمة — طبّق</button></div>`:''; })()}</td></tr>`;
       }).join('');})() || `<tr><td colspan="6" class="empty">مفيش وصفات مطابقة للبحث</td></tr>`}</tbody>
       </table></div>`;
     })()
@@ -9206,6 +9207,33 @@ function boAudit(D){
   const forced=moves.filter(m=>m.forced);
   return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
 }
+/* ===== تطبيق الوصفة الحالية على تشغيلات الشهر — لما وصفة تتعدل بعد ما اشتغلت ===== */
+function recipeStaleRuns(r){
+  if(!r || !(r.outQty>0)) return [];
+  const by=new Map(); S.moves.forEach(m=>{ if(m.runId){ const e=by.get(m.runId)||{ins:[],outs:[]}; (m.dir==='in'?e.ins:e.outs).push(m); by.set(m.runId,e); } });
+  const res=[];
+  by.forEach((e,id)=>{ const om=e.ins.find(m=>m.itemId===r.outItemId); if(!om) return;
+    const run=(S.runs||[]).find(x=>x.id===id); if(run && run.name && run.name!==r.name) return;
+    const b=(+om.qty||0)/r.outQty; const exp=new Map(r.lines.map(l=>[l.itemId,n2(l.qty*b)])); const got=new Map();
+    e.outs.forEach(m=>got.set(m.itemId,n2((got.get(m.itemId)||0)+(+m.qty||0))));
+    const keys=new Set([...exp.keys(),...got.keys()]); const diff=[];
+    keys.forEach(k=>{ const a=got.get(k)||0, x=exp.get(k)||0; if(Math.abs(a-x)>Math.max(0.01,x*0.01)) diff.push({itemId:k, was:a, now:x}); });
+    if(diff.length) res.push({id, run, om, outs:e.outs, b, diff, date:om.date}); });
+  return res.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+}
+function recipeStaleSummary(list){ const t=new Map(); list.forEach(x=>x.diff.forEach(d=>{ const e=t.get(d.itemId)||{was:0,now:0}; e.was=n2(e.was+d.was); e.now=n2(e.now+d.now); t.set(d.itemId,e); }));
+  return [...t.entries()].map(([id,e])=>{ const it=item(id); return `• ${it?it.name:'?'}: كان ${fmt(e.was)} ← يبقى ${fmt(e.now)} ${it?it.unit||'':''}`; }).join('\n'); }
+function reapplyRecipe(r, list){
+  let n=0;
+  list.forEach(x=>{
+    const reason=(x.outs[0]&&x.outs[0].reason)||(x.run&&x.run.auto?'صرف للإنتاج (تلقائي)':'صرف للإنتاج');
+    x.outs.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const drop=new Set(x.outs.map(m=>m.id)); S.moves=S.moves.filter(m=>!drop.has(m.id));
+    r.lines.forEach(l=>S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*x.b),date:x.date,price:0,party:r.name,reason,runId:x.id}));
+    const cost=n2(recipeCost(r)*x.b); x.om.price=x.om.qty?n2(cost/x.om.qty):0;
+    if(x.run){ x.run.cost=cost; x.run.batches=n2(x.b); x.run.outQty=n2(+x.om.qty||0); }
+    n++; });
+  return n;
+}
 /* ================= 🔎 ليه الرصيد ده؟ — كشف حركة صنف بالتفصيل، والإنتاج اتعمل بناءً على إيه ================= */
 function balanceExplain(id){
   const it=item(id); if(!it) return null; const c=calc(it);
@@ -9375,6 +9403,9 @@ function healthCheck(){
     const miss=(r.lines||[]).filter(l=>!item(l.itemId)).length; if(miss) rb.push({c:[r.name, `${miss} خامة مش موجودة في الكارت`]});
     if((r.lines||[]).some(l=>l.itemId===r.outItemId)) rb.push({c:[r.name,'الوصفة بتستخدم ناتجها كخامة']}); });
   add({id:'rec',lvl:rb.length?'bad':'ok',title:rb.length?`${rb.length} مشكلة في الوصفات`:`الوصفات سليمة (${S.recipes.length})`,desc:rb.length?'وصفة ناقصة معناها خصم خامات غلط مع كل صرف تلقائي.':'',rows:rb});
+  { const RS=S.recipes.map(r=>({r,st:recipeStaleRuns(r)})).filter(x=>x.st.length);
+    if(RS.length) add({id:'stale',lvl:'warn',title:`${RS.length} وصفة اتعدلت بعد ما اشتغلت`,desc:'التشغيلات القديمة خصمت المكونات القديمة. لو التعديل هو اللي كان بيتعمل فعلًا، طبّقه — الخامات القديمة ترجع والجديدة تتخصم.',
+      rows:RS.map(x=>({c:[x.r.name, x.st.length+' تشغيلة', recipeStaleSummary(x.st).replace(/\n/g,' ').replace(/• /g,'')], btn:['reapply-recipe','🔁 طبّق',x.r.id]}))}); }
   // 9) تواريخ برا الشهر أو في المستقبل
   const P=S.period||''; const odd=S.moves.filter(m=>m.date && (m.date>D || (P && m.date.slice(0,7)!==P)));
   add({id:'dates',lvl:odd.length?'warn':'ok',title:odd.length?`${odd.length} حركة تاريخها برا ${periodLabel(P)} أو في المستقبل`:'كل الحركات تواريخها جوه الشهر',
@@ -9388,6 +9419,7 @@ function healthCheck(){
   const steps=[]; if(isBad('save')) steps.push('الحفظ الأول — استنى أو دوس «احفظ تاني»');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
+  if(isBad('stale')) steps.push('الوصفات اللي اتعدلت: «🔁 طبّق» لو التعديل هو اللي كان بيتعمل فعلًا');
   if(isBad('short')) steps.push('المنتجات اللي اتصرفت من غير إنتاج: «صنّع الناقص» (بعد التنظيف، مش قبله)');
   if(isBad('runs')) steps.push('بعد كده بس: «طابق السجل مع الحركات»');
   if(isBad('neg')) steps.push('آخر حاجة: الأرصدة السالبة اللي فاضلة — دي اللي محتاجة وارد أو تعديل وصفة');
@@ -10964,8 +10996,16 @@ async function act(a,d){
         : `تكلفة الوحدة من الوصفة دي = ${fmt(unitCost)} درهم، و"${outIt.name}" لسه من غير سعر في كارت الأصناف.\n\nتحب أسجّل التكلفة دي كسعر ليه؟`;
       if(confirm(msg)) outIt.price = unitCost;
     }
-    await saveMain(); ui.modal=null; ui.rhead=null; ui.editingRecipe=null; toast('الوصفة اتحفظت'); return render();
+    await saveMain(); ui.modal=null; ui.rhead=null; ui.editingRecipe=null; toast('الوصفة اتحفظت');
+    if(d.id){ const rr=S.recipes.find(x=>x.id===d.id); const st=recipeStaleRuns(rr);
+      if(st.length && confirm(`الوصفة دي اتشغلت ${st.length} مرة الشهر ده بالمكونات القديمة (${[...new Set(st.map(x=>x.date))].join('، ')}).\n\nلو التعديل ده هو اللي كان بيتعمل فعلًا، طبّقه على التشغيلات دي — الخامات القديمة هترجع للمخزن والجديدة تتخصم:\n\n${recipeStaleSummary(st)}\n\nتطبّق؟`)){
+        const g=await guardBulk('تطبيق وصفة «'+rr.name+'» على تشغيلات الشهر'); if(g){ const n=reapplyRecipe(rr, st); await saveTx(); await logOp(g, `${n} تشغيلة اتعادت بالوصفة الجديدة`); toast(`اتطبقت الوصفة على ${n} تشغيلة ✓`); } } }
+    return render();
   }
+  if(a==='reapply-recipe'){ const rr=S.recipes.find(x=>x.id===d.id); const st=recipeStaleRuns(rr); if(!st.length) return toast('كل تشغيلات الوصفة دي مطابقة ليها');
+    if(!confirm(`«${rr.name}»: ${st.length} تشغيلة الشهر ده متسجلة بمكونات غير الوصفة الحالية.\n\n${recipeStaleSummary(st)}\n\nتطبّق الوصفة الحالية عليهم؟`)) return;
+    const g=await guardBulk('تطبيق وصفة «'+rr.name+'» على تشغيلات الشهر'); if(!g) return; const n=reapplyRecipe(rr, st); await saveTx(); await logOp(g, `${n} تشغيلة اتعادت بالوصفة الحالية`);
+    toast(`اتطبقت الوصفة على ${n} تشغيلة ✓`); if(ui.modal&&/الفحص اليومي/.test(ui.modal)) ui.modal=healthModal(); return render(); }
   if(a==='edit-recipe'){
     const r=S.recipes.find(x=>x.id===d.id); if(!r) return;
     ui.rlines = r.lines.map(l=>({itemId:l.itemId,qty:l.qty}));
