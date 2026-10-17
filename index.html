@@ -3707,6 +3707,8 @@ function render(){
           <div><b>${tt.counted}/${tt.total}</b><span>${t('items_counted2')}</span></div>
           <div><b>${tt.low}</b><span>${t('under_min')}</span></div>
           <div><b style="font-size:13px;color:${DB.on?(DB.err?'var(--hs-bad,#F0C9C3)':'var(--hs-ok,#9FD6B6)'):MODE==='memory'?'var(--hs-bad,#F0C9C3)':'var(--hs-neutral,#D9E0E5)'}">${DB.on?(DB.busy?t('syncing'):DB.err?t('sync_err'):DB.dirty?t('pending'):t('saved_db')):MODE==='cloud'?t('saved_cloud'):MODE==='browser'?t('saved_device'):t('not_saved')}</b><span>${t('save_status')}</span></div>
+          ${ROLE==='owner'?(()=>{ const H=healthBadge(); if(!H) return ''; const n=H.score.bad, w=H.score.warn;
+            return `<div class="hs-act"><button class="btn" data-act="hc-open" title="الفحص اليومي" style="padding:6px 12px;${n?'background:#A32D2D;color:#fff;border-color:#A32D2D':w?'background:#FDF3E6;color:#8A4A0B;border-color:#E9C79A':''}">🩺 ${n?n+' مشكلة':w?w+' تنبيه':'سليم'}</button></div>`; })():''}
           <div class="hs-act"><button class="btn ${BK.dirty>0?'p':''}" data-act="backup" style="padding:6px 12px">${t('save_backup')}${BK.dirty>0?` (${BK.dirty})`:''}</button></div>`}
           <div class="hs-act">${langBtn}</div>
           ${AUTH?`<div class="hs-act" style="display:flex;align-items:center;gap:6px"><span style="font-size:11.5px;opacity:.85">${esc(AUTH.user.email)}</span><button class="btn" data-act="logout" style="padding:6px 10px">خروج</button></div>`
@@ -9187,6 +9189,101 @@ function boAudit(D){
   const forced=moves.filter(m=>m.forced);
   return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
 }
+/* ================= 🩺 الفحص اليومي — شاشة واحدة بتقول «كله سليم» أو فين المشكلة بالظبط ================= */
+function healthCheck(){
+  const R=[]; const add=(o)=>R.push({rows:[],...o});
+  const D=today();
+  // 1) الحفظ
+  if(!DB.on) add({id:'save',lvl:'bad',title:'البرنامج مش متصل بقاعدة البيانات',desc:'التعديلات محفوظة على الجهاز ده بس — أي جهاز تاني مش هيشوفها.'});
+  else if(DB.err) add({id:'save',lvl:'bad',title:'آخر حفظ على السيرفر ما كملش',desc:String(DB.err).slice(0,300),act:['db-push-retry','🔄 احفظ تاني']});
+  else if(DB.dirty) add({id:'save',lvl:'warn',title:'في تعديلات لسه بتتحفظ',desc:'بتتحفظ تلقائي خلال ثواني. لو الحالة دي فضلت أكتر من دقيقة، راجع النت.',act:['db-push-retry','احفظ دلوقتي']});
+  else add({id:'save',lvl:'ok',title:'كل التعديلات محفوظة على السيرفر'+(DB.last?' ('+DB.last+')':'')});
+  // 2) نسخة النهارده
+  if(DB.on){
+    if(!backupsLoaded) add({id:'bk',lvl:'info',title:'بنتأكد من نسخة النهارده…'});
+    else if(BACKUPS_LIST.some(b=>b.date.slice(0,10)===D)) add({id:'bk',lvl:'ok',title:'في نسخة احتياطية للنهارده'});
+    else add({id:'bk',lvl:'warn',title:'لسه مفيش نسخة احتياطية للنهارده',desc:'النسخة اليومية بتتاخد أول ما صاحب النظام يفتح البرنامج. تقدر تاخدها دلوقتي.',act:['hc-backup-now','🛡 خد نسخة دلوقتي']});
+  }
+  // 3) أرصدة بالسالب
+  const neg=S.items.filter(it=>!isUntracked(it.id)).map(it=>({it,b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
+  add({id:'neg',lvl:neg.length?'bad':'ok',title:neg.length?`${neg.length} صنف رصيده بالسالب`:'مفيش أرصدة بالسالب',
+    desc:neg.length?'السبب واحد من تلاتة: وارد/شراء ما اتسجلش، أو إنتاج اتسجل مرتين، أو كمية غلط في الوصفة. لو الصنف ده مش بتتابع مخزونه أصلًا (زي الثلج والمياه) دوس «مش بنتتبعه».':'',
+    rows:neg.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['hc-untrack','مش بنتتبعه',x.it.id]}))});
+  // 4) سجل التشغيلات مطابق للحركات؟
+  const byRun=new Map(); S.moves.forEach(m=>{ if(m.runId){ const e=byRun.get(m.runId)||{inQ:0,n:0}; e.n++; if(m.dir==='in') e.inQ=n2(e.inQ+(+m.qty||0)); byRun.set(m.runId,e); } });
+  const runIds=new Set((S.runs||[]).map(r=>r.id));
+  const ghost=(S.runs||[]).filter(r=>!byRun.has(r.id));
+  const orphan=[...byRun.keys()].filter(id=>!runIds.has(id));
+  const mism=(S.runs||[]).filter(r=>{ const e=byRun.get(r.id); return e && Math.abs((+r.outQty||0)-e.inQ)>Math.max(0.01,e.inQ*0.01); });
+  const runBad=ghost.length+orphan.length+mism.length;
+  add({id:'runs',lvl:runBad?'bad':'ok',title:runBad?`سجل التشغيلات مش مطابق للحركات (${runBad})`:`سجل التشغيلات مطابق للحركات (${(S.runs||[]).length} تشغيلة)`,
+    desc:runBad?[ghost.length?`${ghost.length} تشغيلة من غير حركات (بتزوّد إجمالي الإنتاج على الفاضي)`:'', orphan.length?`${orphan.length} تشغيلة حركاتها موجودة بس مش في السجل`:'', mism.length?`${mism.length} تشغيلة كميتها في السجل غير الحركات`:''].filter(Boolean).join(' · ')+'. الإصلاح بيخلي السجل يطابق الحركات — الأرصدة مش بتتغير.':'',
+    rows:[...ghost.map(r=>({c:[r.date, r.name, 'من غير حركات']})), ...mism.map(r=>({c:[r.date, r.name, `السجل ${fmt(r.outQty)} — الحركات ${fmt(byRun.get(r.id).inQ)}`]}))],
+    act:runBad?['hc-fix-runs','🔧 طابق السجل مع الحركات']:null});
+  // 5) تشغيلات تلقائية مقسّمة
+  const M=autoRunMergePlan(); const nSplit=M.reduce((t,a)=>t+a.length,0);
+  add({id:'split',lvl:M.length?'warn':'ok',title:M.length?`${nSplit} تشغيلة تلقائية ممكن تتجمع في ${M.length}`:'مفيش تشغيلات تلقائية مقسّمة',
+    desc:M.length?'نفس الوصفة في نفس اليوم متسجلة كذا تشغيلة — جمعهم بيقلل الحركات ومش بيغيّر الأرصدة.':'', act:M.length?['auto-repair-open','📦 افتح أداة الجمع']:null});
+  // 6) صرف الفروع النهارده مقارنة بالطلبيات
+  if(BO.orders && BO.orders.length && BO.from===D && BO.to===D){
+    const A=boAudit(D); const c=st=>A.rows.filter(r=>r.st===st).length;
+    const bad=c('dup')+c('more')+c('less')+c('done-no-move'), od=c('other-day'), pend=c('pending');
+    add({id:'bo',lvl:bad?'bad':(od?'warn':'ok'),title:bad?`صرف الفروع النهارده: ${bad} سطر محتاج مراجعة`:(od?`صرف الفروع: ${od} سطر متسجل بتاريخ تاني`:'صرف الفروع النهارده مطابق للطلبيات'),
+      desc:[c('dup')?`${c('dup')} متكرر`:'', c('more')?`${c('more')} زيادة`:'', c('less')?`${c('less')} ناقص`:'', c('done-no-move')?`${c('done-no-move')} متعلّم اتصرف ومفيش حركة`:'', pend?`${pend} لسه ما اتصرفش`:''].filter(Boolean).join(' · '),
+      act:['bo-audit','🔍 افتح المراجعة']});
+  } else add({id:'bo',lvl:'info',title:'صرف الفروع: افتح طلبيات النهارده عشان نقارنها',desc:'من «الإنتاج ← طلبيات الفروع» اختار يوم النهارده، وبعدين ارجع للفحص.'});
+  // 7) أصناف من غير سعر عليها حركة
+  const used=new Set(S.moves.map(m=>m.itemId));
+  const noPrice=S.items.filter(it=>used.has(it.id) && !(+it.price>0) && !isUntracked(it.id));
+  add({id:'price',lvl:noPrice.length?'warn':'ok',title:noPrice.length?`${noPrice.length} صنف عليه حركة ومالوش سعر`:'كل الأصناف المستخدمة ليها سعر',
+    desc:noPrice.length?'تكلفة الإنتاج وقيمة المخزون وأسعار الفروع بتطلع أقل من الحقيقة. اكتب السعر من كارت الصنف.':'', rows:noPrice.map(it=>({c:[it.name, it.unit||'']}))});
+  // 8) الوصفات
+  const rb=[]; S.recipes.forEach(r=>{ if(!item(r.outItemId)) rb.push({c:[r.name,'الصنف الناتج مش موجود في الكارت']}); else if(!(+r.outQty>0)) rb.push({c:[r.name,'كمية الناتج صفر']});
+    const miss=(r.lines||[]).filter(l=>!item(l.itemId)).length; if(miss) rb.push({c:[r.name, `${miss} خامة مش موجودة في الكارت`]});
+    if((r.lines||[]).some(l=>l.itemId===r.outItemId)) rb.push({c:[r.name,'الوصفة بتستخدم ناتجها كخامة']}); });
+  add({id:'rec',lvl:rb.length?'bad':'ok',title:rb.length?`${rb.length} مشكلة في الوصفات`:`الوصفات سليمة (${S.recipes.length})`,desc:rb.length?'وصفة ناقصة معناها خصم خامات غلط مع كل صرف تلقائي.':'',rows:rb});
+  // 9) تواريخ برا الشهر أو في المستقبل
+  const P=S.period||''; const odd=S.moves.filter(m=>m.date && (m.date>D || (P && m.date.slice(0,7)!==P)));
+  add({id:'dates',lvl:odd.length?'warn':'ok',title:odd.length?`${odd.length} حركة تاريخها برا ${periodLabel(P)} أو في المستقبل`:'كل الحركات تواريخها جوه الشهر',
+    desc:odd.length?'غالبًا اتكتب التاريخ غلط وقت التسجيل. الحركات دي محسوبة في رصيد الشهر ده.':'', rows:odd.slice(0,50).map(m=>({c:[m.date,(item(m.itemId)||{}).name||'?',(m.dir==='in'?'وارد ':'منصرف ')+fmt(m.qty),m.party||'']}))});
+  // 10) حركات مكررة الـ id
+  const seen=new Set(); let dupId=0; S.moves.forEach(m=>{ if(seen.has(m.id)) dupId++; else seen.add(m.id); });
+  if(dupId) add({id:'dupid',lvl:'bad',title:`${dupId} حركة متكررة بنفس الرقم`,desc:'اعمل ريفريش للصفحة. لو فضلت، ابعت صورة الشاشة دي.'});
+  const score={bad:0,warn:0,ok:0,info:0}; R.forEach(r=>score[r.lvl]++);
+  return {R, score, D, moves:S.moves.length, runs:(S.runs||[]).length};
+}
+let HC_CACHE={k:'',v:null}, HC_BK_REQ=false;
+function healthBadge(){ // عدّاد خفيف للهيدر
+  const k=S.moves.length+'|'+S.items.length+'|'+(S.runs||[]).length+'|'+S.recipes.length+'|'+DB.err+'|'+DB.dirty+'|'+backupsLoaded+'|'+BACKUPS_LIST.length+'|'+Object.keys(S.untracked||{}).length+'|'+S.moves.reduce((t,m)=>t+(+m.qty||0),0);
+  if(DB.on && !backupsLoaded && !HC_BK_REQ){ HC_BK_REQ=true; listBackups().then(l=>{ BACKUPS_LIST=l; backupsLoaded=true; render(); }); }
+  if(HC_CACHE.k!==k){ try{ HC_CACHE={k, v:healthCheck()}; }catch(e){ HC_CACHE={k, v:null}; } }
+  return HC_CACHE.v;
+}
+function healthModal(){
+  if(DB.on && !backupsLoaded){ listBackups().then(l=>{ BACKUPS_LIST=l; backupsLoaded=true; if(ui.modal&&/الفحص اليومي/.test(ui.modal)){ ui.modal=healthModal(); render(); } }); }
+  const H=healthCheck(); const col={bad:'#A32D2D',warn:'#B25E10',ok:'#2E7D32',info:'#5F6B73'}, ic={bad:'⛔',warn:'⚠️',ok:'✅',info:'ℹ️'};
+  const ord={bad:0,warn:1,info:2,ok:3}; const L=[...H.R].sort((a,b)=>ord[a.lvl]-ord[b.lvl]);
+  const top=H.score.bad?`<div style="background:#FBEAEA;color:#A32D2D;border-radius:12px;padding:12px 14px;font-weight:700">⛔ في ${H.score.bad} مشكلة لازم تتحل${H.score.warn?` و${H.score.warn} تنبيه`:''}</div>`
+    : H.score.warn?`<div style="background:#FDF3E6;color:#B25E10;border-radius:12px;padding:12px 14px;font-weight:700">⚠️ مفيش مشاكل كبيرة — في ${H.score.warn} تنبيه يستاهل تبص عليه</div>`
+    : `<div style="background:#E8F5EC;color:#2E7D32;border-radius:12px;padding:12px 14px;font-weight:700">✅ كله سليم</div>`;
+  const card=r=>`<div style="border:1px solid ${col[r.lvl]}33;border-inline-start:4px solid ${col[r.lvl]};border-radius:10px;padding:10px 12px;margin-top:10px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="color:${col[r.lvl]}">${ic[r.lvl]} ${esc(r.title)}</b>
+      ${r.act?`<button class="btn sm${r.lvl==='bad'?' p':''}" data-act="${r.act[0]}" style="margin-inline-start:auto">${r.act[1]}</button>`:''}</div>
+    ${r.desc?`<div class="hint" style="margin-top:4px;line-height:1.8">${esc(r.desc)}</div>`:''}
+    ${r.rows.length?`<details style="margin-top:6px"${r.rows.length<=6?' open':''}><summary class="hint" style="cursor:pointer">التفاصيل (${r.rows.length})</summary>
+      <table class="gridcols" style="margin-top:6px"><tbody>${r.rows.slice(0,60).map(x=>`<tr>${x.c.map((v,i)=>`<td${i?' class="n"':''} style="font-size:12.5px">${esc(String(v))}</td>`).join('')}${x.btn?`<td><button class="btn sm" data-act="${x.btn[0]}" data-id="${esc(x.btn[2])}">${x.btn[1]}</button></td>`:''}</tr>`).join('')}</tbody></table>
+      ${r.rows.length>60?`<div class="hint">… و${r.rows.length-60} كمان</div>`:''}</details>`:''}
+  </div>`;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:760px">
+    <h3>🩺 الفحص اليومي — ${esc(H.D)}</h3>
+    <div class="pad" style="max-height:72vh;overflow:auto">${top}
+      <div class="hint" style="margin-top:6px">${H.moves} حركة · ${H.runs} تشغيلة · ${S.items.length} صنف · ${S.recipes.length} وصفة</div>
+      ${L.map(card).join('')}</div>
+    <div class="foot"><button class="btn" data-act="hc-open">🔄 افحص تاني</button><button class="btn" data-act="hc-copy">📋 انسخ التقرير</button><button class="btn" data-close="1">قفل</button></div>
+  </div></div>`;
+}
+function healthText(){ const H=healthCheck(); const ic={bad:'⛔',warn:'⚠️',ok:'✅',info:'ℹ️'};
+  return `فحص يومي — ${(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name} — ${H.D}\n${H.moves} حركة · ${H.runs} تشغيلة\n\n`+H.R.map(r=>`${ic[r.lvl]} ${r.title}${r.desc?'\n   '+r.desc:''}${r.rows.length?'\n'+r.rows.slice(0,25).map(x=>'   - '+x.c.join(' | ')).join('\n'):''}`).join('\n\n'); }
 const AUD_ST={ 'other-day':['اتصرف بس بتاريخ تاني','a'], ok:['✓ مظبوط','g'], 'ok?':['✓ اتصرف (من غير تحويل للمقارنة)','b'], less:['ناقص','r'], more:['زيادة','a'], dup:['متكرر — اتصرف أكتر من مرة','r'], 'done-no-move':['متعلّم «اتصرف» بس مفيش حركة','r'], pending:['لسه ما اتصرفش','']};
 function boAuditModal(D){
   const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st)); const od=A.rows.filter(r=>r.st==='other-day'); const dnm=A.rows.filter(r=>r.st==='done-no-move');
@@ -10133,6 +10230,23 @@ async function act(a,d){
     if(!o||!n) return; if(!(q>0)) return toast('اكتب الكمية الأول',1);
     let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
+  if(a==='hc-open'){ ui.hcOpen=true; HC_CACHE.k=''; ui.modal=healthModal(); return render(); }
+  if(a==='hc-copy'){ const t=healthText(); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
+  if(a==='hc-untrack'){ if(!S.untracked) S.untracked={}; S.untracked[d.id]=1; await saveMain(); toast(`"${(item(d.id)||{}).name}" مش هيتحسب في الأرصدة السالبة ولا طلبات الشراء`); ui.modal=healthModal(); return render(); }
+  if(a==='hc-backup-now'){ const r=await snapshotBefore('نسخة يدوية من الفحص اليومي'); if(r.ok){ BACKUPS_LIST=await listBackups(); backupsLoaded=true; toast('اتاخدت نسخة ✓'); } else toast('النسخة فشلت: '+r.err,1); ui.modal=healthModal(); return render(); }
+  if(a==='hc-fix-runs'){
+    if(!confirm('هيتظبط سجل التشغيلات عشان يطابق الحركات (تشغيلات من غير حركات هتتشال، والكميات تتحسب من الحركات). الأرصدة مش هتتغير. تكمل؟')) return;
+    const g=await guardBulk('مطابقة سجل التشغيلات'); if(!g) return;
+    const by=new Map(); S.moves.forEach(m=>{ if(!m.runId) return; const e=by.get(m.runId)||{ins:[],outs:[]}; (m.dir==='in'?e.ins:e.outs).push(m); by.set(m.runId,e); });
+    let gone=0, fixed=0;
+    S.runs=(S.runs||[]).filter(r=>{ if(!by.has(r.id)){ gone++; return false; } return true; });
+    S.runs.forEach(r=>{ const e=by.get(r.id); const q=n2(e.ins.reduce((t,m)=>t+(+m.qty||0),0));
+      if(Math.abs((+r.outQty||0)-q)>Math.max(0.01,q*0.01)){ const k=r.outQty>0?q/r.outQty:0;
+        r.cost=k?n2((+r.cost||0)*k):n2(e.outs.reduce((t,m)=>{ const it=item(m.itemId); return t+(+m.qty||0)*((it&&it.price)||0); },0));
+        const rec=S.recipes.find(x=>x.outItemId===(e.ins[0]||{}).itemId); r.batches=rec&&rec.outQty>0?n2(q/rec.outQty):r.batches; r.outQty=q; fixed++; } });
+    const added=rebuildRunsFromMoves(); markAutoRuns();
+    await saveTx(); await logOp(g, `${gone} تشغيلة من غير حركات اتشالت · ${fixed} اتظبطت كميتها · ${added} اتضافت`);
+    toast(`السجل اتطابق ✓ (${gone} اتشالت، ${fixed} اتظبطت، ${added} اتضافت)`); ui.modal=healthModal(); return render(); }
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
   if(a==='bo-audit-redate'){ const A=boAudit(($('#aud-date')||{}).value); const ids=new Set(A.rows.filter(r=>r.st==='other-day').flatMap(r=>r.otherIds||[]));
     if(!ids.size) return; if(!confirm(`هتتنقل ${ids.size} حركة صرف (ومعاها حركات الإنتاج التلقائي بتاعتها) ليوم ${A.D}. الرصيد مش هيتغير. تكمل؟`)) return;
