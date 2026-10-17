@@ -9018,6 +9018,9 @@ async function boWeighSave(n){
 function boAudit(D){
   D=D||today();
   const moves=S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.date===D);
+  // حركات صرف في الأيام اللي حوالين اليوم ده (قبله بيومين/بعده بيوم) — عشان نعرف لو الصرف اتسجل بتاريخ تاني
+  const dd=n=>{ const x=new Date(D+'T12:00:00'); x.setDate(x.getDate()+n); return ymdLocal(x); }; const near=new Set([dd(-2),dd(-1),dd(1)]);
+  const nearMv=new Map(); S.moves.forEach(m=>{ if(m.dir==='out' && m.reason==='صرف للفروع' && near.has(m.date)){ const k=m.itemId+'|'+m.party; const e=nearMv.get(k)||{qty:0,dates:new Set(),ids:[]}; e.qty=n2(e.qty+m.qty); e.dates.add(m.date); e.ids.push(m.id); nearMv.set(k,e); } });
   const got=new Map(); moves.forEach(m=>{ const k=m.itemId+'|'+m.party; const e=got.get(k)||{qty:0,n:0,forced:0}; e.qty=n2(e.qty+m.qty); e.n++; if(m.forced) e.forced++; got.set(k,e); });
   const exp=new Map(); const notMatched=[]; const notDone=[]; const doneNoMove=[];
   Object.keys(BO.totals||{}).forEach(fn=>{
@@ -9027,12 +9030,14 @@ function boAudit(D){
       const k=m.id+'|'+o.branch; const e=exp.get(k)||{itemId:m.id, branch:o.branch, qty:0, names:[], weigh:false, unknown:false, done:false};
       if(weigh){ const w=done&&done.weights&&done.weights[o.branch]; if(w) e.qty=n2(e.qty+w.kg); else e.unknown=true; e.weigh=true; }
       else if(conv===null) e.unknown=true; else e.qty=n2(e.qty+ +l.qty*conv);
-      e.names.push(`${boLabel?boLabel(fn):fn} ${fmtP(+l.qty)} ${l.unit||''}`); if(done) e.done=true; exp.set(k,e); });
+      e.names.push(`${boLabel?boLabel(fn):fn} ${fmtP(+l.qty)} ${l.unit||''}`); if(done){ e.done=true; e.doneAt=done.at; } (e.fns=e.fns||[]).push(fn); exp.set(k,e); });
     if(!done) notDone.push(fn);
   });
   const rows=[];
   exp.forEach((e,k)=>{ const g=got.get(k); const it=item(e.itemId); const r={...e, item:it?it.name:'?', unit:it?it.unit:'', got:g?g.qty:0, n:g?g.n:0, forced:g?g.forced:0};
-    if(!g) r.st = e.done ? 'done-no-move' : 'pending';
+    const nm=nearMv.get(k);
+    if(!g && nm){ r.st='other-day'; r.otherDates=[...nm.dates].sort(); r.otherQty=nm.qty; r.otherIds=nm.ids; }
+    else if(!g) r.st = e.done ? 'done-no-move' : 'pending';
     else if(g.n>1 && !e.weigh && Math.abs(g.qty-e.qty)>0.01 && Math.abs(g.qty-e.qty*g.n)<0.01) r.st='dup';
     else if(e.unknown) r.st='ok?';
     else if(Math.abs(g.qty-e.qty)<=0.01) r.st='ok';
@@ -9044,16 +9049,24 @@ function boAudit(D){
   const forced=moves.filter(m=>m.forced);
   return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
 }
-const AUD_ST={ ok:['✓ مظبوط','g'], 'ok?':['✓ اتصرف (من غير تحويل للمقارنة)','b'], less:['ناقص','r'], more:['زيادة','a'], dup:['متكرر — اتصرف أكتر من مرة','r'], 'done-no-move':['متعلّم «اتصرف» بس مفيش حركة','r'], pending:['لسه ما اتصرفش','']};
+const AUD_ST={ 'other-day':['اتصرف بس بتاريخ تاني','a'], ok:['✓ مظبوط','g'], 'ok?':['✓ اتصرف (من غير تحويل للمقارنة)','b'], less:['ناقص','r'], more:['زيادة','a'], dup:['متكرر — اتصرف أكتر من مرة','r'], 'done-no-move':['متعلّم «اتصرف» بس مفيش حركة','r'], pending:['لسه ما اتصرفش','']};
 function boAuditModal(D){
-  const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st));
+  const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st)); const od=A.rows.filter(r=>r.st==='other-day'); const dnm=A.rows.filter(r=>r.st==='done-no-move');
   const pend=A.rows.filter(r=>r.st==='pending'); const ok=A.rows.filter(r=>r.st==='ok'||r.st==='ok?');
-  const tbl=(list)=>`<table class="gridcols"><thead><tr><th>الفرع</th><th>صنف المصنع</th><th class="n">المفروض</th><th class="n">اتصرف</th><th>الحالة</th></tr></thead><tbody>${list.map(r=>`<tr><td><div class="iname">${esc(r.branch)}</div></td><td>${esc(r.item)}<div class="hint" style="font-size:11px">${esc(r.names.join(' + '))}</div></td><td class="n">${r.unknown&&!r.qty?'—':fmt(r.qty)} <span class="hint">${esc(r.unit)}</span></td><td class="n"><b>${fmt(r.got)}</b>${r.n>1?` <span class="chip">${r.n} حركات</span>`:''}${r.forced?` <span class="chip a">بالسالب</span>`:''}</td><td><span class="chip ${AUD_ST[r.st][1]}">${AUD_ST[r.st][0]}</span>${r.st==='less'||r.st==='more'?` <b>${fmt(n2(r.got-r.qty))}</b>`:''}</td></tr>`).join('')}</tbody></table>`;
+  const tbl=(list)=>`<table class="gridcols"><thead><tr><th>الفرع</th><th>صنف المصنع</th><th class="n">المفروض</th><th class="n">اتصرف</th><th>الحالة</th></tr></thead><tbody>${list.map(r=>`<tr><td><div class="iname">${esc(r.branch)}</div></td><td>${esc(r.item)}<div class="hint" style="font-size:11px">${esc(r.names.join(' + '))}</div></td><td class="n">${r.unknown&&!r.qty?'—':fmt(r.qty)} <span class="hint">${esc(r.unit)}</span></td><td class="n"><b>${fmt(r.got)}</b>${r.n>1?` <span class="chip">${r.n} حركات</span>`:''}${r.forced?` <span class="chip a">بالسالب</span>`:''}${r.st==='other-day'?`<div class="hint">${fmt(r.otherQty)} يوم ${esc(r.otherDates.join('، '))}</div>`:''}</td><td><span class="chip ${AUD_ST[r.st][1]}">${AUD_ST[r.st][0]}</span>${r.st==='less'||r.st==='more'?` <b>${fmt(n2(r.got-r.qty))}</b>`:''}</td></tr>`).join('')}</tbody></table>`;
   const box=(t,c,body)=>`<div style="border:1px solid ${c};border-radius:12px;padding:10px 12px;margin-bottom:12px"><b style="color:${c}">${t}</b>${body}</div>`;
   let h=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">يوم الصرف:</span><input type="date" id="aud-date" value="${A.D}"><button class="btn sm" data-act="bo-audit-copy">📋 انسخ التقرير</button></div>`;
   if(!A.sameDay) h+=`<div class="hint" style="margin-bottom:10px;padding:8px;border:1px dashed #B25E10;border-radius:8px">⚠ الطلبيات المفتوحة دلوقتي (${esc(BO.from)}${BO.to!==BO.from?' → '+esc(BO.to):''}) مش نفس يوم الصرف ${esc(A.D)} — المقارنة بتتعمل على الطلبيات المفتوحة. افتح يوم الطلبية الصح الأول لو المقارنة مش مظبوطة.</div>`;
   h+=`<div class="nkpi" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">${[[ok.length,'مظبوط','#2E7D32'],[bad.length,'محتاج مراجعة','#A32D2D'],[pend.length,'لسه ما اتصرفش','#777'],[A.neg.length,'صنف رصيده بالسالب','#B25E10']].map(([v,l,c])=>`<div style="flex:1 1 110px;border:1px solid #eee;border-radius:10px;padding:8px 10px"><div style="font-size:24px;font-weight:800;color:${c}">${v}</div><div class="hint">${l}</div></div>`).join('')}</div>`;
-  if(bad.length) h+=box('❗ محتاج مراجعة','#A32D2D',tbl(bad)+`<div class="hint" style="margin-top:6px">«متكرر» = نفس الصنف اتصرف لنفس الفرع أكتر من مرة — امسح الحركة الزيادة من تبويب «منصرف». «متعلّم اتصرف بس مفيش حركة» = غالبًا اتصرف من جهاز تاني بتاريخ مختلف، أو الحركة اتمسحت.</div>`);
+  if(od.length){ const ds=[...new Set(od.flatMap(r=>r.otherDates))].join('، ');
+    h+=box(`📅 اتصرف بس متسجل بتاريخ ${ds} (${od.length} سطر)`,'#B25E10',`<div class="hint" style="margin:4px 0 8px;line-height:1.8">الصرف ده حصل والمخزن اتخصم — بس الحركة متسجلة بيوم تاني (غالبًا اتصرف بعد نص الليل بنسخة قديمة كانت بتحسب التاريخ بتوقيت جرينتش). دوس الزرار عشان تتنقل ليوم ${esc(A.D)} وتظبط تقارير اليوم.</div>
+      <button class="btn sm p" data-act="bo-audit-redate">📅 انقل الحركات دي ليوم ${esc(A.D)}</button>
+      <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">التفاصيل</summary>${tbl(od)}</details>`); }
+  if(dnm.length) h+=box(`↪ متعلّم «اتصرف» بس مفيش حركة خالص (${dnm.length} سطر)`,'#A32D2D',`<div class="hint" style="margin:4px 0 8px;line-height:1.8">دي فروع ما اتسجلهاش صرف — غالبًا وقت الصرف الرصيد كان ناقص فالفرع ده اتخطى، والصنف اتعلّم «اتصرف» عشان باقي الفروع اتصرفلها. لو البضاعة طلعت فعلًا للفروع دي، دوس الزرار وهتتسجل دلوقتي (والسعر يتكتب في طلبية الفرع).</div>
+      <button class="btn sm p" data-act="bo-audit-fill">↪ سجّل الصرف الناقص (${dnm.length})</button>
+      <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">التفاصيل</summary>${tbl(dnm)}</details>`);
+  const bad2=bad.filter(r=>r.st!=='done-no-move');
+  if(bad2.length) h+=box('❗ محتاج مراجعة','#A32D2D',tbl(bad2)+`<div class="hint" style="margin-top:6px">«متكرر» = نفس الصنف اتصرف لنفس الفرع أكتر من مرة — امسح الحركة الزيادة من تبويب «منصرف». «متعلّم اتصرف بس مفيش حركة» = غالبًا اتصرف من جهاز تاني بتاريخ مختلف، أو الحركة اتمسحت.</div>`);
   if(A.extra.length) h+=box('صرف لفرع مش طالب الصنف ده في الطلبيات المفتوحة','#B25E10',`<table class="gridcols"><tbody>${A.extra.map(x=>`<tr><td>${esc(x.branch)}</td><td>${esc(x.item)}</td><td class="n">${fmt(x.got)} ${esc(x.unit)}${x.n>1?` (${x.n} حركات)`:''}</td></tr>`).join('')}</tbody></table>`);
   if(A.neg.length) h+=box('أصناف رصيدها بالسالب','#B25E10',`<div class="hint" style="margin:4px 0">ده معناه إن اتصرف/اتصنّع منها أكتر من المسجّل — سجّل الوارد أو الإنتاج الناقص.</div><table class="gridcols"><tbody>${A.neg.map(x=>`<tr><td>${esc(x.it.name)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.b)}</b> ${esc(x.it.unit)}</td></tr>`).join('')}</tbody></table>`);
   if(A.runs.length) h+=box(`إنتاج تلقائي اتسجل يوم ${A.D} (${A.runs.length})`,'#555',`<div class="hint" style="margin:4px 0">لما بتصرف منتج ليه وصفة، خاماته بتتخصم تلقائي. «وسيط» = خامة ليها وصفة اتعملت عشان رصيدها كان ناقص.</div><table class="gridcols"><tbody>${A.runs.map(r=>`<tr><td>${esc(r.name)}${r.nested?' <span class="chip b">وسيط</span>':''}</td><td class="n">${fmt(r.outQty)}</td></tr>`).join('')}</tbody></table>`);
@@ -9067,8 +9080,10 @@ function boAuditText(A){
   const L=[`مراجعة صرف الفروع — يوم ${A.D} — طلبيات ${BO.from}${BO.to!==BO.from?'→'+BO.to:''}`];
   const st=r=>AUD_ST[r.st][0];
   const bad=A.rows.filter(r=>!['ok','ok?','pending'].includes(r.st));
+  const byst={}; A.rows.forEach(r=>byst[r.st]=(byst[r.st]||0)+1); L.push('حالات: '+Object.entries(byst).map(([k,v])=>`${AUD_ST[k][0]}=${v}`).join(' · '));
+  const doneAts=[...new Set(A.rows.filter(r=>r.doneAt).map(r=>String(r.doneAt).slice(0,16)))].sort(); if(doneAts.length) L.push('أوقات علامة الصرف (UTC): '+doneAts.slice(0,12).join(' · ')+(doneAts.length>12?' …':''));
   L.push(`مظبوط: ${A.rows.filter(r=>r.st==='ok'||r.st==='ok?').length} · محتاج مراجعة: ${bad.length} · لسه: ${A.rows.filter(r=>r.st==='pending').length} · سالب: ${A.neg.length}`);
-  if(bad.length){ L.push('\n== محتاج مراجعة =='); bad.forEach(r=>L.push(`${r.branch} | ${r.item} | المفروض ${fmt(r.qty)} | اتصرف ${fmt(r.got)} (${r.n} حركة) | ${st(r)}`)); }
+  if(bad.length){ L.push('\n== محتاج مراجعة =='); bad.forEach(r=>L.push(`${r.branch} | ${r.item} | المفروض ${fmt(r.qty)} | اتصرف ${fmt(r.got)} (${r.n} حركة) | ${st(r)}${r.otherDates?' '+r.otherDates.join(','):''}${r.doneAt?' | علامة '+String(r.doneAt).slice(0,16):''}`)); }
   if(A.extra.length){ L.push('\n== صرف لفرع مش طالب =='); A.extra.forEach(x=>L.push(`${x.branch} | ${x.item} | ${fmt(x.got)}`)); }
   if(A.neg.length){ L.push('\n== رصيد بالسالب =='); A.neg.forEach(x=>L.push(`${x.it.name}: ${fmt(x.b)} ${x.it.unit}`)); }
   if(A.runs.length){ L.push('\n== إنتاج تلقائي =='); A.runs.forEach(r=>L.push(`${r.name}${r.nested?' (وسيط)':''}: ${fmt(r.outQty)}`)); }
@@ -9929,6 +9944,20 @@ async function act(a,d){
     let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
+  if(a==='bo-audit-redate'){ const A=boAudit(($('#aud-date')||{}).value); const ids=new Set(A.rows.filter(r=>r.st==='other-day').flatMap(r=>r.otherIds||[]));
+    if(!ids.size) return; if(!confirm(`هتتنقل ${ids.size} حركة صرف (ومعاها حركات الإنتاج التلقائي بتاعتها) ليوم ${A.D}. الرصيد مش هيتغير. تكمل؟`)) return;
+    const mv=S.moves.filter(m=>ids.has(m.id)); const others=new Set(mv.map(m=>m.date)); let n=0;
+    // حركات الإنتاج التلقائي اللي اتعملت في نفس اللحظة بتتنقل معاها (نفس اليوم القديم وجاية قبلها مباشرة في السجل)
+    S.moves.forEach((m,i)=>{ if(ids.has(m.id)){ m.date=A.D; n++; for(let j=i-1;j>=0 && j>=i-40;j--){ const p=S.moves[j]; if(!p.runId || !others.has(p.date)) break; p.date=A.D; } } });
+    (S.runs||[]).forEach(r=>{ if(others.has(r.date) && S.moves.some(m=>m.runId===r.id && m.date===A.D)) r.date=A.D; });
+    await saveTx(); await saveMain(); toast(`اتنقلت ${n} حركة ليوم ${A.D} ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
+  if(a==='bo-audit-fill'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='done-no-move'&&!r.unknown&&r.qty>0);
+    if(!rows.length) return toast('مفيش سطور ينفع تتسجل تلقائي (أصناف الوزن سجّلها من شاشة الوزن)',1);
+    if(!confirm(`هيتسجل صرف ${rows.length} سطر بتاريخ ${A.D} (اللي رصيده ناقص هيبقى بالسالب). تكمل؟`)) return;
+    const set=new Set(); let n=0;
+    for(const r of rows){ const res=dispenseOut(r.itemId, r.qty, A.D, r.branch, 'صرف للفروع', true); if(!res.move) continue; n++;
+      (r.fns||[]).forEach(fn=>{ const o=BO.orders.find(x=>x.branch===r.branch && (x.items||[]).some(l=>l.name===fn)); const l=o&&o.items.find(x=>x.name===fn); const cv=convFactorOf(fn); if(o&&l&&cv!==null&&boStampLine(o,fn,+l.qty,n2(+l.qty*cv),item(r.itemId))) set.add(o); }); }
+    await saveTx(); await saveMain(); await boFlushOrders(set); toast(`اتسجل ${n} صرف ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='bo-audit-copy'){ const t=boAuditText(window.__boAudit||boAudit()); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
   if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); const n=await boSyncCatalogPrices(null,true); toast(`${b?`اتكتب السعر لـ${b} سطر في طلبيات الفروع · `:''}${n?`اتحدث سعر ${n} صنف في الكتالوج`:'الكتالوج مطابق'} ✓`); return; }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
