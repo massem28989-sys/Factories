@@ -1319,8 +1319,11 @@ function markAutoRuns(){ const au=new Set(), ne=new Set(); (S.moves||[]).forEach
 // Supabase بيرجّع 1000 صف بالكتير في الطلب الواحد — فلازم نجيب على صفحات، وإلا الحركات الزيادة عن 1000 بتختفي من الشاشة والأرصدة بتتحسب غلط
 async function sbAll(path, opts={}){
   const out=[]; const sep=path.includes('?')?'&':'?'; const hasOrder=/[?&]order=/.test(path);
+  let ord=hasOrder?'':'order=id.asc&';
   for(let off=0; off<500000; off+=1000){
-    const rows=await sb(path+sep+(hasOrder?'':'order=id.asc&')+'limit=1000&offset='+off, {...opts, prefer:'return=representation'})||[];
+    let rows;
+    try{ rows=await sb(path+sep+ord+'limit=1000&offset='+off, {...opts, prefer:'return=representation'})||[]; }
+    catch(e){ if(ord && off===0 && /42703|does not exist|column/i.test(e.message)){ ord=''; off=-1000; continue; } throw e; }
     out.push(...rows); if(rows.length<1000) break;
   }
   return out;
@@ -1344,6 +1347,8 @@ let PENDING_SYNCS = 0;
 // بنتتبع أي حركة اتحذفت محليًا عشان لما نرفع للقاعدة نقدر ندمج مع أحدث نسخة من السيرفر
 // من غير ما نرجّع حركات اتحذفت فعلاً، ومن غير ما نمسح حركات جاية من جهاز تاني (زي المدير) لسه ما سحبناهاش عندنا
 let DELETED_MOVE_IDS = new Set();
+const MOVE_SIG = new Map(); // آخر نسخة اتحفظت من كل حركة على السيرفر
+const moveSig = m => m.dir+'|'+m.itemId+'|'+m.qty+'|'+m.price+'|'+m.date+'|'+(m.party||'')+'|'+(m.reason||'')+'|'+(m.runId||'')+'|'+(m.prodDate||'')+'|'+(m.temp??'')+'|'+(m.invoice||'')+'|'+(m.expDate||'')+'|'+(m.notifyId||'');
 /* بداية جرد جديد: الأرقام القديمة بتتمسح من كل الأجهزة. عشان جهاز لسه شايل الأرقام القديمة ما يرجّعهاش تاني،
    بنحفظ وقت "بداية الجرد"، وأي رقم محلي اتسجل قبل الوقت ده بيتشال بدل ما يتدمج */
 let COUNTS_LOADED_AT = Date.now();
@@ -1578,9 +1583,15 @@ async function pushAll(quiet){
         notify_id:m.notifyId||null,notify_factory:m.notifyFactory||null,invoice:m.invoice||null,exp_date:m.expDate||null})
       : ({ id:m.id,factory:F,period:P,dir:m.dir,item_id:m.itemId,qty:+m.qty||0,price:+m.price||0,
         party:m.party||'',reason:m.reason||'',move_date:m.date,run_id:m.runId||null });
+    // بنبعت بس الحركات الجديدة أو اللي اتعدلت من آخر حفظ — بدل كل حركات الشهر كل مرة (كانت بالآلاف وبتعمل خطأ مزامنة)
+    const sig = moveSig;
+    const changed = S.moves.filter(m=>MOVE_SIG.get(m.id)!==sig(m));
     const upsertChunks = async (full) => {
-      for(let i=0;i<S.moves.length;i+=400){
-        await sb('stock_moves',{...UPSERT, body:S.moves.slice(i,i+400).map(m=>toRow(m,full))});
+      for(let i=0;i<changed.length;i+=300){
+        const part=changed.slice(i,i+300);
+        let last=null; for(let t=0;t<3;t++){ try{ await sb('stock_moves',{...UPSERT, body:part.map(m=>toRow(m,full))}); last=null; break; }catch(e){ last=e; if(/unique|exclusion|42P10|conflict|42703|column/i.test(e.message)) break; await new Promise(r=>setTimeout(r,700*(t+1))); } }
+        if(last) throw last;
+        part.forEach(m=>MOVE_SIG.set(m.id, sig(m)));
       }
     };
     let upsertOk = false;
@@ -1612,7 +1623,7 @@ async function pushAll(quiet){
     // **مهم**: لو القراءة فشلت، لازم نوقف تمامًا وما نمسحش حاجة، عشان ميحصلش نفس اللي حصل مع الحركات.
     let remote = {}; let countsFetchOk = false;
     try{
-      const cur = await sbAll('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=item_id,qty',{prefer:'return=representation'})||[];
+      const cur = await sbAll('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(P)+'&select=item_id,qty&order=item_id.asc',{prefer:'return=representation'})||[];
       cur.forEach(r=>{ remote[r.item_id]=+r.qty||0; });
       countsFetchOk = true;
     }catch(e){ countsFetchOk = false; }
@@ -1734,7 +1745,8 @@ async function pullAll(silent){
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
-    const ct=await sbAll('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
+    MOVE_SIG.clear(); S.moves.forEach(m=>MOVE_SIG.set(m.id, moveSig(m))); // دي اللي على السيرفر فعلًا
+    const ct=await sbAll('stock_counts?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*&order=item_id.asc',{prefer:'return=representation'})||[];
     S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty); COUNTS_LOADED_AT=Date.now();
     const rc=await sbAll('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
     S.recipes=rc.map(r=>({id:r.id,name:r.name,outItemId:r.out_item,outQty:+r.out_qty,lines:r.lines||[]}));
@@ -3607,7 +3619,8 @@ function render(){
   <div id="toast"></div>
   <header>
     <div class="wrap">
-      ${(DB.on&&!DB.err)?'':(!isMgr&&MODE==='memory')?`<div class="warnbar">الحفظ التلقائي متوقف — شغالين على الذاكرة بس. نزّل <b>نسخة احتياطية</b> من تبويب التقارير قبل ما تقفل الصفحة، أو نزّل ملف التطبيق وافتحه من جهازك عشان الحفظ يشتغل.</div>`:''}
+      ${DB.on&&DB.err&&!isMgr?`<div class="warnbar">⚠ آخر حفظ على السيرفر ما كملش: <span style="font-size:12px">${esc(String(DB.err).slice(0,300))}</span> <button class="btn sm" data-act="db-push-retry" style="margin-inline-start:8px">🔄 احفظ تاني</button></div>`:''}
+      ${(DB.on)?'':(!isMgr&&MODE==='memory')?`<div class="warnbar">الحفظ التلقائي متوقف — شغالين على الذاكرة بس. نزّل <b>نسخة احتياطية</b> من تبويب التقارير قبل ما تقفل الصفحة، أو نزّل ملف التطبيق وافتحه من جهازك عشان الحفظ يشتغل.</div>`:''}
       ${isMgr&&DB.err?`<div class="warnbar">مش قادر أوصل بصاحب المصنع دلوقتي: ${esc(DB.err)}</div>`:''}
       <div class="hrow">
         ${FACTORY_LOGOS[FACTORY]?`<img class="hlogo" src="${FACTORY_LOGOS[FACTORY]}" alt="">`:''}
@@ -10699,7 +10712,7 @@ async function act(a,d){
       let mv=[], ct=[];
       if(DB.on){
         mv = await sbAll('stock_moves?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*',{prefer:'return=representation'}) || [];
-        ct = await sbAll('stock_counts?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*',{prefer:'return=representation'}) || [];
+        ct = await sbAll('stock_counts?factory=eq.'+encodeURIComponent(FACTORY)+'&period=eq.'+encodeURIComponent(last.period)+'&select=*&order=item_id.asc',{prefer:'return=representation'}) || [];
       }
       const snapMap = {}; last.items.forEach(x=>snapMap[x.id]=x);
       for(const it of S.items){
@@ -10744,6 +10757,7 @@ async function act(a,d){
     DB_SIZE_CHECKING=false; render();
     return;
   }
+  if(a==='db-push-retry'){ const ok=await pushAll(false); if(ok) toast('اتحفظ على السيرفر ✓'); return render(); }
   if(a==='db-retry'){
     DB.busy=true; render();
     const ok=await connectDB();
