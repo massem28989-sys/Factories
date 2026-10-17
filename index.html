@@ -955,20 +955,22 @@ const BRANCH_APP_CONFIG = {
     ],
     // أحجام ضربات صوصات نادر (بالكيلو) — النظام بيقترح أقل عدد ضربات يغطي المطلوب بأقل زيادة
     naderBatches: [ {label:'كبيرة', kg:15}, {label:'وسط', kg:7.5}, {label:'صغيرة', kg:4} ],
+    // batch:true = بيتعمل بضربات (كبيرة/وسط/صغيرة). الباقي بيطلع زي ما الفروع طلبت من غير تقريب
+    // unitLabel = الوحدة اللي تظهر بدل وحدة الفرع (السطل بالباكت)
     naderSauces: [
-      { label: "صوص ثوم", name: "Garlic Sauce - صوص ثوم", match: /صوص\s*ثوم|garlic\s*sauce/i, not: /dubai|دبي/i },
-      { label: "صوص ثوم دبي", name: "Garlic Sauce Dubai- صوص ثوم دبي", match: /(صوص\s*ثوم|garlic\s*sauce).*(dubai|دبي)|(dubai|دبي).*(صوص\s*ثوم|garlic)/i },
-      { label: "صوص وردي", name: "pink sauce - صوص وردي", match: /صوص\s*وردي|pink\s*sauce/i, not: /dubai|دبي/i },
-      { label: "صوص وردي دبي", name: "pink sauce dubai - صوص وردي دبي", match: /(صوص\s*وردي|pink\s*sauce).*(dubai|دبي)|(dubai|دبي).*(وردي|pink)/i },
-      { label: "صوص سبايسي", name: "Spicy sauce - صوص سبايسي", match: /صوص\s*سبايسي|^spicy\s*sauce/i, not: /dubai|دبي/i },
-      { label: "صوص سبايسي دبي", name: "Spicy sauce dubai - صوص سبايسي دبي", match: /(صوص\s*سبايسي|spicy\s*sauce).*(dubai|دبي)|(dubai|دبي).*(سبايسي|spicy)/i },
+      { label: "صوص ثوم", batch: true, name: "Garlic Sauce - صوص ثوم", match: /صوص\s*ثوم|garlic\s*sauce/i, not: /dubai|دبي/i },
+      { label: "صوص ثوم دبي", batch: true, name: "Garlic Sauce Dubai- صوص ثوم دبي", match: /(صوص\s*ثوم|garlic\s*sauce).*(dubai|دبي)|(dubai|دبي).*(صوص\s*ثوم|garlic)/i },
+      { label: "صوص وردي", batch: true, name: "pink sauce - صوص وردي", match: /صوص\s*وردي|pink\s*sauce/i, not: /dubai|دبي/i },
+      { label: "صوص وردي دبي", batch: true, name: "pink sauce dubai - صوص وردي دبي", match: /(صوص\s*وردي|pink\s*sauce).*(dubai|دبي)|(dubai|دبي).*(وردي|pink)/i },
+      { label: "صوص سبايسي", batch: true, name: "Spicy sauce - صوص سبايسي", match: /صوص\s*سبايسي|^spicy\s*sauce/i, not: /dubai|دبي/i },
+      { label: "صوص سبايسي دبي", batch: true, name: "Spicy sauce dubai - صوص سبايسي دبي", match: /(صوص\s*سبايسي|spicy\s*sauce).*(dubai|دبي)|(dubai|دبي).*(سبايسي|spicy)/i },
       { label: "صوص طحينة", name: "Tahina Suace - صوص طحينة", match: /صوص\s*طحين|tahina/i },
       { label: "صوص كوكتيل دجاج", name: "Cocktail Sauce - صوص كوكتيل دجاج", match: /كوكتيل\s*دجاج|cocktail\s*sauce/i },
       { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش", match: /ساندو|sandwich/i },
       { label: "صوص حريقة", name: "Hareqa Sauce - صوص حريقه", match: /حريق|hareq/i },
       { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace", match: /بطاطا|potato/i, not: /فريش|fresh|بهارات|مشوي|seasoning/i },
-      { label: "صوص سطل أبيض", name: "White Sauce - صوص سطل ابيض مع ذره", match: /سطل\s*ابيض|white\s*sauce/i },
-      { label: "صوص سطل أحمر", name: "Red Sauce - صوص سطل احمر مع ذره", match: /سطل\s*احمر|red\s*sauce/i },
+      { label: "صوص سطل أبيض", unitLabel: "باكت", name: "White Sauce - صوص سطل ابيض مع ذره", match: /سطل\s*ابيض|white\s*sauce/i },
+      { label: "صوص سطل أحمر", unitLabel: "باكت", name: "Red Sauce - صوص سطل احمر مع ذره", match: /سطل\s*احمر|red\s*sauce/i },
       { label: "صوص ميكس", name: "Mix sauce - صوص ميكس", match: /(صوص\s*(ال)?ميكس|mix\s*sauce)/i }
     ]
   }
@@ -8692,6 +8694,8 @@ function boGroupTable(LIST,TITLE,KIND){
 }
 /* ضربات صوصات نادر: إجمالي كل صوص بالكيلو ← أنسب تركيبة ضربات (كبيرة/وسط/صغيرة) */
 const NADER_BATCHES = (BRANCH_APP && BRANCH_APP.naderBatches) || [];
+const naderBatched = n => { const e=NADER_SAUCES.find(x=>x.name===n||x.label===n); return !!(e && e.batch); };
+const naderUnit = r => (r && r.unitLabel) || (r && r.unit) || '';
 function boKgPerUnit(name){
   const u=normUnit((BO.totals[name]||{}).unit||''); if(u==='كيلو') return 1;
   if(u==='جرام'||u==='gm'||u==='g') return 0.001;
@@ -8718,7 +8722,8 @@ function boNaderHtml(){
   if(!rows.length) return '';
   const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg);
   let tot=B.map(()=>0);
-  const body=rows.map(r=>{ const k=boKgPerUnit(r.name); const kg=k?n2(r.qty*k):null; const p=kg?naderPlan(kg):null; if(p) p.cnt.forEach((c,i)=>tot[i]+=c);
+  const body=rows.map(r=>{ if(!r.batch) return `<tr><td><div class="iname">${esc(r.label)}</div></td><td class="n"><b>${fmtP(r.qty)}</b> <span class="chip">${esc(naderUnit(r))}</span></td><td class="n hint" colspan="${B.length+2}">بيطلع زي ما الفروع طلبت — من غير ضربات</td></tr>`;
+    const k=boKgPerUnit(r.name); const kg=k?n2(r.qty*k):null; const p=kg?naderPlan(kg):null; if(p) p.cnt.forEach((c,i)=>tot[i]+=c);
     return `<tr><td><div class="iname">${esc(r.label)}</div></td>
       <td class="n"><b>${fmtP(r.qty)}</b> <span class="chip">${esc(r.unit)}</span></td>
       <td class="n">${k===null?`<div style="display:flex;gap:4px;align-items:center;justify-content:center;white-space:nowrap"><span class="hint">1 ${esc(r.unit||'وحدة')} =</span><input type="number" step="any" min="0" data-bokg="${esc(r.name)}" placeholder="؟" style="width:60px;text-align:center"><span class="hint">كجم</span></div>`:`<b>${fmtP(kg)}</b> كجم${k!==1?` <div class="hint">1 ${esc(r.unit)} = ${fmtP(k)} كجم <button class="btn sm" data-act="bo-kg-reset" data-n="${esc(r.name)}" style="padding:0 5px;font-size:10px">✎</button></div>`:''}`}</td>
@@ -8734,7 +8739,7 @@ function boNaderHtml(){
 function boNaderPerBranch(rows){
   const latest=new Map(); BO.orders.forEach(o=>{ const m=latest.get(o.branch)||{}; (o.items||[]).forEach(it=>{ if(+it.qty>0) m[it.name]=n2((m[it.name]||0)+ +it.qty); }); latest.set(o.branch,m); });
   const brs=[...latest.keys()].filter(b=>rows.some(r=>latest.get(b)[r.name]>0)).sort((a,b)=>a.localeCompare(b,'ar'));
-  return brs.map(b=>({branch:b, cells:rows.map(r=>{ const q=latest.get(b)[r.name]||0; const k=boKgPerUnit(r.name); const kg=q&&k?n2(q*k):0; return {q, kg, p:kg?naderPlan(kg):null}; })}));
+  return brs.map(b=>({branch:b, cells:rows.map(r=>{ const q=latest.get(b)[r.name]||0; const bt=!!r.batch; const k=bt?boKgPerUnit(r.name):null; const kg=q&&k?n2(q*k):0; return {q, kg, b:bt, u:naderUnit(r), p:kg?naderPlan(kg):null}; })}));
 }
 const naderShort = (p,B) => p ? B.map((b,i)=>p.cnt[i]?`${b.label} ×${p.cnt[i]}`:'').filter(Boolean).join(' + ') : '';
 function boNaderBranchHtml(rows,B){
@@ -8745,8 +8750,8 @@ function boNaderBranchHtml(rows,B){
     <div class="hint" style="margin:0 14px 8px">كل فرع بياخد ضربات كاملة على قد طلبه — لو هتعمل لكل فرع لوحده، ده المطلوب يتعمل.</div>
     <div class="tblwrap" style="max-height:none"><table class="gridcols">
       <thead><tr><th>الفرع</th>${rows.map(r=>`<th class="n">${esc(r.label)}</th>`).join('')}</tr></thead>
-      <tbody>${per.map(x=>`<tr><td><div class="iname">${esc(x.branch)}</div></td>${x.cells.map(c=>`<td class="n">${c.q?`${c.p?`<div style="font-weight:700;color:#8E1A20">${esc(naderShort(c.p,B))}</div>`:''}<div class="hint">${c.kg?`طلب <bdi>${fmtP(c.kg)}</bdi> ك · يطلع <bdi>${fmtP(n2(c.p.sum))}</bdi> ك`:`${fmtP(c.q)} — حدد الوزن فوق`}</div>`:'<span class="hint">—</span>'}</td>`).join('')}</tr>`).join('')}</tbody>
-      <tfoot><tr style="font-weight:700"><td>إجمالي ضربات الفروع</td>${tot.map(t=>`<td class="n hl">${B.map((b,i)=>t[i]?`${b.label} ×${t[i]}`:'').filter(Boolean).join(' + ')||'—'}</td>`).join('')}</tr>
+      <tbody>${per.map(x=>`<tr><td><div class="iname">${esc(x.branch)}</div></td>${x.cells.map(c=>`<td class="n">${c.q&&!c.b?`<b>${fmtP(c.q)}</b> <span class="hint">${esc(c.u)}</span>`:c.q?`${c.p?`<div style="font-weight:700;color:#8E1A20">${esc(naderShort(c.p,B))}</div>`:''}<div class="hint">${c.kg?`طلب <bdi>${fmtP(c.kg)}</bdi> ك · يطلع <bdi>${fmtP(n2(c.p.sum))}</bdi> ك`:`${fmtP(c.q)} — حدد الوزن فوق`}</div>`:'<span class="hint">—</span>'}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:700"><td>إجمالي ضربات الفروع</td>${tot.map((t,ri)=>`<td class="n hl">${rows[ri].batch?(B.map((b,i)=>t[i]?`${b.label} ×${t[i]}`:'').filter(Boolean).join(' + ')||'—'):`${fmtP(n2(per.reduce((s,x)=>s+(x.cells[ri].q||0),0)))} ${esc(naderUnit(rows[ri]))}`}</td>`).join('')}</tr>
       <tr style="font-weight:700"><td>الكل</td><td class="n hl" colspan="${rows.length}">${B.map((b,i)=>`${b.label}: ${all[i]}`).join(' · ')} ضربة</td></tr></tfoot>
     </table></div>`;
 }
@@ -8935,16 +8940,16 @@ function boPrint(kind){
     const all=boAllItems().map(it=>({...it,label:lbl(it.name),total:(BO.totals[it.name]||{}).qty||0, n:branches.filter(b=>(byBranch.get(b).get(it.name)||{}).qty>0).length}))
       .filter(it=>it.total>0).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
     const naderH = (P.nader) ? (()=>{ if(!NADER_SAUCES.length||!NADER_BATCHES.length) return ''; const B=NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg);
-        const rr=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; if(!t||!(+t.qty>0)) return ''; const k=boKgPerUnit(ns.name); const kg=k?n2(+t.qty*k):null; const p=kg?naderPlan(kg):null;
-          return `<tr><td>${esc(ns.label)}</td><td class="c">${fmtP(+t.qty)} ${esc(t.unit||'')}</td><td class="c">${kg?fmtP(kg)+' كجم':'—'}</td>${B.map((b,i)=>`<td class="c"><b style="font-size:15px">${p&&p.cnt[i]?p.cnt[i]:''}</b></td>`).join('')}</tr>`; }).join('');
+        const rr=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; if(!t||!(+t.qty>0)) return ''; const k=ns.batch?boKgPerUnit(ns.name):null; const kg=k?n2(+t.qty*k):null; const p=kg?naderPlan(kg):null;
+          return `<tr><td>${esc(ns.label)}</td><td class="c">${fmtP(+t.qty)} ${esc(ns.unitLabel||t.unit||'')}</td><td class="c">${kg?fmtP(kg)+' كجم':'—'}</td>${B.map((b,i)=>`<td class="c"><b style="font-size:15px">${p&&p.cnt[i]?p.cnt[i]:''}</b></td>`).join('')}</tr>`; }).join('');
         const rows2=NADER_SAUCES.map(ns=>{ const t=BO.totals[ns.name]; return t&&+t.qty>0?{...ns,qty:+t.qty,unit:t.unit||''}:null; }).filter(Boolean);
         const per=rows2.length?boNaderPerBranch(rows2):[];
         const tot=rows2.map(()=>B.map(()=>0)); const all=B.map(()=>0);
         per.forEach(x=>x.cells.forEach((c,ri)=>{ if(c.p) c.p.cnt.forEach((n,k)=>{ tot[ri][k]+=n; all[k]+=n; }); }));
         const kgTot=rows2.map((r,ri)=>n2(per.reduce((t,x)=>t+(x.cells[ri].kg||0),0)));
-        const perH=per.length?`<table class="mx"><thead><tr><th>الفرع</th>${rows2.map(r=>`<th>${esc(r.label)}</th>`).join('')}</tr></thead><tbody>${per.map(x=>`<tr><td class="br">${esc(x.branch)}</td>${x.cells.map(c=>`<td class="c">${c.p?`<b>${esc(naderShort(c.p,B))}</b><br><small style="color:#777;font-weight:400">${fmtP(c.kg)} ك</small>`:(c.q?fmtP(c.q):'')}</td>`).join('')}</tr>`).join('')}</tbody>
-          <tfoot><tr><td>إجمالي الضربات</td>${tot.map(t=>`<td class="c">${B.map((b,k)=>t[k]?`${b.label} ×${t[k]}`:'').filter(Boolean).join('<br>')||'—'}</td>`).join('')}</tr>
-          <tr><td>إجمالي الكيلو</td>${kgTot.map(k=>`<td class="c">${k?fmtP(k)+' ك':'—'}</td>`).join('')}</tr>
+        const perH=per.length?`<table class="mx"><thead><tr><th>الفرع</th>${rows2.map(r=>`<th>${esc(r.label)}</th>`).join('')}</tr></thead><tbody>${per.map(x=>`<tr><td class="br">${esc(x.branch)}</td>${x.cells.map(c=>`<td class="c">${c.q&&!c.b?`<b>${fmtP(c.q)}</b> <small style="color:#777;font-weight:400">${esc(c.u)}</small>`:c.p?`<b>${esc(naderShort(c.p,B))}</b><br><small style="color:#777;font-weight:400">${fmtP(c.kg)} ك</small>`:(c.q?fmtP(c.q):'')}</td>`).join('')}</tr>`).join('')}</tbody>
+          <tfoot><tr><td>إجمالي الضربات</td>${tot.map((t,ri)=>`<td class="c">${rows2[ri].batch?(B.map((b,k)=>t[k]?`${b.label} ×${t[k]}`:'').filter(Boolean).join('<br>')||'—'):'—'}</td>`).join('')}</tr>
+          <tr><td>الإجمالي</td>${kgTot.map((k,ri)=>`<td class="c">${rows2[ri].batch?(k?fmtP(k)+' ك':'—'):`${fmtP(n2(per.reduce((s,x)=>s+(x.cells[ri].q||0),0)))} ${esc(naderUnit(rows2[ri]))}`}</td>`).join('')}</tr>
           <tr><td>الكل</td><td class="c" colspan="${rows2.length}">${B.map((b,k)=>`${b.label} (${fmtP(b.kg)} ك): ${all[k]}`).join('   ·   ')}</td></tr></tfoot></table>`:'';
         return perH?`<h3 style="margin:16px 0 6px;color:#8E1A20">ضربات صوصات نادر — لكل فرع</h3>${perH}`:''; })() : '';
     if(P.tot){
@@ -8986,8 +8991,8 @@ function boPrint(kind){
         <div class="meta"><div><b>الفرع</b>${esc(b)}</div><div><b>عدد الأصناف</b>${items.length}</div><div><b>السواق</b></div></div>
         <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">المطلوب</th><th style="width:12%">الوحدة</th><th style="width:16%">اتبعت فعلًا</th><th style="width:18%">ملاحظات</th></tr></thead>
         <tbody>${items.map((it,i)=>{ const wz=boIsWeigh(it.name); const w=wz&&((S.boDone[boKey(it.name)]||{}).weights||{})[b];
-          const isN=NADER_SAUCES.some(x=>x.name===it.name)&&NADER_BATCHES.length; const kk=isN?boKgPerUnit(it.name):null; const np=kk?naderPlan(n2(it.qty*kk)):null;
-          return `<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}${wz?' <small style="color:#8E1A20">⚖️ بالوزن</small>':''}${np?` <small style="color:#8E1A20">🥣 ${esc(naderShort(np,NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg)))}</small>`:''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(it.unit||'')}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> كجم`:'______ كجم'):''}</td><td></td></tr>`; }).join('')}</tbody></table>
+          const isN=naderBatched(it.name)&&NADER_BATCHES.length; const kk=isN?boKgPerUnit(it.name):null; const np=kk?naderPlan(n2(it.qty*kk)):null;
+          return `<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}${wz?' <small style="color:#8E1A20">⚖️ بالوزن</small>':''}${np?` <small style="color:#8E1A20">🥣 ${esc(naderShort(np,NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg)))}</small>`:''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(((NADER_SAUCES.find(x=>x.name===it.name)||{}).unitLabel)||it.unit||'')}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> كجم`:'______ كجم'):''}</td><td></td></tr>`; }).join('')}</tbody></table>
         <div class="sig"><div>المسلّم (المصنع)</div><div>السواق</div><div>المستلم (الفرع)</div></div></section>`;
     });
   }
