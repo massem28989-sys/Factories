@@ -1014,6 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
+const APP_BUILD = '18-10 · 19:10';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3713,7 +3714,7 @@ function render(){
       <div class="hrow">
         ${FACTORY_LOGOS[FACTORY]?`<img class="hlogo" src="${FACTORY_LOGOS[FACTORY]}" alt="">`:''}
         <div class="brand">${isMgr?(LANG==='en'?'Count ':'جرد '):''}${esc((FACTORIES.find(f=>f.id===FACTORY)||{name:'المصنع'}).name)}
-          <small>${t('period_current')}: ${periodLabel(S.period)}${isMgr?'':' '+t('monthly_count_suffix')}</small></div>
+          <small>${t('period_current')}: ${periodLabel(S.period)}${isMgr?'':' '+t('monthly_count_suffix')} · <span title="رقم نسخة البرنامج — لو مش أحدث رقم، اعمل ريفريش قوي (Ctrl+Shift+R)">نسخة ${APP_BUILD}</span></small></div>
         <div class="hstat">
           ${isMgr?`<div><b>${tt.counted}/${tt.total}</b><span>${t('items_counted')}</span></div>`:`
           <div><b>${money(tt.value)}</b><span>${t('stock_value')}</span></div>
