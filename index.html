@@ -3858,6 +3858,7 @@ function viewDailyStock(){
               : rows;
 
   return `
+  ${ROLE==='owner'||ROLE==='manager'?`<div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn p" data-act="pc-open">📋 جرد بعد الصرف</button><button class="btn" data-act="pa-open">📝 الإنتاج الفعلي</button><span class="hint">آخر اليوم: الزق الموجود فعلًا بعد خروج الطلبيات، أو اكتب المصنع عمل كام من كل منتج — البرنامج يحسب الفرق ويسجله.</span></div></div>`:''}
   <div class="panel"><div class="pad"><div class="cards">
     <div class="card"><div class="k">${t('ds_value_today')}</div><div class="v">${money(totalValue)}</div><div class="s">${rows.length} ${t('ds_items_in')}</div></div>
     <div class="card"><div class="k">${t('ds_available')}</div><div class="v" style="color:var(--green)">${okCount}</div><div class="s">${t('ds_good_balance')}</div></div>
@@ -4898,7 +4899,7 @@ function viewProd(){
 
   return `
   <div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <button class="btn p" data-act="pa-open">📝 سجّل الإنتاج الفعلي</button>
+    <button class="btn p" data-act="pa-open">📝 سجّل الإنتاج الفعلي</button><button class="btn" data-act="pc-open">📋 جرد بعد الصرف</button>
     <span class="hint">آخر اليوم: اكتب المصنع عمل كام فعلًا من كل منتج — الزيادة تتسجل وتفضل رصيد يتصرف منه بكرة.</span></div></div>
   <div class="panel"><div class="pad"><div class="cards">
     <div class="card"><div class="k">تشغيلات الشهر</div><div class="v">${totalRuns}</div><div class="s">${periodLabel(S.period)}</div></div>
@@ -9210,6 +9211,87 @@ function boAudit(D){
   const forced=moves.filter(m=>m.forced);
   return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
 }
+/* ================= 📋 جرد بعد الصرف — تلزق القايمة زي ما هي، والفرق يتسجل صح ================= */
+const AR_DIG={'٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','٫':'.','،':',' };
+function pcMatch(name){
+  const n=arNorm(name).replace(/\s+/g,' ').trim(); if(!n) return null;
+  const parts=it=>[it.name, ...String(it.name).split(/\s+-\s+|\s*-\s*/)].map(x=>arNorm(x).replace(/\s+/g,' ').trim()).filter(Boolean);
+  let best=null, score=0;
+  S.items.forEach(it=>{ const P=parts(it); let sc=0;
+    if(P.includes(n)) sc=100; else if(P.some(x=>x.startsWith(n)||n.startsWith(x))) sc=60; else if(P.some(x=>x.includes(n)||n.includes(x))) sc=40;
+    if(sc && (sc>score || (sc===score && best && it.name.length<best.name.length))){ best=it; score=sc; } });
+  return best;
+}
+function pcParse(text){
+  const out=[];
+  String(text||'').split(/\n+/).forEach(line=>{ let L=line.replace(/[٠-٩٫،]/g,c=>AR_DIG[c]).trim(); if(!L) return;
+    const m=L.match(/^(.*?)[\s:=\-]*(\d+(?:[.,]\d+)?)\s*([^\d\s]+)?\s*$/); if(!m || !m[1].trim()) return;
+    const name=m[1].trim(), qty=+m[2].replace(',','.'), unit=(m[3]||'').trim();
+    if(/جرد|بعد خروج/.test(name) && !qty) return;
+    const it=pcMatch(name); out.push({raw:line.trim(), name, qty, unit, itemId:it?it.id:''}); });
+  return out;
+}
+const isPcsUnit=u=>/^(حب|حبة|حبه|حبات|pcs?|قطعه|قطعة)$/i.test(String(u||'').trim());
+function pcPlan(P){
+  const rows=P.rows.map(r=>{ const it=item(r.itemId); if(!it) return {...r, err:'مش لاقي الصنف ده — اختاره من القايمة'};
+    let q=+r.qty; let conv='';
+    if(r.unit && isPcsUnit(r.unit) && !isPcsUnit(it.unit)){
+      if(+it.packSize>0 && isPcsUnit(it.packUnit)){ q=n2(q*it.packSize); conv=`${fmt(r.qty)} حبة × ${fmt(it.packSize)} = ${fmt(q)} ${it.unit}`; }
+      else { const per=(S.boKgPer||{})[it.name]||(S.boConv||{})[it.name]; if(+per>0){ q=n2(q*per); conv=`${fmt(r.qty)} حبة × ${fmt(per)} = ${fmt(q)} ${it.unit}`; } else return {...r, it, err:`الكمية بالحبة والصنف بالـ${it.unit} — اكتبها بالـ${it.unit}`}; } }
+    return {...r, it, actual:q, conv}; });
+  const listed=new Set(rows.filter(r=>r.it).map(r=>r.it.id));
+  let zero=[];
+  if(P.scope!=='none'){ const cats=new Set(rows.filter(r=>r.it).map(r=>r.it.cat));
+    zero=S.items.filter(it=>!listed.has(it.id) && !isUntracked(it.id) && (P.scope==='all' || cats.has(it.cat)) && Math.abs(calc(it).book)>0.001).map(it=>({it, actual:0, zero:true})); }
+  const base=[...rows.filter(r=>r.it&&!r.err), ...zero].map(r=>{ const b=calc(r.it).book; const rec=S.recipes.find(x=>x.outItemId===r.it.id && x.outQty>0);
+    return {...r, book:b, diff:n2(r.actual-b), rec}; });
+  // محاكاة: إنتاج المنتجات بيغيّر دفتري خاماتها قبل التسوية — عشان المعاينة تبيّن الفرق الحقيقي اللي هيتسجل
+  const delta=new Map(); const D=P.date||today();
+  base.filter(r=>r.rec && Math.abs(r.diff)>=0.005).forEach(r=>{
+    if(r.diff>0){ const bal=new Map(), ops=[], short=[]; planProduction(r.it.id, r.diff, bal, ops, short, 0, new Set([r.it.id]));
+      ops.forEach(op=>{ op.lines.forEach(l=>delta.set(l.itemId, n2((delta.get(l.itemId)||0)-l.qty))); delta.set(op.r.outItemId, n2((delta.get(op.r.outItemId)||0)+n2(op.r.outQty*op.b))); });
+      delta.set(r.it.id, n2((delta.get(r.it.id)||0)-r.diff)); }
+    else { const made=S.moves.filter(m=>m.date===D&&m.itemId===r.it.id&&m.dir==='in'&&m.runId).reduce((t,m)=>t+(+m.qty||0),0); const c=Math.min(-r.diff, made);
+      if(c>0) r.rec.lines.forEach(l=>delta.set(l.itemId, n2((delta.get(l.itemId)||0)+l.qty*c/r.rec.outQty))); } });
+  const all=base.map(r=>{ if(r.rec) return r; const dl=delta.get(r.it.id)||0; if(Math.abs(dl)<0.005) return r; const b=n2(r.book+dl); return {...r, book:b, diff:n2(r.actual-b), afterProd:dl}; });
+  return {rows, all, errs:rows.filter(r=>r.err)};
+}
+function pcModal(){
+  const P=ui.pc||(ui.pc={text:'',rows:[],scope:'cat',date:today()});
+  const L=P.rows.length?pcPlan(P):null; const opts=S.items.map(i=>`<option value="${esc(i.name)}">`).join('');
+  const kind=r=> Math.abs(r.diff)<0.005?'<span class="hint">مطابق</span>' : r.rec ? (r.diff>0?`<span class="chip g">إنتاج زيادة</span>`:`<span class="chip a">يقلّل إنتاج النهارده</span>`) : `<span class="chip ${r.diff>0?'b':'r'}">تسوية ${r.diff>0?'زيادة':'عجز'}</span>`;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:900px">
+    <h3>📋 جرد بعد الصرف</h3>
+    <div class="pad" style="max-height:74vh;overflow:auto">
+      <div class="hint" style="line-height:1.9;margin-bottom:8px">الزق القايمة زي ما هي (كل صنف في سطر: الاسم والكمية والوحدة). البرنامج هيقارن كل صنف بالدفتري:
+        <b>المنتجات اللي ليها وصفة</b> الفرق بيتسجل إنتاج (والخامات تتخصم) — <b>الخامات</b> الفرق اللي يفضل بيتسجل تسوية جرد. المنتجات بتتحسب الأول، فالخام بيتسوّى بعد ما إنتاجه يتخصم منه.</div>
+      <textarea id="pc-text" dir="rtl" rows="6" style="width:100%;font-size:14px;text-align:right" placeholder="كباب دجاج 3.87 كغ&#10;شاورما خام 200 كغ">${esc(P.text)}</textarea>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0">
+        <button class="btn p" data-act="pc-parse">حلّل القايمة</button>
+        <span class="hint">اليوم:</span><input type="date" id="pc-date" value="${esc(P.date)}">
+        <span class="hint">الأصناف اللي مش في القايمة:</span>
+        <select id="pc-scope"><option value="cat"${P.scope==='cat'?' selected':''}>نفس أقسام القايمة = صفر</option><option value="none"${P.scope==='none'?' selected':''}>سيبها زي ما هي</option><option value="all"${P.scope==='all'?' selected':''}>كل الأصناف = صفر</option></select>
+      </div>
+      <datalist id="pc-items">${opts}</datalist>
+      ${L?`<table class="gridcols"><thead><tr><th>اللي كتبته</th><th>الصنف في البرنامج</th><th class="n">الفعلي</th><th class="n">الدفتري</th><th class="n">الفرق</th><th>هيتسجل</th></tr></thead><tbody>
+        ${L.rows.map((r,i)=>{ const x=L.all.find(y=>!y.zero&&y.it&&r.it&&y.it.id===r.it.id&&y.raw===r.raw);
+          return `<tr><td style="font-size:12.5px">${esc(r.raw)}</td>
+          <td><input list="pc-items" data-pcname="${i}" value="${esc(r.it?r.it.name:'')}" style="width:220px"${r.err&&!r.it?' class="err"':''}>${r.err?`<div style="color:#A32D2D;font-size:11.5px">${esc(r.err)}</div>`:''}${r.conv?`<div class="hint">${esc(r.conv)}</div>`:''}</td>
+          <td class="n">${x?fmt(x.actual):'—'}</td><td class="n">${x?fmt(x.book):'—'}${x&&x.afterProd?`<div class="hint" style="font-size:11px">بعد ${x.afterProd>0?'رجوع':'خصم'} ${fmt(Math.abs(x.afterProd))} للإنتاج</div>`:''}</td>
+          <td class="n">${x?`<b style="color:${x.diff>0.005?'#2E7D32':x.diff<-0.005?'#A32D2D':'inherit'}">${x.diff>0?'+':''}${fmt(x.diff)}</b>`:'—'}</td><td>${x?kind(x):''}</td></tr>`; }).join('')}
+        ${L.all.filter(r=>r.zero).length?`<tr class="catrow"><td colspan="6">مش في القايمة — هيتسجلوا صفر (${L.all.filter(r=>r.zero).length})</td></tr>`+L.all.filter(r=>r.zero).map(r=>`<tr><td class="hint">—</td><td>${esc(r.it.name)}</td><td class="n">0</td><td class="n">${fmt(r.book)}</td><td class="n"><b style="color:${r.diff>0?'#2E7D32':'#A32D2D'}">${r.diff>0?'+':''}${fmt(r.diff)}</b></td><td>${kind(r)}</td></tr>`).join(''):''}
+      </tbody></table>`:''}
+    </div>
+    <div class="foot">${L&&L.all.some(r=>Math.abs(r.diff)>=0.005)?`<button class="btn p" data-act="pc-apply"${L.errs.length?' disabled title="صلّح الأسطر الحمرا الأول"':''}>سجّل الجرد (${L.all.filter(r=>Math.abs(r.diff)>=0.005).length} فرق)</button>`:''}<button class="btn" data-close="1">قفل</button></div>
+  </div></div>`;
+}
+function pcBind(){
+  const P=ui.pc; if(!P) return;
+  const t=$('#pc-text'); if(t) t.oninput=()=>{ P.text=t.value; };
+  const dt=$('#pc-date'); if(dt) dt.onchange=()=>{ P.date=dt.value; };
+  const sc=$('#pc-scope'); if(sc) sc.onchange=()=>{ P.scope=sc.value; ui.modal=pcModal(); render(); pcBind(); };
+  document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; ui.modal=pcModal(); render(); pcBind(); });
+}
 /* ================= 📝 الإنتاج الفعلي — آخر اليوم تكتب المصنع عمل كام، والبرنامج يسجّل الفرق ================= */
 function prodActualRows(D){
   const pids=new Set();
@@ -10460,6 +10542,34 @@ async function act(a,d){
     let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
   if(a==='hc-open'){ ui.hcOpen=true; HC_CACHE.k=''; ui.modal=healthModal(); return render(); }
+  if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:today()}; ui.modal=pcModal(); render(); pcBind(); return; }
+  if(a==='pc-parse'){ const P=ui.pc; P.text=($('#pc-text')||{}).value||P.text; P.rows=pcParse(P.text); if(!P.rows.length) return toast('مش لاقي أسطر فيها اسم وكمية',1); ui.modal=pcModal(); render(); pcBind(); return; }
+  if(a==='pc-apply'){
+    const P=ui.pc; const L=pcPlan(P); if(L.errs.length) return toast('صلّح الأسطر الحمرا الأول',1);
+    const D=P.date||today(); const ch=L.all.filter(r=>Math.abs(r.diff)>=0.005);
+    const prod=ch.filter(r=>r.rec), raw=ch.filter(r=>!r.rec);
+    if(!confirm(`جرد يوم ${D}:\n\n• ${prod.length} منتج: الفرق يتسجل إنتاج (زيادة أو تقليل)\n• ${raw.length} خامة/صنف: الفرق يتسجل تسوية جرد\n\nالأصناف اللي ليها وصفة بتتحسب الأول، وبعدين الخامات بتتسوّى على اللي فضل. تكمل؟`)) return;
+    const g=await guardBulk('جرد بعد الصرف — '+D); if(!g) return;
+    let made=0, cut=0, set=0; const batch=uid('settle');
+    const settle=(it,diff)=>{ if(Math.abs(diff)<0.005) return; set++;
+      if(diff>0) S.moves.push({id:uid('m'),dir:'in',itemId:it.id,qty:n2(diff),date:D,price:+it.price||0,party:'تسوية جرد (تلقائي)',reason:'',settleBatch:batch});
+      else S.moves.push({id:uid('m'),dir:'out',itemId:it.id,qty:n2(-diff),date:D,price:0,party:'',reason:'تسوية جرد',settleBatch:batch}); };
+    // 1) المنتجات: الزيادة إنتاج فعلي، النقص يقلّل إنتاج اليوم ده (ولو مفيش إنتاج يتقلل، الباقي تسوية)
+    for(const r of prod){ const diff=n2(r.actual-calc(r.it).book); if(Math.abs(diff)<0.005) continue;
+      if(diff>0){ const bal=new Map(), ops=[], short=[]; planProduction(r.it.id, diff, bal, ops, short, 0, new Set([r.it.id])); const top=ops.pop(); if(ops.length) commitProduction(ops, D); if(top) commitManual(top, D, 'من الجرد'); made++; }
+      else { let need=-diff; const runs=[...new Set(S.moves.filter(m=>m.date===D&&m.itemId===r.it.id&&m.dir==='in'&&m.runId).map(m=>m.runId))].reverse();
+        for(const id of runs){ if(need<=0.001) break; const mv=S.moves.filter(m=>m.runId===id); const om=mv.find(m=>m.dir==='in'&&m.itemId===r.it.id); if(!om||!(om.qty>0)) continue;
+          const c=Math.min(need, om.qty), k=1-c/om.qty; const run=(S.runs||[]).find(x=>x.id===id);
+          if(k<=0.0001){ mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const ids=new Set(mv.map(m=>m.id)); S.moves=S.moves.filter(m=>!ids.has(m.id)); S.runs=(S.runs||[]).filter(x=>x.id!==id); }
+          else { mv.forEach(m=>{ m.qty=n2(m.qty*k); }); if(run){ run.outQty=n2((+run.outQty||0)*k); run.cost=n2((+run.cost||0)*k); run.batches=n2((+run.batches||0)*k); } }
+          need=n2(need-c); cut++; }
+        if(need>0.005) settle(r.it, -need); } }
+    // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
+    for(const r of raw){ settle(r.it, n2(r.actual-calc(r.it).book)); }
+    markAutoRuns(); await saveTx();
+    await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية`);
+    toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية`);
+    ui.pc={text:'',rows:[],scope:P.scope,date:today()}; ui.modal=null; return render(); }
   if(a==='pa-open'){ ui.modal=prodActualModal(ui.paDate||today()); render(); prodActualBind(); return; }
   if(a==='pa-save'){
     const D=ui.paDate||today(); const rows=prodActualRows(D); const byId=new Map(rows.map(r=>[r.id,r]));
