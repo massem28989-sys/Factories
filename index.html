@@ -3976,7 +3976,7 @@ function boApplyOrders(allKeys, results, rk){
       if(!v) return;
       let data; try{ data=JSON.parse(v); }catch(e){ return; }
       ordersCount++; branches.add(data.branch);
-      orders.push({...data, _key: allKeys[i]}); // بنحتفظ بمفتاح السجل عشان نقدر نكتب فيه التعديل
+      orders.push({...data, _key: allKeys[i], _loaded: boSnapItems(data.items)}); // بنحتفظ بمفتاح السجل عشان نقدر نكتب فيه التعديل، وبنسخة من الكميات وقت التحميل عشان نسجّل أي تعديل
       (data.items||[]).forEach(it=>{
         if(!totals[it.name]) totals[it.name]={name:it.name, unit:it.unit, qty:0};
         totals[it.name].qty = n2(totals[it.name].qty + (+it.qty||0));
@@ -4263,6 +4263,7 @@ function viewBranchOrders(){
       ${isOwner()?`<button class="btn sm" data-act="bo-sync-prices" title="يخلي أسعار كتالوج الفروع = سعر تكلفة المصنع للأصناف المتطابقة">🔄 حدّث أسعار الفروع من المصنع</button>`:''}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
+      <button class="btn sm" data-act="bo-log">📜 سجل التعديلات</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
@@ -8188,12 +8189,28 @@ async function boOfferForce(fails, onDone){
   let n=0; for(const f of fails){ const res=dispenseOut(f.itemId, f.qty, today(), f.branch, 'صرف للفروع', true); if(res.move){ if(res.move) res.move.forced=true; n++; if(onDone) onDone(f,res); } }
   return n;
 }
+function boSnapItems(items){ return JSON.stringify((items||[]).map(x=>({name:x.name, unit:x.unit||'', qty:+x.qty||0, orig:x.orig}))); }
+// سجل تعديلات الطلبية: أي كمية تتغير من المصنع بتتسجل (مين وإمتى ومن كام لكام)، والسطر بيحتفظ باللي الفرع طلبه أصلًا في «orig»
+function boTrackChanges(order){
+  const prev=JSON.parse(order._loaded||'[]'); const pm=new Map(prev.map(x=>[x.name,x])); const cur=order.items||[]; const cm=new Map(cur.map(x=>[x.name,x]));
+  const ch=[]; const removed=[];
+  cur.forEach(l=>{ const p=pm.get(l.name); const from=p?+p.qty||0:0, to=+l.qty||0; if(Math.abs(from-to)<0.0001) return;
+    if(l.orig===undefined || l.orig===null) l.orig = p ? (p.orig!=null ? p.orig : from) : 0;
+    ch.push({name:l.name, unit:l.unit||'', from, to, orig:l.orig}); });
+  prev.forEach(p=>{ if(cm.has(p.name)) return; const o=p.orig!=null?p.orig:p.qty; ch.push({name:p.name, unit:p.unit||'', from:+p.qty||0, to:0, orig:o}); removed.push({name:p.name, unit:p.unit||'', qty:+p.qty||0, orig:o, at:new Date().toISOString()}); });
+  if(!ch.length) return null;
+  return { entry:{ at:new Date().toISOString(), by:(AUTH&&AUTH.user&&AUTH.user.email)||ROLE||'', changes:ch }, removed };
+}
 async function boSaveOrder(order){
   if(!order || !order._key) { toast('تعذر تحديد الطلبية',1); return false; }
+  const T=boTrackChanges(order);
   const payload = {...order};
-  delete payload._key;
+  delete payload._key; delete payload._loaded;
+  if(T){ payload.log=[...(order.log||[]), T.entry].slice(-200); if(T.removed.length) payload.removed=[...(order.removed||[]).filter(r=>!T.removed.some(x=>x.name===r.name)), ...T.removed]; }
   const ok = await faroojSet(order._key, JSON.stringify(payload)).catch(()=>false);
   if(!ok){ toast('حصل خطأ أثناء الحفظ في طلبية الفرع',1); return false; }
+  if(T){ order.log=payload.log; if(payload.removed) order.removed=payload.removed; }
+  order._loaded=boSnapItems(order.items);
   try{ Object.keys(BO_CACHE).forEach(k=>delete BO_CACHE[k]); }catch(e){}
   // نعيد حساب الإجماليات بعد التعديل عشان جدول "الإجمالي المطلوب" يبان صح
   const totals={};
@@ -9015,13 +9032,30 @@ function boNaderBranchHtml(rows,B){
     </table></div>`;
 }
 /* تعديل سهل: تختار فرع وتشوف طلبيته كقايمة كبيرة واضحة (أو تختار صنف وتشوف كل الفروع) وتعدّل بـ − / + */
+function boLogModal(){
+  const rows=[]; BO.orders.forEach(o=>(o.log||[]).forEach(e=>(e.changes||[]).forEach(c=>rows.push({branch:o.branch, at:e.at, by:e.by, ...c}))));
+  rows.sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+  const q=String(BO.logQ||'').trim(); const shown=q?rows.filter(r=>r.branch.includes(q)||boLabel(r.name).includes(q)||r.name.includes(q)):rows;
+  const fmtT=x=>x?new Date(x).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-';
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:860px">
+    <h3>📜 سجل تعديلات الطلبيات <em class="hint">${esc(BO.from||'')}${BO.to&&BO.to!==BO.from?' → '+esc(BO.to):''}</em></h3>
+    <div class="pad" style="max-height:72vh;overflow:auto">
+      <input type="text" id="bolog-q" placeholder="دوّر بالفرع أو الصنف…" value="${esc(q)}" style="width:100%;margin-bottom:8px">
+      ${shown.length?`<table class="gridcols"><thead><tr><th>الوقت</th><th>الفرع</th><th>الصنف</th><th class="n">الفرع طلب</th><th class="n">من</th><th class="n">إلى</th><th>مين</th></tr></thead><tbody>
+      ${shown.map(r=>`<tr><td style="font-size:12px;white-space:nowrap">${fmtT(r.at)}</td><td>${esc(r.branch)}</td><td><b>${esc(boLabel(r.name))}</b></td>
+        <td class="n">${r.orig!=null?fmt(r.orig):'—'} ${esc(r.unit)}</td><td class="n">${fmt(r.from)}</td><td class="n"><b style="color:${r.to<r.from?'#A32D2D':'#2E7D32'}">${fmt(r.to)}</b>${r.to===0?' <span class="hint">(اتشال)</span>':''}</td><td style="font-size:12px">${esc(r.by||'')}</td></tr>`).join('')}
+      </tbody></table>`:`<div class="empty">${rows.length?'مفيش نتايج للبحث':'مفيش تعديلات متسجلة على طلبيات الفترة دي. (التسجيل بدأ من النسخة دي — التعديلات اللي قبلها ما اتحفظتش)'}</div>`}
+    </div><div class="foot"><button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
 function boEditHtml(){
   const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
   const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
   const mode=BO.editMode||'branch';
   const allItems=boAllItems().map(it=>({...it,label:boLabel(it.name)})).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
   const qOf=(oi,n)=>{ const f=(BO.orders[oi].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; };
-  const row=(oi,n,label,unit,sub)=>{ const v=qOf(oi,n); return `<div class="ed-row${v>0?' on':''}">
+  const row=(oi,n,label,unit,sub)=>{ const v=qOf(oi,n); const o=BO.orders[oi]; const f=(o.items||[]).find(x=>x.name===n)||(o.removed||[]).find(x=>x.name===n);
+      if(f && f.orig!=null && Math.abs(+f.orig-v)>0.0001) sub=(sub?sub+' · ':'')+`<span style="color:#B25E10">الفرع طلب ${fmt(+f.orig)}</span>`;
+      return `<div class="ed-row${v>0?' on':''}">
       <div class="ed-name"><b>${esc(label)}</b>${sub?`<small>${sub}</small>`:''}</div>
       <div class="ed-ctl"><button class="ed-b" type="button" data-edstep="-1">−</button>
         <input type="number" step="any" min="0" inputmode="decimal" value="${v||''}" placeholder="0" data-bocell="${oi}:${esc(n)}">
@@ -9256,10 +9290,18 @@ function pcPlan(P){
   const all=base.map(r=>{ if(r.rec) return r; const dl=delta.get(r.it.id)||0; if(Math.abs(dl)<0.005) return r; const b=n2(r.book+dl); return {...r, book:b, diff:n2(r.actual-b), afterProd:dl}; });
   return {rows, all, errs:rows.filter(r=>r.err)};
 }
+const PRE_REASON='استهلاك قبل بدء البرنامج';
+function pcGoLive(){ // أول يوم صرف للفروع اتسجل على البرنامج الشهر ده، ولو في وارد قبله يبقى الاستهلاك اللي قبله ما اتسجلش
+  const ds=S.moves.filter(m=>m.dir==='out'&&m.reason==='صرف للفروع').map(m=>m.date).sort(); if(!ds.length) return null;
+  const first=ds[0]; const before=S.moves.some(m=>m.dir==='in'&&!m.runId&&m.date<first);
+  const x=new Date(first+'T12:00:00'); x.setDate(x.getDate()-1); return {first, pre:ymdLocal(x), before};
+}
 function pcModal(){
   const P=ui.pc||(ui.pc={text:'',rows:[],scope:'cat',date:today()});
+  if(!P.mode){ const G=pcGoLive(); P.mode=G&&G.before&&!(S.moves||[]).some(m=>m.reason===PRE_REASON)?'pre':'settle'; P.preDate=G?G.pre:today(); }
   const L=P.rows.length?pcPlan(P):null; const opts=S.items.map(i=>`<option value="${esc(i.name)}">`).join('');
-  const kind=r=> Math.abs(r.diff)<0.005?'<span class="hint">مطابق</span>' : r.rec ? (r.diff>0?`<span class="chip g">إنتاج زيادة</span>`:`<span class="chip a">يقلّل إنتاج النهارده</span>`) : `<span class="chip ${r.diff>0?'b':'r'}">تسوية ${r.diff>0?'زيادة':'عجز'}</span>`;
+  const kind=r=> Math.abs(r.diff)<0.005?'<span class="hint">مطابق</span>' : r.rec ? (r.diff>0?`<span class="chip g">إنتاج زيادة</span>`:`<span class="chip a">يقلّل إنتاج النهارده</span>`) : (r.diff<0&&P.mode==='pre')?`<span class="chip b">استهلاك قبل البرنامج</span>`:`<span class="chip ${r.diff>0?'b':'r'}">تسوية ${r.diff>0?'زيادة':'عجز'}</span>`;
+  const G=pcGoLive();
   return `<div class="modal" data-close="1"><div class="box" style="max-width:900px">
     <h3>📋 جرد بعد الصرف</h3>
     <div class="pad" style="max-height:74vh;overflow:auto">
@@ -9271,6 +9313,11 @@ function pcModal(){
         <span class="hint">اليوم:</span><input type="date" id="pc-date" value="${esc(P.date)}">
         <span class="hint">الأصناف اللي مش في القايمة:</span>
         <select id="pc-scope"><option value="cat"${P.scope==='cat'?' selected':''}>نفس أقسام القايمة = صفر</option><option value="none"${P.scope==='none'?' selected':''}>سيبها زي ما هي</option><option value="all"${P.scope==='all'?' selected':''}>كل الأصناف = صفر</option></select>
+      </div>
+      <div style="border:1px dashed #5F6B73;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.9">
+        <b>الخامات اللي الفعلي بتاعها أقل من الدفتري:</b>
+        <label style="display:block"><input type="radio" name="pc-mode" value="pre"${P.mode==='pre'?' checked':''}> <b>استهلاك قبل بدء البرنامج</b> — الوارد متسجل من أول الشهر بس الصرف بدأ على البرنامج ${G?`يوم ${esc(G.first)}`:'متأخر'}، فاللي اتصرف قبل كده ما اتسجلش. هيتسجل بتاريخ <input type="date" id="pc-predate" value="${esc(P.preDate||'')}" style="padding:1px 4px"> ومش هيتحسب عجز ولا هالك.</label>
+        <label style="display:block"><input type="radio" name="pc-mode" value="settle"${P.mode==='settle'?' checked':''}> <b>تسوية جرد (عجز)</b> — الصنف ناقص فعلًا (هالك، فقد، أو صرف ما اتسجلش النهارده).</label>
       </div>
       <datalist id="pc-items">${opts}</datalist>
       ${L?`<table class="gridcols"><thead><tr><th>اللي كتبته</th><th>الصنف في البرنامج</th><th class="n">الفعلي</th><th class="n">الدفتري</th><th class="n">الفرق</th><th>هيتسجل</th></tr></thead><tbody>
@@ -9290,6 +9337,8 @@ function pcBind(){
   const t=$('#pc-text'); if(t) t.oninput=()=>{ P.text=t.value; };
   const dt=$('#pc-date'); if(dt) dt.onchange=()=>{ P.date=dt.value; };
   const sc=$('#pc-scope'); if(sc) sc.onchange=()=>{ P.scope=sc.value; ui.modal=pcModal(); render(); pcBind(); };
+  document.querySelectorAll('[name="pc-mode"]').forEach(r=>r.onchange=()=>{ P.mode=r.value; ui.modal=pcModal(); render(); pcBind(); });
+  const pd=$('#pc-predate'); if(pd) pd.onchange=()=>{ P.preDate=pd.value; };
   document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; ui.modal=pcModal(); render(); pcBind(); });
 }
 /* ================= 📝 الإنتاج الفعلي — آخر اليوم تكتب المصنع عمل كام، والبرنامج يسجّل الفرق ================= */
@@ -10548,10 +10597,13 @@ async function act(a,d){
     const P=ui.pc; const L=pcPlan(P); if(L.errs.length) return toast('صلّح الأسطر الحمرا الأول',1);
     const D=P.date||today(); const ch=L.all.filter(r=>Math.abs(r.diff)>=0.005);
     const prod=ch.filter(r=>r.rec), raw=ch.filter(r=>!r.rec);
-    if(!confirm(`جرد يوم ${D}:\n\n• ${prod.length} منتج: الفرق يتسجل إنتاج (زيادة أو تقليل)\n• ${raw.length} خامة/صنف: الفرق يتسجل تسوية جرد\n\nالأصناف اللي ليها وصفة بتتحسب الأول، وبعدين الخامات بتتسوّى على اللي فضل. تكمل؟`)) return;
+    if(!confirm(`جرد يوم ${D}:\n\n• ${prod.length} منتج: الفرق يتسجل إنتاج (زيادة أو تقليل)\n• ${raw.length} خامة/صنف: ${P.mode==='pre'?`النقص يتسجل «${PRE_REASON}» بتاريخ ${P.preDate} والزيادة تسوية`:'الفرق يتسجل تسوية جرد'}\n\nالأصناف اللي ليها وصفة بتتحسب الأول، وبعدين الخامات بتتسوّى على اللي فضل. تكمل؟`)) return;
     const g=await guardBulk('جرد بعد الصرف — '+D); if(!g) return;
     let made=0, cut=0, set=0; const batch=uid('settle');
-    const settle=(it,diff)=>{ if(Math.abs(diff)<0.005) return; set++;
+    let pre=0; const preD=P.preDate||D;
+    const settle=(it,diff,allowPre)=>{ if(Math.abs(diff)<0.005) return;
+      if(diff<0 && allowPre && P.mode==='pre'){ pre++; S.moves.push({id:uid('m'),dir:'out',itemId:it.id,qty:n2(-diff),date:preD,price:0,party:'',reason:PRE_REASON,settleBatch:batch}); return; }
+      set++;
       if(diff>0) S.moves.push({id:uid('m'),dir:'in',itemId:it.id,qty:n2(diff),date:D,price:+it.price||0,party:'تسوية جرد (تلقائي)',reason:'',settleBatch:batch});
       else S.moves.push({id:uid('m'),dir:'out',itemId:it.id,qty:n2(-diff),date:D,price:0,party:'',reason:'تسوية جرد',settleBatch:batch}); };
     // 1) المنتجات: الزيادة إنتاج فعلي، النقص يقلّل إنتاج اليوم ده (ولو مفيش إنتاج يتقلل، الباقي تسوية)
@@ -10565,10 +10617,10 @@ async function act(a,d){
           need=n2(need-c); cut++; }
         if(need>0.005) settle(r.it, -need); } }
     // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
-    for(const r of raw){ settle(r.it, n2(r.actual-calc(r.it).book)); }
+    for(const r of raw){ settle(r.it, n2(r.actual-calc(r.it).book), true); }
     markAutoRuns(); await saveTx();
-    await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية`);
-    toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية`);
+    await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
+    toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
     ui.pc={text:'',rows:[],scope:P.scope,date:today()}; ui.modal=null; return render(); }
   if(a==='pa-open'){ ui.modal=prodActualModal(ui.paDate||today()); render(); prodActualBind(); return; }
   if(a==='pa-save'){
@@ -10621,6 +10673,8 @@ async function act(a,d){
     await saveTx(); await logOp(g, `${gone} تشغيلة من غير حركات اتشالت · ${fixed} اتظبطت كميتها · ${added} اتضافت`);
     toast(`السجل اتطابق ✓ (${gone} اتشالت، ${fixed} اتظبطت، ${added} اتضافت)`); ui.modal=healthModal(); return render(); }
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
+  if(a==='bo-log'){ ui.modal=boLogModal(); render(); const q=$('#bolog-q'); if(q){ q.oninput=()=>{ BO.logQ=q.value; const p=q.selectionStart; ui.modal=boLogModal(); render(); const n=$('#bolog-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } act('bo-log-bind',{}); }; } return; }
+  if(a==='bo-log-bind'){ const q=$('#bolog-q'); if(q) q.oninput=()=>{ BO.logQ=q.value; const p=q.selectionStart; ui.modal=boLogModal(); render(); const n=$('#bolog-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } act('bo-log-bind',{}); }; return; }
   if(a==='bo-audit-redate'){ const A=boAudit(($('#aud-date')||{}).value); const ids=new Set(A.rows.filter(r=>r.st==='other-day').flatMap(r=>r.otherIds||[]));
     if(!ids.size) return; if(!confirm(`هتتنقل ${ids.size} حركة صرف (ومعاها حركات الإنتاج التلقائي بتاعتها) ليوم ${A.D}. الرصيد مش هيتغير. تكمل؟`)) return;
     const g=await guardBulk('نقل حركات ليوم '+A.D); if(!g) return;
