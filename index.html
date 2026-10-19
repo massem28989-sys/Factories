@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-10 · 14:20';
+const APP_BUILD = '19-10 · 18:40';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -9275,6 +9275,10 @@ function pcParse(text){
 const isPcsUnit=u=>/^(حب|حبة|حبه|حبات|pcs?|قطعه|قطعة)$/i.test(String(u||'').trim());
 // الرصيد الدفتري أول يوم D (قبل أي حركة في اليوم ده)
 function bookAt(it, D){ let q=+it.opening||0; for(const m of S.moves){ if(m.itemId!==it.id || !(m.date<D)) continue; q+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); } return n2(q); }
+// وارد اليوم (شراء/استلام) للصنف — الجرد غالبًا بيتعمل قبل الاستلام، فاللي مش متعلّم «داخل في الجرد» بيتشال من الدفتري وقت المقارنة
+function pcTodayIns(it, D){ return S.moves.filter(m=>m.itemId===it.id&&m.dir==='in'&&!m.runId&&m.date===D&&!/تسوية/.test(m.party||'')); }
+function pcBook(it, P){ const D=P.date||today(); if(P.when==='start') return bookAt(it, D);
+  const ex=pcTodayIns(it, D).filter(m=>!(P.incl&&P.incl[m.id])).reduce((t,m)=>t+(+m.qty||0),0); return n2(calc(it).book-ex); }
 function pcPlan(P){
   const rows=P.rows.map(r=>{ const it=item(r.itemId); if(!it) return {...r, err:'مش لاقي الصنف ده — اختاره من القايمة'};
     let q=+r.qty; let conv='';
@@ -9287,7 +9291,7 @@ function pcPlan(P){
   if(P.scope!=='none'){ const cats=new Set(rows.filter(r=>r.it).map(r=>r.it.cat));
     zero=S.items.filter(it=>!listed.has(it.id) && !isUntracked(it.id) && (P.scope==='all' || cats.has(it.cat)) && Math.abs(calc(it).book)>0.001).map(it=>({it, actual:0, zero:true})); }
   const startMode=P.when==='start';
-  const base=[...rows.filter(r=>r.it&&!r.err), ...zero].map(r=>{ const b=startMode?bookAt(r.it, P.date||today()):calc(r.it).book;
+  const base=[...rows.filter(r=>r.it&&!r.err), ...zero].map(r=>{ const b=pcBook(r.it, P);
     // جرد أول اليوم: الإنتاج حصل بعده، فالفرق كله تسوية (مش إنتاج)
     const rec=startMode?null:S.recipes.find(x=>x.outItemId===r.it.id && x.outQty>0);
     return {...r, book:b, diff:n2(r.actual-b), rec}; });
@@ -9317,6 +9321,7 @@ function pcModal(){
   return `<div class="modal" data-close="1"><div class="box" style="max-width:900px">
     <h3>📋 جرد بعد الصرف</h3>
     <div class="pad" style="max-height:74vh;overflow:auto">
+      <div class="warnbar" style="margin-bottom:8px">⚠ استلام النهارده: سجّله في البرنامج عادي (قبل أو بعد الجرد). تحت كل صنف هتلاقي استلامات النهارده — علّم <b>«داخل في الجرد»</b> بس على الاستلام اللي وصل <b>قبل</b> ما تعد. اللي مش متعلّم بيتشال من الدفتري وقت المقارنة.</div>
       <div class="hint" style="line-height:1.9;margin-bottom:8px">الزق القايمة زي ما هي (كل صنف في سطر: الاسم والكمية والوحدة). البرنامج هيقارن كل صنف بالدفتري:
         <b>المنتجات اللي ليها وصفة</b> الفرق بيتسجل إنتاج (والخامات تتخصم) — <b>الخامات</b> الفرق اللي يفضل بيتسجل تسوية جرد. المنتجات بتتحسب الأول، فالخام بيتسوّى بعد ما إنتاجه يتخصم منه.</div>
       <textarea id="pc-text" dir="rtl" rows="6" style="width:100%;font-size:14px;text-align:right" placeholder="كباب دجاج 3.87 كغ&#10;شاورما خام 200 كغ">${esc(P.text)}</textarea>
@@ -9341,7 +9346,10 @@ function pcModal(){
         ${L.rows.map((r,i)=>{ const x=L.all.find(y=>!y.zero&&y.it&&r.it&&y.it.id===r.it.id&&y.raw===r.raw);
           return `<tr><td style="font-size:12.5px">${esc(r.raw)}</td>
           <td><input list="pc-items" data-pcname="${i}" value="${esc(r.it?r.it.name:'')}" style="width:220px"${r.err&&!r.it?' class="err"':''}>${r.err?`<div style="color:#A32D2D;font-size:11.5px">${esc(r.err)}</div>`:''}${r.conv?`<div class="hint">${esc(r.conv)}</div>`:''}</td>
-          <td class="n">${x?fmt(x.actual):'—'}</td><td class="n">${x?fmt(x.book):'—'}${x&&x.afterProd?`<div class="hint" style="font-size:11px">بعد ${x.afterProd>0?'رجوع':'خصم'} ${fmt(Math.abs(x.afterProd))} للإنتاج</div>`:''}</td>
+          <td class="n">${x?fmt(x.actual):'—'}</td><td class="n">${x?fmt(x.book):'—'}${x?(()=>{ const D=P.date||today(); const ins=pcTodayIns(x.it, D);
+            if(ins.length) return P.when==='start' ? `<div style="font-size:11px;color:#8A4A0B">وارد اليوم ده ${fmt(n2(ins.reduce((t,m)=>t+(+m.qty||0),0)))} مش داخل — بيتضاف بعد الجرد</div>`
+              : ins.map(m=>`<label style="display:block;font-size:11px;white-space:nowrap;cursor:pointer"><input type="checkbox" data-pcin="${esc(m.id)}"${P.incl&&P.incl[m.id]?' checked':''}> وارد ${esc(m.party||'')} ${fmt(m.qty)} داخل في الجرد</label>`).join('');
+            return x.diff>0.005&&!x.rec?`<div style="font-size:11px;color:#A32D2D">مفيش وارد متسجل النهارده — لو استلمت، سجّل الاستلام الأول</div>`:''; })():''}${x&&x.afterProd?`<div class="hint" style="font-size:11px">بعد ${x.afterProd>0?'رجوع':'خصم'} ${fmt(Math.abs(x.afterProd))} للإنتاج</div>`:''}</td>
           <td class="n">${x?`<b style="color:${x.diff>0.005?'#2E7D32':x.diff<-0.005?'#A32D2D':'inherit'}">${x.diff>0?'+':''}${fmt(x.diff)}</b>`:'—'}</td><td>${x?kind(x):''}</td></tr>`; }).join('')}
         ${L.all.filter(r=>r.zero).length?`<tr class="catrow"><td colspan="6">مش في القايمة — هيتسجلوا صفر (${L.all.filter(r=>r.zero).length})</td></tr>`+L.all.filter(r=>r.zero).map(r=>`<tr><td class="hint">—</td><td>${esc(r.it.name)}</td><td class="n">0</td><td class="n">${fmt(r.book)}</td><td class="n"><b style="color:${r.diff>0?'#2E7D32':'#A32D2D'}">${r.diff>0?'+':''}${fmt(r.diff)}</b></td><td>${kind(r)}</td></tr>`).join(''):''}
       </tbody></table>`:''}
@@ -9356,6 +9364,7 @@ function pcBind(){
   const sc=$('#pc-scope'); if(sc) sc.onchange=()=>{ P.scope=sc.value; ui.modal=pcModal(); render(); pcBind(); };
   document.querySelectorAll('[name="pc-mode"]').forEach(r=>r.onchange=()=>{ P.mode=r.value; ui.modal=pcModal(); render(); pcBind(); });
   document.querySelectorAll('[name="pc-when"]').forEach(r=>r.onchange=()=>{ P.when=r.value; ui.modal=pcModal(); render(); pcBind(); });
+  document.querySelectorAll('[data-pcin]').forEach(c=>c.onchange=()=>{ P.incl=P.incl||{}; if(c.checked) P.incl[c.dataset.pcin]=1; else delete P.incl[c.dataset.pcin]; ui.modal=pcModal(); render(); pcBind(); });
   const pd=$('#pc-predate'); if(pd) pd.onchange=()=>{ P.preDate=pd.value; };
   document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; ui.modal=pcModal(); render(); pcBind(); });
 }
@@ -10645,7 +10654,7 @@ async function act(a,d){
       if(diff>0) S.moves.push({id:uid('m'),dir:'in',itemId:it.id,qty:n2(diff),date:D,price:+it.price||0,party:'تسوية جرد (تلقائي)',reason:'',settleBatch:batch});
       else S.moves.push({id:uid('m'),dir:'out',itemId:it.id,qty:n2(-diff),date:D,price:0,party:'',reason:'تسوية جرد',settleBatch:batch}); };
     // 1) المنتجات: الزيادة إنتاج فعلي، النقص يقلّل إنتاج اليوم ده (ولو مفيش إنتاج يتقلل، الباقي تسوية)
-    for(const r of prod){ const diff=n2(r.actual-calc(r.it).book); if(Math.abs(diff)<0.005) continue;
+    for(const r of prod){ const diff=n2(r.actual-pcBook(r.it, P)); if(Math.abs(diff)<0.005) continue;
       if(diff>0){ const bal=new Map(), ops=[], short=[]; planProduction(r.it.id, diff, bal, ops, short, 0, new Set([r.it.id])); const top=ops.pop(); if(ops.length) commitProduction(ops, D); if(top) commitManual(top, D, 'من الجرد'); made++; }
       else { let need=-diff; const runs=[...new Set(S.moves.filter(m=>m.date===D&&m.itemId===r.it.id&&m.dir==='in'&&m.runId).map(m=>m.runId))].reverse();
         for(const id of runs){ if(need<=0.001) break; const mv=S.moves.filter(m=>m.runId===id); const om=mv.find(m=>m.dir==='in'&&m.itemId===r.it.id); if(!om||!(om.qty>0)) continue;
@@ -10655,11 +10664,11 @@ async function act(a,d){
           need=n2(need-c); cut++; }
         if(need>0.005) settle(r.it, -need); } }
     // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
-    for(const r of raw){ settle(r.it, n2(r.actual-(P.when==='start'?bookAt(r.it, D):calc(r.it).book)), true); }
+    for(const r of raw){ settle(r.it, n2(r.actual-pcBook(r.it, P)), true); }
     markAutoRuns(); await saveTx();
     await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
     toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
-    ui.pc={text:'',rows:[],scope:P.scope,date:today()}; ui.modal=null; return render(); }
+    ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=null; return render(); }
   if(a==='pa-open'){ ui.modal=prodActualModal(ui.paDate||today()); render(); prodActualBind(); return; }
   if(a==='pa-save'){
     const D=ui.paDate||today(); const rows=prodActualRows(D); const byId=new Map(rows.map(r=>[r.id,r]));
