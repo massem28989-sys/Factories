@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-10 · 01:15';
+const APP_BUILD = '20-10 · 01:40';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3972,11 +3972,15 @@ async function fetchBranchOrders(){
 }
 function boApplyOrders(allKeys, results, rk){
   {
-    const totals={}; const branches=new Set(); const orders=[]; let ordersCount=0;
+    const totals={}; const branches=new Set(); const orders=[]; let ordersCount=0; BO._badKeys=new Map();
     results.forEach((v,i)=>{
       if(!v) return;
       let data; try{ data=JSON.parse(v); }catch(e){ return; }
       ordersCount++; branches.add(data.branch);
+      { const ks=String(allKeys[i]).split(':').slice(2).join(':'); const sl=String(data.branch||'').replace(/\s+/g,'_').replace(/["'\/\\]/g,'');
+        // نسخة مطابقة لطلبية فرع تاني (نفس الفرع ونفس وقت الإرسال) متخزنة بمفتاح فرع غيره — السيرفر كتبها فوق طلبية الفرع ده. مش بنعرضها ولا بنصرف منها
+        if(ks && sl && ks!==sl && results.some((v2,j)=>{ if(j===i||!v2) return false; try{ const d2=JSON.parse(v2); return d2.branch===data.branch && d2.submittedAt===data.submittedAt && String(allKeys[j]).split(':').slice(2).join(':')===sl; }catch(e){ return false; } })){
+          (BO._badKeys=BO._badKeys||new Map()).set(allKeys[i], data.branch); ordersCount--; return; } }
       orders.push({...data, _key: allKeys[i], _loaded: boSnapItems(data.items)}); // بنحتفظ بمفتاح السجل عشان نقدر نكتب فيه التعديل، وبنسخة من الكميات وقت التحميل عشان نسجّل أي تعديل
       (data.items||[]).forEach(it=>{
         if(!totals[it.name]) totals[it.name]={name:it.name, unit:it.unit, qty:0};
@@ -4265,7 +4269,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm" data-act="bo-log">📜 سجل التعديلات</button>
-      <button class="btn sm" data-act="bo-raw">🔎 الطلبيات على السيرفر</button>
+      <button class="btn sm${BO._badKeys&&BO._badKeys.size?' danger':''}" data-act="bo-raw">🔎 الطلبيات على السيرفر${BO._badKeys&&BO._badKeys.size?` ⚠ ${BO._badKeys.size}`:''}</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
@@ -8209,6 +8213,7 @@ function boTrackChanges(order){
 }
 async function boSaveOrder(order){
   if(!order || !order._key) { toast('تعذر تحديد الطلبية',1); return false; }
+  if(BO._badKeys && BO._badKeys.has(order._key)){ toast('الطلبية دي نسخة غلط متخزنة بمفتاح فرع تاني — مش هتتحفظ. افتح «🔎 الطلبيات على السيرفر»',1); return false; }
   const T=boTrackChanges(order);
   const payload = {...order};
   delete payload._key; delete payload._loaded;
@@ -9048,6 +9053,7 @@ function boNaderBranchHtml(rows,B){
 // تفاصيل خام لكل طلبية على الجسر: المفتاح، الفرع اللي جوه الطلبية، التاريخ، وقت الإرسال — بيكشف أي طلبية متسجلة باسم فرع غلط أو مكررة
 function boRawModal(){
   const slug=b=>String(b||'').replace(/\s+/g,'_').replace(/["'\/\\]/g,'');
+  const badList=[...(BO._badKeys||new Map()).entries()];
   const rows=BO.orders.map(o=>{ const k=String(o._key||''); const parts=k.split(':'); const kd=parts[1]||'', ks=parts.slice(2).join(':');
     return {o, k, kd, ks, okBranch: ks===slug(o.branch), okDate: !o.date || o.date===kd}; });
   const cnt=new Map(); rows.forEach(r=>cnt.set(r.o.branch,(cnt.get(r.o.branch)||0)+1));
@@ -9058,6 +9064,9 @@ function boRawModal(){
     <h3>🔎 الطلبيات زي ما هي على السيرفر <em class="hint">${esc(BO.from)}${BO.to!==BO.from?' → '+esc(BO.to):''} · ${rows.length} طلبية</em></h3>
     <div class="pad" style="max-height:72vh;overflow:auto">
       ${BO.from!==BO.to?`<div class="warnbar" style="margin-bottom:8px">⚠ معروض أكتر من يوم (${esc(BO.from)} → ${esc(BO.to)}) — فرع طلب في اليومين هيظهر مرتين. اختار يوم واحد.</div>`:''}
+      ${badList.length?`<div style="border:2px solid #A32D2D;border-radius:10px;padding:10px 12px;margin-bottom:10px;line-height:1.9"><b style="color:#A32D2D">⛔ طلبيات متخزنة بمفتاح فرع تاني (${badList.length}) — اتشالت من الشاشة ومش هتتصرف</b>
+        ${badList.map(([k,b])=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px"><span>مفتاح <b style="direction:ltr;display:inline-block">${esc(k.split(':').slice(2).join(':'))}</b> جواه طلبية <b>${esc(b)}</b></span><button class="btn sm danger" data-act="bo-raw-del" data-k="${esc(k)}">🗑 امسحها عشان الفرع يبعت طلبيته تاني</button></div>`).join('')}
+        <div class="hint" style="margin-top:6px">طلبية الفرع الأصلية اتكتب فوقها على السيرفر — بعد المسح اطلب من الفرع يبعت طلبيته تاني من البرنامج.</div></div>`:''}
       ${bad.length?`<div class="warnbar" style="margin-bottom:8px">⛔ ${bad.length} طلبية فيها مشكلة — متعلّمة بالأحمر تحت.</div>`:`<div style="background:#E8F5EC;color:#2E7D32;border-radius:10px;padding:8px 12px;margin-bottom:8px">✅ كل طلبية متسجلة باسم فرعها ومفيش تكرار</div>`}
       ${missing.length?`<div class="hint" style="margin-bottom:8px"><b>فروع ما طلبتش في الفترة دي (${missing.length}):</b> ${missing.map(esc).join('، ')}</div>`:''}
       <table class="gridcols"><thead><tr><th>الفرع جوه الطلبية</th><th>مفتاح السيرفر</th><th>التاريخ</th><th>وقت الإرسال</th><th class="n">أصناف</th><th>ملاحظة</th></tr></thead><tbody>
@@ -10752,6 +10761,11 @@ async function act(a,d){
     toast(`السجل اتطابق ✓ (${gone} اتشالت، ${fixed} اتظبطت، ${added} اتضافت)`); ui.modal=healthModal(); return render(); }
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
   if(a==='bo-raw'){ ui.modal=boRawModal(); return render(); }
+  if(a==='bo-raw-del'){ const k=d.k; const b=(BO._badKeys||new Map()).get(k); const ks=String(k).split(':').slice(2).join(':');
+    if(!confirm(`هيتمسح من السيرفر المفتاح «${ks}» اللي جواه طلبية «${b}» (نسخة غلط).\n\nطلبية «${b}» الأصلية في مفتاحها هتفضل زي ما هي. بعد المسح الفرع صاحب المفتاح يقدر يبعت طلبيته تاني. تكمل؟`)) return;
+    try{ const r=await faroojRequest({action:'delete', key:k}); if(!r || r.success===false) throw new Error((r&&r.error)||'');
+      BO._badKeys.delete(k); try{ Object.keys(BO_CACHE).forEach(x=>delete BO_CACHE[x]); }catch(e){} toast('اتمسحت ✓ — اطلب من الفرع يبعت طلبيته تاني'); await fetchBranchOrders(); ui.modal=boRawModal(); return render(); }
+    catch(e){ toast('تعذر المسح من السيرفر'+(e.message?': '+e.message:'')+' — امسحها من برنامج الفروع (حذف السجلات ← طلبية المصنع)',1); } return; }
   if(a==='bo-raw-copy'){ const t=BO.orders.map(o=>`${o.branch} | ${o._key} | ${o.submittedAt||''} | ${(o.items||[]).length} صنف`).join('\n'); try{ await navigator.clipboard.writeText(t); toast('اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ:',t); } return; }
   if(a==='bo-log'){ ui.modal=boLogModal(); render(); const q=$('#bolog-q'); if(q){ q.oninput=()=>{ BO.logQ=q.value; const p=q.selectionStart; ui.modal=boLogModal(); render(); const n=$('#bolog-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } act('bo-log-bind',{}); }; } return; }
   if(a==='bo-log-bind'){ const q=$('#bolog-q'); if(q) q.oninput=()=>{ BO.logQ=q.value; const p=q.selectionStart; ui.modal=boLogModal(); render(); const n=$('#bolog-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } act('bo-log-bind',{}); }; return; }
