@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-10 · 12:50';
+const APP_BUILD = '19-10 · 14:20';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -9230,7 +9230,7 @@ function boAudit(D){
     BO.orders.forEach(o=>{ const l=(o.items||[]).find(x=>x.name===fn); if(!l||!(+l.qty>0)) return;
       const k=m.id+'|'+o.branch; const e=exp.get(k)||{itemId:m.id, branch:o.branch, qty:0, names:[], weigh:false, unknown:false, done:false};
       if(weigh){ const w=done&&done.weights&&done.weights[o.branch]; if(w) e.qty=n2(e.qty+w.kg); else e.unknown=true; e.weigh=true; }
-      else if(conv===null) e.unknown=true; else e.qty=n2(e.qty+ +l.qty*conv);
+      else if(conv===null) e.unknown=true; else { e.qty=n2(e.qty+ +l.qty*conv); e.oq=n2((e.oq||0)+ +l.qty); e.cf=conv; e.bu=l.unit||''; (e.fnsCf=e.fnsCf||[]).push(fn); }
       e.names.push(`${boLabel?boLabel(fn):fn} ${fmtP(+l.qty)} ${l.unit||''}`); if(done){ e.done=true; e.doneAt=done.at; } (e.fns=e.fns||[]).push(fn); exp.set(k,e); });
     if(!done) notDone.push(fn);
   });
@@ -9243,6 +9243,8 @@ function boAudit(D){
     else if(e.unknown) r.st='ok?';
     else if(Math.abs(g.qty-e.qty)<=0.01) r.st='ok';
     else r.st = g.qty<e.qty ? 'less' : 'more';
+    if((r.st==='less'||r.st==='more') && e.oq>0 && !e.weigh){ const imp=Math.round(g.qty/e.oq*1000)/1000; const fn=(e.fnsCf||[])[0]; const sv=fn&&S.boConv?S.boConv[fn]:undefined; const it2=item(e.itemId);
+      r.why=`اتصرف ${fmt(g.qty)} = ${fmt(e.oq)} ${e.bu} × ${fmt(imp)} — المعامل دلوقتي ${fmt(e.cf)}`+(e.cf===1&&it2?` (وحدة الفرع زي وحدة المصنع: ${it2.unit})`:'')+(sv!=null&&Math.abs(+sv-e.cf)>0.0001?` · معامل محفوظ قديم ${fmt(+sv)}`:'')+(Math.abs(imp-(+sv||0))<0.01&&sv!=null?' ← الصرف اتعمل بالمعامل ده':''); }
     rows.push(r); });
   const extra=[]; got.forEach((g,k)=>{ if(!exp.has(k)){ const [id,br]=k.split('|'); const it=item(id); extra.push({item:it?it.name:'?', unit:it?it.unit:'', branch:br, got:g.qty, n:g.n}); } });
   const neg=S.items.filter(it=>!isUntracked(it.id)).map(it=>({it, b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
@@ -9677,7 +9679,7 @@ const AUD_ST={ 'other-day':['اتصرف بس بتاريخ تاني','a'], ok:['�
 function boAuditModal(D){
   const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st)); const od=A.rows.filter(r=>r.st==='other-day'); const dnm=A.rows.filter(r=>r.st==='done-no-move');
   const pend=A.rows.filter(r=>r.st==='pending'); const ok=A.rows.filter(r=>r.st==='ok'||r.st==='ok?');
-  const tbl=(list)=>`<table class="gridcols"><thead><tr><th>الفرع</th><th>صنف المصنع</th><th class="n">المفروض</th><th class="n">اتصرف</th><th>الحالة</th></tr></thead><tbody>${list.map(r=>`<tr><td><div class="iname">${esc(r.branch)}</div></td><td>${esc(r.item)}<div class="hint" style="font-size:11px">${esc(r.names.join(' + '))}</div></td><td class="n">${r.unknown&&!r.qty?'—':fmt(r.qty)} <span class="hint">${esc(r.unit)}</span></td><td class="n"><b>${fmt(r.got)}</b>${r.n>1?` <span class="chip">${r.n} حركات</span>`:''}${r.forced?` <span class="chip a">بالسالب</span>`:''}${r.st==='other-day'?`<div class="hint">${fmt(r.otherQty)} يوم ${esc(r.otherDates.join('، '))}</div>`:''}</td><td><span class="chip ${AUD_ST[r.st][1]}">${AUD_ST[r.st][0]}</span>${r.st==='less'||r.st==='more'?` <b>${fmt(n2(r.got-r.qty))}</b>`:''}</td></tr>`).join('')}</tbody></table>`;
+  const tbl=(list)=>`<table class="gridcols"><thead><tr><th>الفرع</th><th>صنف المصنع</th><th class="n">المفروض</th><th class="n">اتصرف</th><th>الحالة</th></tr></thead><tbody>${list.map(r=>`<tr><td><div class="iname">${esc(r.branch)}</div></td><td>${esc(r.item)}<div class="hint" style="font-size:11px">${esc(r.names.join(' + '))}</div></td><td class="n">${r.unknown&&!r.qty?'—':fmt(r.qty)} <span class="hint">${esc(r.unit)}</span></td><td class="n"><b>${fmt(r.got)}</b>${r.n>1?` <span class="chip">${r.n} حركات</span>`:''}${r.forced?` <span class="chip a">بالسالب</span>`:''}${r.st==='other-day'?`<div class="hint">${fmt(r.otherQty)} يوم ${esc(r.otherDates.join('، '))}</div>`:''}</td><td><span class="chip ${AUD_ST[r.st][1]}">${AUD_ST[r.st][0]}</span>${r.st==='less'||r.st==='more'?` <b>${fmt(n2(r.got-r.qty))}</b>`:''}</td></tr>${r.why?`<tr><td colspan="5" class="hint" style="font-size:12px;padding-top:0;color:#8A4A0B">🔎 ${esc(r.why)}</td></tr>`:''}`).join('')}</tbody></table>`;
   const box=(t,c,body)=>`<div style="border:1px solid ${c};border-radius:12px;padding:10px 12px;margin-bottom:12px"><b style="color:${c}">${t}</b>${body}</div>`;
   let h=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="hint">يوم الصرف:</span><input type="date" id="aud-date" value="${A.D}"><button class="btn sm" data-act="bo-audit-copy">📋 انسخ التقرير</button><button class="btn sm" data-act="auto-repair-open">🧹 تنظيف الإنتاج التلقائي المكرر</button></div>`;
   if(!A.sameDay) h+=`<div class="hint" style="margin-bottom:10px;padding:8px;border:1px dashed #B25E10;border-radius:8px">⚠ الطلبيات المفتوحة دلوقتي (${esc(BO.from)}${BO.to!==BO.from?' → '+esc(BO.to):''}) مش نفس يوم الصرف ${esc(A.D)} — المقارنة بتتعمل على الطلبيات المفتوحة. افتح يوم الطلبية الصح الأول لو المقارنة مش مظبوطة.</div>`;
