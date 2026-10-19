@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-10 · 01:00';
+const APP_BUILD = '20-10 · 01:15';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4265,6 +4265,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm" data-act="bo-log">📜 سجل التعديلات</button>
+      <button class="btn sm" data-act="bo-raw">🔎 الطلبيات على السيرفر</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
     </div>
@@ -9044,6 +9045,27 @@ function boNaderBranchHtml(rows,B){
     </table></div>`;
 }
 /* تعديل سهل: تختار فرع وتشوف طلبيته كقايمة كبيرة واضحة (أو تختار صنف وتشوف كل الفروع) وتعدّل بـ − / + */
+// تفاصيل خام لكل طلبية على الجسر: المفتاح، الفرع اللي جوه الطلبية، التاريخ، وقت الإرسال — بيكشف أي طلبية متسجلة باسم فرع غلط أو مكررة
+function boRawModal(){
+  const slug=b=>String(b||'').replace(/\s+/g,'_').replace(/["'\/\\]/g,'');
+  const rows=BO.orders.map(o=>{ const k=String(o._key||''); const parts=k.split(':'); const kd=parts[1]||'', ks=parts.slice(2).join(':');
+    return {o, k, kd, ks, okBranch: ks===slug(o.branch), okDate: !o.date || o.date===kd}; });
+  const cnt=new Map(); rows.forEach(r=>cnt.set(r.o.branch,(cnt.get(r.o.branch)||0)+1));
+  const known=Object.keys(S.boSeen||{}).filter(b=>!(S.boHidden||{})[b]); const have=new Set(BO.orders.map(o=>o.branch)); const missing=known.filter(b=>!have.has(b)).sort((a,b)=>a.localeCompare(b,'ar'));
+  const bad=rows.filter(r=>!r.okBranch||!r.okDate||cnt.get(r.o.branch)>1);
+  const fmtT=x=>x?new Date(x).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-';
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:900px">
+    <h3>🔎 الطلبيات زي ما هي على السيرفر <em class="hint">${esc(BO.from)}${BO.to!==BO.from?' → '+esc(BO.to):''} · ${rows.length} طلبية</em></h3>
+    <div class="pad" style="max-height:72vh;overflow:auto">
+      ${BO.from!==BO.to?`<div class="warnbar" style="margin-bottom:8px">⚠ معروض أكتر من يوم (${esc(BO.from)} → ${esc(BO.to)}) — فرع طلب في اليومين هيظهر مرتين. اختار يوم واحد.</div>`:''}
+      ${bad.length?`<div class="warnbar" style="margin-bottom:8px">⛔ ${bad.length} طلبية فيها مشكلة — متعلّمة بالأحمر تحت.</div>`:`<div style="background:#E8F5EC;color:#2E7D32;border-radius:10px;padding:8px 12px;margin-bottom:8px">✅ كل طلبية متسجلة باسم فرعها ومفيش تكرار</div>`}
+      ${missing.length?`<div class="hint" style="margin-bottom:8px"><b>فروع ما طلبتش في الفترة دي (${missing.length}):</b> ${missing.map(esc).join('، ')}</div>`:''}
+      <table class="gridcols"><thead><tr><th>الفرع جوه الطلبية</th><th>مفتاح السيرفر</th><th>التاريخ</th><th>وقت الإرسال</th><th class="n">أصناف</th><th>ملاحظة</th></tr></thead><tbody>
+      ${rows.sort((a,b)=>a.o.branch.localeCompare(b.o.branch,'ar')).map(r=>{ const issues=[!r.okBranch?'المفتاح بتاع فرع تاني':'', !r.okDate?'تاريخ الطلبية غير تاريخ المفتاح':'', cnt.get(r.o.branch)>1?'الفرع ده ليه أكتر من طلبية':''].filter(Boolean);
+        return `<tr style="${issues.length?'background:#FBEAEA':''}"><td><b>${esc(r.o.branch||'—')}</b></td><td style="font-size:11.5px;direction:ltr;text-align:left">${esc(r.ks)}</td><td>${esc(r.kd)}${r.o.date&&r.o.date!==r.kd?` <span class="hint">(${esc(r.o.date)})</span>`:''}</td><td style="font-size:12px;white-space:nowrap">${fmtT(r.o.submittedAt)}</td><td class="n">${(r.o.items||[]).length}</td><td style="font-size:12px;color:#A32D2D">${issues.map(esc).join(' · ')}</td></tr>`; }).join('')}
+      </tbody></table>
+    </div><div class="foot"><button class="btn" data-act="bo-raw-copy">📋 انسخ</button><button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
 function boLogModal(){
   const rows=[]; BO.orders.forEach(o=>(o.log||[]).forEach(e=>(e.changes||[]).forEach(c=>rows.push({branch:o.branch, at:e.at, by:e.by, ...c}))));
   rows.sort((a,b)=>String(b.at).localeCompare(String(a.at)));
@@ -10729,6 +10751,8 @@ async function act(a,d){
     await saveTx(); await logOp(g, `${gone} تشغيلة من غير حركات اتشالت · ${fixed} اتظبطت كميتها · ${added} اتضافت`);
     toast(`السجل اتطابق ✓ (${gone} اتشالت، ${fixed} اتظبطت، ${added} اتضافت)`); ui.modal=healthModal(); return render(); }
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
+  if(a==='bo-raw'){ ui.modal=boRawModal(); return render(); }
+  if(a==='bo-raw-copy'){ const t=BO.orders.map(o=>`${o.branch} | ${o._key} | ${o.submittedAt||''} | ${(o.items||[]).length} صنف`).join('\n'); try{ await navigator.clipboard.writeText(t); toast('اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ:',t); } return; }
   if(a==='bo-log'){ ui.modal=boLogModal(); render(); const q=$('#bolog-q'); if(q){ q.oninput=()=>{ BO.logQ=q.value; const p=q.selectionStart; ui.modal=boLogModal(); render(); const n=$('#bolog-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } act('bo-log-bind',{}); }; } return; }
   if(a==='bo-log-bind'){ const q=$('#bolog-q'); if(q) q.oninput=()=>{ BO.logQ=q.value; const p=q.selectionStart; ui.modal=boLogModal(); render(); const n=$('#bolog-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } act('bo-log-bind',{}); }; return; }
   if(a==='bo-audit-redate'){ const A=boAudit(($('#aud-date')||{}).value); const ids=new Set(A.rows.filter(r=>r.st==='other-day').flatMap(r=>r.otherIds||[]));
