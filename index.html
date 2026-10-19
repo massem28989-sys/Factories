@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-10 · 12:20';
+const APP_BUILD = '19-10 · 12:50';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8108,12 +8108,14 @@ function readBulkInHeader(){
  
 /* خطة إنتاج متداخلة: لو خامة في الوصفة رصيدها مش كفاية وهي نفسها ليها وصفة (منتج وسيط زي صوص الكوكتيل اللي بيدخل في صوص الساندوتش)،
    بنصنّع الناقص منها تلقائي من خاماتها الأول — بدل ما الصرف يقف. بنحسب كله على رصيد افتراضي قبل ما نسجل أي حركة */
+const r4 = v => Math.round((+v||0)*10000)/10000;
 function planProduction(itemId, qty, bal, ops, short, depth, stack){
   const r=S.recipes.find(x=>x.outItemId===itemId); if(!r || !(r.outQty>0)) return false;
   const b=qty/r.outQty; const lines=[];
   for(const l of r.lines){
     if(isUntracked(l.itemId)) continue; // المياه والتلج وأي حاجة مش بنتتبعها: ما بتتخصمش خالص
-    const need=n2(l.qty*b); const li=item(l.itemId);
+    // 4 أرقام عشرية — الخامات الصغيرة (ملح، بيكربونات) كانت بتضيع مع التقريب لرقمين
+    const need=r4(l.qty*b); const li=item(l.itemId);
     if(!bal.has(l.itemId)) bal.set(l.itemId, li?calc(li).book:0);
     let have=bal.get(l.itemId);
     if(need>have+1e-9 && depth<4 && !stack.has(l.itemId) && S.recipes.some(x=>x.outItemId===l.itemId && x.outQty>0)){
@@ -8144,7 +8146,7 @@ function commitProduction(ops, date){
     const runId=ex?ex.id:uid('run');
     // حركة واحدة لكل خامة في التشغيلة اليومية (بدل حركة لكل فرع) — عشان عدد الحركات ما يبقاش بالآلاف
     for(const l of op.lines){ const em=ex && S.moves.find(m=>m.runId===runId && m.dir==='out' && m.itemId===l.itemId && m.date===date);
-      if(em) em.qty=n2(em.qty+l.qty); else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
+      if(em) em.qty=r4(em.qty+l.qty); else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
     const cost=recipeCost(rr)*op.b, outQty=n2(rr.outQty*op.b);
     { const ei=ex && S.moves.find(m=>m.runId===runId && m.dir==='in' && m.itemId===rr.outItemId && m.date===date);
       if(ei){ const q=n2(ei.qty+outQty); ei.price=q?n2(((+ei.price||0)*ei.qty+cost)/q):0; ei.qty=q; }
@@ -9411,7 +9413,9 @@ function recipeStaleRuns(r){
     const b=(+om.qty||0)/r.outQty; const exp=new Map(r.lines.filter(l=>!isUntracked(l.itemId)).map(l=>[l.itemId,n2(l.qty*b)])); const got=new Map();
     e.outs.forEach(m=>{ if(!isUntracked(m.itemId)) got.set(m.itemId,n2((got.get(m.itemId)||0)+(+m.qty||0))); });
     const keys=new Set([...exp.keys(),...got.keys()]); const diff=[];
-    keys.forEach(k=>{ const a=got.get(k)||0, x=exp.get(k)||0; if(Math.abs(a-x)>Math.max(0.01,x*0.01)) diff.push({itemId:k, was:a, now:x}); });
+    // بنتجاهل فروق التقريب: الخامة لازم تكون اتضافت/اتشالت، أو الفرق أكتر من 3% وأكتر من 0.05
+    keys.forEach(k=>{ const a=got.get(k)||0, x=exp.get(k)||0; const d=Math.abs(a-x);
+      if((a<0.0001)!==(x<0.0001) ? Math.max(a,x)>0.02 : (d>0.05 && d>Math.max(a,x)*0.03)) diff.push({itemId:k, was:r4(a), now:r4(x)}); });
     if(diff.length) res.push({id, run, om, outs:e.outs, b, diff, date:om.date}); });
   return res.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
 }
@@ -9422,7 +9426,7 @@ function reapplyRecipe(r, list){
   list.forEach(x=>{
     const reason=(x.outs[0]&&x.outs[0].reason)||(x.run&&x.run.auto?'صرف للإنتاج (تلقائي)':'صرف للإنتاج');
     x.outs.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const drop=new Set(x.outs.map(m=>m.id)); S.moves=S.moves.filter(m=>!drop.has(m.id));
-    r.lines.filter(l=>!isUntracked(l.itemId)).forEach(l=>S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*x.b),date:x.date,price:0,party:r.name,reason,runId:x.id}));
+    r.lines.filter(l=>!isUntracked(l.itemId)).forEach(l=>S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:r4(l.qty*x.b),date:x.date,price:0,party:r.name,reason,runId:x.id}));
     const cost=n2(recipeCost(r)*x.b); x.om.price=x.om.qty?n2(cost/x.om.qty):0;
     if(x.run){ x.run.cost=cost; x.run.batches=n2(x.b); x.run.outQty=n2(+x.om.qty||0); }
     n++; });
@@ -9615,7 +9619,7 @@ function healthCheck(){
   add({id:'rec',lvl:rb.length?'bad':'ok',title:rb.length?`${rb.length} مشكلة في الوصفات`:`الوصفات سليمة (${S.recipes.length})`,desc:rb.length?'وصفة ناقصة معناها خصم خامات غلط مع كل صرف تلقائي.':'',rows:rb});
   { const RS=S.recipes.map(r=>({r,st:recipeStaleRuns(r)})).filter(x=>x.st.length);
     if(RS.length) add({id:'stale',lvl:'warn',title:`${RS.length} وصفة اتعدلت بعد ما اشتغلت`,desc:'التشغيلات القديمة خصمت المكونات القديمة. لو التعديل هو اللي كان بيتعمل فعلًا، طبّقه — الخامات القديمة ترجع والجديدة تتخصم.',
-      rows:RS.map(x=>({c:[x.r.name, x.st.length+' تشغيلة', recipeStaleSummary(x.st).replace(/\n/g,' ').replace(/• /g,'')], btn:['reapply-recipe','🔁 طبّق',x.r.id]}))}); }
+      rows:RS.map(x=>({c:[x.r.name, x.st.length+' تشغيلة', recipeStaleSummary(x.st).replace(/\n/g,' ').replace(/• /g,'')], btn:['reapply-recipe','🔁 طبّق',x.r.id]})), act:['reapply-all',`🔁 طبّق الوصفات الحالية على الكل (${RS.length})`]}); }
   { const PR=prodActualRows(D); if(PR.length) add({id:'pa',lvl:'info',title:`${PR.length} منتج اتصنّع النهارده — سجّلت اللي اتعمل فعلًا؟`,desc:'لو المصنع عمل أكتر أو أقل من اللي اتصرف، اكتب الكمية الفعلية عشان الرصيد والخامات يبقوا مظبوطين.',act:['pa-open','📝 الإنتاج الفعلي']}); }
   // 9) تواريخ برا الشهر أو في المستقبل
   const P=S.period||''; const odd=S.moves.filter(m=>m.date && (m.date>D || (P && m.date.slice(0,7)!==P)));
@@ -11279,6 +11283,11 @@ async function act(a,d){
         const g=await guardBulk('تطبيق وصفة «'+rr.name+'» على تشغيلات الشهر'); if(g){ const n=reapplyRecipe(rr, st); await saveTx(); await logOp(g, `${n} تشغيلة اتعادت بالوصفة الجديدة`); toast(`اتطبقت الوصفة على ${n} تشغيلة ✓`); } } }
     return render();
   }
+  if(a==='reapply-all'){ const RS=S.recipes.map(r=>({r,st:recipeStaleRuns(r)})).filter(x=>x.st.length); if(!RS.length) return toast('كل التشغيلات مطابقة للوصفات');
+    if(!confirm(`${RS.length} وصفة اتعدلت بعد ما اشتغلت:\n${RS.slice(0,15).map(x=>'• '+x.r.name+' ('+x.st.length+' تشغيلة)').join('\n')}${RS.length>15?'\n…':''}\n\nلو الوصفات اللي في البرنامج دلوقتي هي الصح، طبّقها على تشغيلات الشهر: الخامات القديمة ترجع والجديدة تتخصم. كمية المنتجات مش هتتغير. تكمل؟`)) return;
+    const g=await guardBulk('تطبيق الوصفات الحالية على كل تشغيلات الشهر'); if(!g) return; let n=0; RS.forEach(x=>{ n+=reapplyRecipe(x.r, x.st); });
+    await saveTx(); await logOp(g, `${n} تشغيلة في ${RS.length} وصفة اتعادت بالوصفات الحالية`); toast(`اتطبق ✓ — ${n} تشغيلة في ${RS.length} وصفة`);
+    if(ui.modal&&/الفحص اليومي/.test(ui.modal)) ui.modal=healthModal(); return render(); }
   if(a==='reapply-recipe'){ const rr=S.recipes.find(x=>x.id===d.id); const st=recipeStaleRuns(rr); if(!st.length) return toast('كل تشغيلات الوصفة دي مطابقة ليها');
     if(!confirm(`«${rr.name}»: ${st.length} تشغيلة الشهر ده متسجلة بمكونات غير الوصفة الحالية.\n\n${recipeStaleSummary(st)}\n\nتطبّق الوصفة الحالية عليهم؟`)) return;
     const g=await guardBulk('تطبيق وصفة «'+rr.name+'» على تشغيلات الشهر'); if(!g) return; const n=reapplyRecipe(rr, st); await saveTx(); await logOp(g, `${n} تشغيلة اتعادت بالوصفة الحالية`);
