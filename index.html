@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-10 · 12:00';
+const APP_BUILD = '19-10 · 12:20';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -9269,6 +9269,8 @@ function pcParse(text){
   return out;
 }
 const isPcsUnit=u=>/^(حب|حبة|حبه|حبات|pcs?|قطعه|قطعة)$/i.test(String(u||'').trim());
+// الرصيد الدفتري أول يوم D (قبل أي حركة في اليوم ده)
+function bookAt(it, D){ let q=+it.opening||0; for(const m of S.moves){ if(m.itemId!==it.id || !(m.date<D)) continue; q+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); } return n2(q); }
 function pcPlan(P){
   const rows=P.rows.map(r=>{ const it=item(r.itemId); if(!it) return {...r, err:'مش لاقي الصنف ده — اختاره من القايمة'};
     let q=+r.qty; let conv='';
@@ -9280,7 +9282,10 @@ function pcPlan(P){
   let zero=[];
   if(P.scope!=='none'){ const cats=new Set(rows.filter(r=>r.it).map(r=>r.it.cat));
     zero=S.items.filter(it=>!listed.has(it.id) && !isUntracked(it.id) && (P.scope==='all' || cats.has(it.cat)) && Math.abs(calc(it).book)>0.001).map(it=>({it, actual:0, zero:true})); }
-  const base=[...rows.filter(r=>r.it&&!r.err), ...zero].map(r=>{ const b=calc(r.it).book; const rec=S.recipes.find(x=>x.outItemId===r.it.id && x.outQty>0);
+  const startMode=P.when==='start';
+  const base=[...rows.filter(r=>r.it&&!r.err), ...zero].map(r=>{ const b=startMode?bookAt(r.it, P.date||today()):calc(r.it).book;
+    // جرد أول اليوم: الإنتاج حصل بعده، فالفرق كله تسوية (مش إنتاج)
+    const rec=startMode?null:S.recipes.find(x=>x.outItemId===r.it.id && x.outQty>0);
     return {...r, book:b, diff:n2(r.actual-b), rec}; });
   // محاكاة: إنتاج المنتجات بيغيّر دفتري خاماتها قبل التسوية — عشان المعاينة تبيّن الفرق الحقيقي اللي هيتسجل
   const delta=new Map(); const D=P.date||today();
@@ -9318,6 +9323,11 @@ function pcModal(){
         <select id="pc-scope"><option value="cat"${P.scope==='cat'?' selected':''}>نفس أقسام القايمة = صفر</option><option value="none"${P.scope==='none'?' selected':''}>سيبها زي ما هي</option><option value="all"${P.scope==='all'?' selected':''}>كل الأصناف = صفر</option></select>
       </div>
       <div style="border:1px dashed #5F6B73;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.9">
+        <b>الجرد ده اتعمل إمتى؟</b>
+        <label style="display:block"><input type="radio" name="pc-when" value="end"${P.when!=='start'?' checked':''}> <b>آخر اليوم، بعد الصرف والإنتاج</b> — بيتقارن بالرصيد دلوقتي، وزيادة المنتجات بتتسجل إنتاج.</label>
+        <label style="display:block"><input type="radio" name="pc-when" value="start"${P.when==='start'?' checked':''}> <b>أول اليوم، قبل الصرف والإنتاج</b> — بيتقارن برصيد أول يوم ${esc(P.date||today())} (اختار اليوم فوق)، وإنتاج وصرف اليوم ده بيتخصموا من اللي اتعد.</label>
+      </div>
+      <div style="border:1px dashed #5F6B73;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.9">
         <b>الخامات اللي الفعلي بتاعها أقل من الدفتري:</b>
         <label style="display:block"><input type="radio" name="pc-mode" value="pre"${P.mode==='pre'?' checked':''}> <b>استهلاك قبل بدء البرنامج</b> — الوارد متسجل من أول الشهر بس الصرف بدأ على البرنامج ${G?`يوم ${esc(G.first)}`:'متأخر'}، فاللي اتصرف قبل كده ما اتسجلش. هيتسجل بتاريخ <input type="date" id="pc-predate" value="${esc(P.preDate||'')}" style="padding:1px 4px"> ومش هيتحسب عجز ولا هالك.</label>
         <label style="display:block"><input type="radio" name="pc-mode" value="settle"${P.mode==='settle'?' checked':''}> <b>تسوية جرد (عجز)</b> — الصنف ناقص فعلًا (هالك، فقد، أو صرف ما اتسجلش النهارده).</label>
@@ -9338,9 +9348,10 @@ function pcModal(){
 function pcBind(){
   const P=ui.pc; if(!P) return;
   const t=$('#pc-text'); if(t) t.oninput=()=>{ P.text=t.value; };
-  const dt=$('#pc-date'); if(dt) dt.onchange=()=>{ P.date=dt.value; };
+  const dt=$('#pc-date'); if(dt) dt.onchange=()=>{ P.date=dt.value; if(P.rows.length){ ui.modal=pcModal(); render(); pcBind(); } };
   const sc=$('#pc-scope'); if(sc) sc.onchange=()=>{ P.scope=sc.value; ui.modal=pcModal(); render(); pcBind(); };
   document.querySelectorAll('[name="pc-mode"]').forEach(r=>r.onchange=()=>{ P.mode=r.value; ui.modal=pcModal(); render(); pcBind(); });
+  document.querySelectorAll('[name="pc-when"]').forEach(r=>r.onchange=()=>{ P.when=r.value; ui.modal=pcModal(); render(); pcBind(); });
   const pd=$('#pc-predate'); if(pd) pd.onchange=()=>{ P.preDate=pd.value; };
   document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; ui.modal=pcModal(); render(); pcBind(); });
 }
@@ -10638,7 +10649,7 @@ async function act(a,d){
           need=n2(need-c); cut++; }
         if(need>0.005) settle(r.it, -need); } }
     // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
-    for(const r of raw){ settle(r.it, n2(r.actual-calc(r.it).book), true); }
+    for(const r of raw){ settle(r.it, n2(r.actual-(P.when==='start'?bookAt(r.it, D):calc(r.it).book)), true); }
     markAutoRuns(); await saveTx();
     await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
     toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
