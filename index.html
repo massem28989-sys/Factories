@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-10 · 18:40';
+const APP_BUILD = '20-10 · 01:00';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8773,6 +8773,13 @@ function boAddItemModal(){
 /* كل الأصناف في جدول واحد: الصنف صف، وقصاده الإجمالي وعدد الفروع، وبعدين خانة لكل فرع (بتتعدل مباشرة).
    مفيش تقسيم أساسي/إضافي — كل اللي اتطلب بيظهر. ترتيب أبجدي أو حسب الإجمالي */
 const boLabel = n => { const f=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES].find(x=>x.name===n); return f?f.label:n; };
+// كل أصناف كتالوج الفروع — عشان «ضيف صنف للفرع» يعرض أي صنف، مش بس اللي فرع تاني طلبه النهارده
+async function boLoadCatalog(force){
+  if(BO.catalog && !force) return BO.catalog;
+  try{ const raw=await faroojGet('inv_catalog:items'); const cat=JSON.parse(raw||'[]'); BO.catalog=(cat||[]).filter(c=>c&&c.name).map(c=>({name:c.name, unit:c.unit||''})); }catch(e){ BO.catalog=BO.catalog||[]; }
+  return BO.catalog;
+}
+function boAddableItems(){ const map=new Map(); boAllItems().forEach(it=>map.set(it.name,it)); (BO.catalog||[]).forEach(c=>{ if(!map.has(c.name)) map.set(c.name,{name:c.name, unit:c.unit}); }); return [...map.values()]; }
 function boAllItems(){
   const map=new Map();
   BO.orders.forEach(o=>(o.items||[]).forEach(it=>{ if(!map.has(it.name)) map.set(it.name,{name:it.name, unit:it.unit||''}); }));
@@ -9056,7 +9063,8 @@ function boEditHtml(){
   const latest=new Map(); BO.orders.forEach((o,oi)=>{ if(!latest.has(o.branch)) latest.set(o.branch,oi); });
   const branches=[...latest.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
   const mode=BO.editMode||'branch';
-  const allItems=boAllItems().map(it=>({...it,label:boLabel(it.name)})).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
+  if(!BO.catalog && !BO._catLoading){ BO._catLoading=true; boLoadCatalog().then(()=>{ BO._catLoading=false; render(); }); }
+  const allItems=boAddableItems().map(it=>({...it,label:boLabel(it.name)})).sort((a,b)=>a.label.localeCompare(b.label,'ar'));
   const qOf=(oi,n)=>{ const f=(BO.orders[oi].items||[]).find(x=>x.name===n); return f?(+f.qty||0):0; };
   const row=(oi,n,label,unit,sub)=>{ const v=qOf(oi,n); const o=BO.orders[oi]; const f=(o.items||[]).find(x=>x.name===n)||(o.removed||[]).find(x=>x.name===n);
       if(f && f.orig!=null && Math.abs(+f.orig-v)>0.0001) sub=(sub?sub+' · ':'')+`<span style="color:#B25E10">الفرع طلب ${fmt(+f.orig)}</span>`;
@@ -10635,7 +10643,7 @@ async function act(a,d){
   if(a==='bo-edit-br'){ BO.editBranch=d.v; render(); try{ document.querySelector('.ed-list').scrollIntoView({block:'nearest'}); }catch(e){} return; }
   if(a==='bo-edit-add'){ const o=BO.orders[+d.oi]; const n=($('#ed-add-item')||{}).value, q=+(($('#ed-add-qty')||{}).value||0);
     if(!o||!n) return; if(!(q>0)) return toast('اكتب الكمية الأول',1);
-    let unit=(BO.totals[n]||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
+    let unit=(BO.totals[n]||{}).unit||((BO.catalog||[]).find(c=>c.name===n)||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
   if(a==='hc-open'){ ui.hcOpen=true; HC_CACHE.k=''; ui.modal=healthModal(); return render(); }
   if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:today()}; ui.modal=pcModal(); render(); pcBind(); return; }
