@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '18-10 · 19:10';
+const APP_BUILD = '19-10 · 12:00';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5043,6 +5043,7 @@ function viewProd(){
             <button class="btn sm g" data-run="${r.id}">تشغيل</button>
             <button class="btn sm" data-act="edit-recipe" data-id="${r.id}">تعديل</button>
             <button class="btn sm danger" data-delr="${r.id}">حذف</button>
+            ${isDupRecipe(r)?`<div style="margin-top:4px"><span class="chip r" title="المنتج ده ليه أكتر من وصفة — البرنامج بيصنّع بوصفة «${esc(activeRecipeOf(r.outItemId).name)}» (${fmt(activeRecipeOf(r.outItemId).outQty)} ${esc((item(r.outItemId)||{}).unit||'')})">⚠ وصفة مكررة — مش مستخدمة</span></div>`:(S.recipes.filter(x=>x.outItemId===r.outItemId&&x.outQty>0).length>1?`<div style="margin-top:4px"><span class="chip g">✓ دي اللي بتشتغل</span></div>`:'')}
             ${(()=>{ const st=recipeStaleRuns(r); return st.length?`<div style="margin-top:4px"><button class="btn sm" data-act="reapply-recipe" data-id="${r.id}" style="background:#FDF3E6;color:#8A4A0B;border-color:#E9C79A" title="تشغيلات الشهر دي اتسجلت بمكونات غير الوصفة الحالية">⚠ ${st.length} تشغيلة بمكونات قديمة — طبّق</button></div>`:''; })()}</td></tr>`;
       }).join('');})() || `<tr><td colspan="6" class="empty">مفيش وصفات مطابقة للبحث</td></tr>`}</tbody>
       </table></div>`;
@@ -8111,6 +8112,7 @@ function planProduction(itemId, qty, bal, ops, short, depth, stack){
   const r=S.recipes.find(x=>x.outItemId===itemId); if(!r || !(r.outQty>0)) return false;
   const b=qty/r.outQty; const lines=[];
   for(const l of r.lines){
+    if(isUntracked(l.itemId)) continue; // المياه والتلج وأي حاجة مش بنتتبعها: ما بتتخصمش خالص
     const need=n2(l.qty*b); const li=item(l.itemId);
     if(!bal.has(l.itemId)) bal.set(l.itemId, li?calc(li).book:0);
     let have=bal.get(l.itemId);
@@ -9386,14 +9388,17 @@ function commitManual(op, date, tag){
   S.runs=S.runs||[]; S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost});
 }
 /* ===== تطبيق الوصفة الحالية على تشغيلات الشهر — لما وصفة تتعدل بعد ما اشتغلت ===== */
+// الوصفة اللي البرنامج بيصنّع بيها فعلًا لكل منتج (أول وصفة ناتجها المنتج ده) — لو في وصفة تانية لنفس المنتج، دي مش بتشتغل
+const activeRecipeOf = outId => S.recipes.find(x=>x.outItemId===outId && x.outQty>0);
+const isDupRecipe = r => { const a=activeRecipeOf(r.outItemId); return !!a && a.id!==r.id; };
 function recipeStaleRuns(r){
-  if(!r || !(r.outQty>0)) return [];
+  if(!r || !(r.outQty>0) || isDupRecipe(r)) return []; // الوصفة المكررة مش بتتقارن — التشغيلات اتعملت بالوصفة المستخدمة
   const by=new Map(); S.moves.forEach(m=>{ if(m.runId){ const e=by.get(m.runId)||{ins:[],outs:[]}; (m.dir==='in'?e.ins:e.outs).push(m); by.set(m.runId,e); } });
   const res=[];
   by.forEach((e,id)=>{ const om=e.ins.find(m=>m.itemId===r.outItemId); if(!om) return;
     const run=(S.runs||[]).find(x=>x.id===id); if(run && run.name && run.name!==r.name) return;
-    const b=(+om.qty||0)/r.outQty; const exp=new Map(r.lines.map(l=>[l.itemId,n2(l.qty*b)])); const got=new Map();
-    e.outs.forEach(m=>got.set(m.itemId,n2((got.get(m.itemId)||0)+(+m.qty||0))));
+    const b=(+om.qty||0)/r.outQty; const exp=new Map(r.lines.filter(l=>!isUntracked(l.itemId)).map(l=>[l.itemId,n2(l.qty*b)])); const got=new Map();
+    e.outs.forEach(m=>{ if(!isUntracked(m.itemId)) got.set(m.itemId,n2((got.get(m.itemId)||0)+(+m.qty||0))); });
     const keys=new Set([...exp.keys(),...got.keys()]); const diff=[];
     keys.forEach(k=>{ const a=got.get(k)||0, x=exp.get(k)||0; if(Math.abs(a-x)>Math.max(0.01,x*0.01)) diff.push({itemId:k, was:a, now:x}); });
     if(diff.length) res.push({id, run, om, outs:e.outs, b, diff, date:om.date}); });
@@ -9406,7 +9411,7 @@ function reapplyRecipe(r, list){
   list.forEach(x=>{
     const reason=(x.outs[0]&&x.outs[0].reason)||(x.run&&x.run.auto?'صرف للإنتاج (تلقائي)':'صرف للإنتاج');
     x.outs.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const drop=new Set(x.outs.map(m=>m.id)); S.moves=S.moves.filter(m=>!drop.has(m.id));
-    r.lines.forEach(l=>S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*x.b),date:x.date,price:0,party:r.name,reason,runId:x.id}));
+    r.lines.filter(l=>!isUntracked(l.itemId)).forEach(l=>S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*x.b),date:x.date,price:0,party:r.name,reason,runId:x.id}));
     const cost=n2(recipeCost(r)*x.b); x.om.price=x.om.qty?n2(cost/x.om.qty):0;
     if(x.run){ x.run.cost=cost; x.run.batches=n2(x.b); x.run.outQty=n2(+x.om.qty||0); }
     n++; });
@@ -9448,7 +9453,8 @@ function balanceExplain(id){
   const why=[];
   const inBought=ins.filter(g=>g.kind==='in').reduce((t,g)=>t+g.qty,0), inMade=ins.filter(g=>g.kind==='made').reduce((t,g)=>t+g.qty,0);
   const own=recOf(id);
-  if(c.book<-0.001){
+  if(isUntracked(id)) why.push({lvl:'ok',t:'الصنف ده متعلّم «مش بنتتبعه» — مش بيتخصم في الإنتاج، ومش بيظهر في الأرصدة السالبة ولا طلبات الشراء.'});
+  if(c.book<-0.001 && !isUntracked(id)){
     if(own){
       const brOut=outs.filter(g=>g.kind!=='used').reduce((t,g)=>t+g.qty,0);
       why.push({lvl:'bad',t:`الصنف ده ليه وصفة («${own.name}»)، بس اللي اتصرف منه (${fmt(n2(brOut+outs.filter(g=>g.kind==='used').reduce((t,g)=>t+g.qty,0)))}) أكتر من أول المدة + اللي اتصنّع (${fmt(n2((+it.opening||0)+inMade+inBought))}). غالبًا في صرف اتسجل من غير ما يمر على الإنتاج التلقائي (صرف يدوي، شاشة الوزن، أو تعديل كمية بعد الصرف)، أو تشغيلة اتلغت بأداة التنظيف.`});
@@ -9456,6 +9462,7 @@ function balanceExplain(id){
       const sim=S.recipes.filter(r=>r.outItemId!==id && (arNorm(r.name).includes(arNorm(it.name).split(' ')[0]) || arNorm(it.name).includes(arNorm(r.name).split(' ')[0])));
       why.push({lvl:'bad',t:`مفيش أي وارد ولا شراء متسجل للصنف ده الشهر ده، وأول المدة ${fmt(+it.opening||0)}. يعني كل الكمية اللي اتخصمت (${fmt(c.outQ)}) مالهاش مصدر في البرنامج.`});
       why.push({lvl:'tip',t:`لو الصنف ده بيتشترى: سجّل الاستلام بتاعه (أو صحّح أول المدة لو كان موجود في المخزن من الشهر اللي فات).`});
+      if(!(+it.price>0)) why.push({lvl:'tip',t:`لو الصنف ده بيتعمل في المصنع ومالوش تكلفة (زي المياه والتلج): دوس «🚫 مش بنتتبعه» — مش هيتخصم تاني، والخصم القديم يتمسح ورصيده يرجع.`});
       why.push({lvl:'tip',t:`لو الصنف ده بيتعمل في المصنع (زي المطبوخ والمسلوق والجاهز): لازم يبقى ليه وصفة ناتجها الصنف ده بالظبط — ساعتها البرنامج هيصنّعه تلقائي وهيخصم خاماته.`+(sim.length?` في وصفة شبهه: ${sim.slice(0,3).map(r=>`«${r.name}» ناتجها «${(item(r.outItemId)||{}).name||'?'}»`).join('، ')} — لو دي المقصودة، خلّي ناتجها «${it.name}».`:'')});
     } else {
       why.push({lvl:'bad',t:`اللي اتخصم (${fmt(c.outQ)}) أكتر من أول المدة (${fmt(+it.opening||0)}) + الوارد (${fmt(c.inQ)}) بـ ${fmt(-c.book)} ${it.unit||''}. يا في استلام ما اتسجلش، يا الخصم أكتر من الحقيقي (شوف التشغيلات تحت).`});
@@ -9480,6 +9487,17 @@ function balanceExplain(id){
     why.unshift({lvl:'tip',t:`لو الكمية دي اتصرفت فعلًا للفروع، يبقى المفروض كانت اتصنّعت. دوس «⚙ صنّع الناقص» وهتتسجل تشغيلة «${own.name}» بـ ${fmt(short.qty)} ${it.unit||''} يوم ${short.date} وتتخصم خاماتها حسب الوصفة: ${per}.`}); }
   if(firstNeg && own) why.push({lvl:'warn',t:`أول يوم الرصيد نزل فيه تحت الصفر: ${firstNeg.date} — اتصرف ${fmt(firstNeg.out)} واتصنّع ${fmt(firstNeg.made)}.`});
   return {it,c,ins,outs,runRows,why,dayRows,short,own};
+}
+// لما صنف يتعلّم «مش بنتتبعه»: خصم الإنتاج القديم بتاعه بيتمسح عشان رصيده يرجع، وأي إنتاج جديد مش بيخصم منه
+function untrackedOldMoves(id){ return S.moves.filter(m=>m.itemId===id && m.dir==='out' && m.runId); }
+async function untrackItem(id){
+  const it=item(id); if(!it) return; if(!S.untracked) S.untracked={}; S.untracked[id]=1; await saveMain();
+  const old=untrackedOldMoves(id);
+  if(old.length && confirm(`«${it.name}» بقى مش متتبع — مش هيتخصم في أي إنتاج جديد.\n\nفي ${old.length} حركة خصم قديمة منه في تشغيلات الإنتاج (${fmt(n2(old.reduce((t,m)=>t+(+m.qty||0),0)))} ${it.unit||''}). أمسحهم عشان رصيده يرجع؟`)){
+    const g=await guardBulk('إلغاء تتبع «'+it.name+'»'); if(!g) return;
+    const ids=new Set(old.map(m=>m.id)); ids.forEach(x=>DELETED_MOVE_IDS.add(x)); S.moves=S.moves.filter(m=>!ids.has(m.id));
+    await saveTx(); await logOp(g, `${old.length} حركة خصم من «${it.name}» اتمسحت`); }
+  toast(`«${it.name}» مش متتبع ✓ — رصيده دلوقتي ${fmt(calc(it).book)}`);
 }
 function shortMakeList(){ return S.items.filter(it=>!isUntracked(it.id) && S.recipes.some(r=>r.outItemId===it.id && r.outQty>0)).map(it=>({it,b:calc(it).book})).filter(x=>x.b<-0.001); }
 function balanceModal(id){
@@ -9517,7 +9535,7 @@ function balanceModal(id){
         ${S.moves.filter(m=>m.itemId===id).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(m=>`<tr><td>${esc(m.date)}</td><td>${m.dir==='in'?'<span class="pos">وارد</span>':'<span class="neg">منصرف</span>'}</td><td class="n">${fmt(m.qty)}</td><td style="font-size:12px">${esc(m.party||'')}${m.reason?' · '+esc(m.reason):''}</td></tr>`).join('')}
         </tbody></table></details>
     </div>
-    <div class="foot">${E.short?`<button class="btn p" data-act="make-short" data-id="${esc(it.id)}">⚙ صنّع الناقص (${fmt(E.short.qty)} ${u})</button>`:''}${E.runRows.some(r=>r.cut>0.01)?`<button class="btn" data-act="auto-repair-open">🧹 افتح التنظيف</button>`:''}<button class="btn" data-act="hc-open">🩺 رجوع للفحص</button><button class="btn" data-close="1">قفل</button></div>
+    <div class="foot">${!isUntracked(it.id)&&c.book<-0.001&&!E.own?`<button class="btn" data-act="hc-untrack" data-id="${esc(it.id)}">🚫 مش بنتتبعه</button>`:''}${E.short?`<button class="btn p" data-act="make-short" data-id="${esc(it.id)}">⚙ صنّع الناقص (${fmt(E.short.qty)} ${u})</button>`:''}${E.runRows.some(r=>r.cut>0.01)?`<button class="btn" data-act="auto-repair-open">🧹 افتح التنظيف</button>`:''}<button class="btn" data-act="hc-open">🩺 رجوع للفحص</button><button class="btn" data-close="1">قفل</button></div>
   </div></div>`;
 }
 /* ================= 🩺 الفحص اليومي — شاشة واحدة بتقول «كله سليم» أو فين المشكلة بالظبط ================= */
@@ -9581,6 +9599,8 @@ function healthCheck(){
   const rb=[]; S.recipes.forEach(r=>{ if(!item(r.outItemId)) rb.push({c:[r.name,'الصنف الناتج مش موجود في الكارت']}); else if(!(+r.outQty>0)) rb.push({c:[r.name,'كمية الناتج صفر']});
     const miss=(r.lines||[]).filter(l=>!item(l.itemId)).length; if(miss) rb.push({c:[r.name, `${miss} خامة مش موجودة في الكارت`]});
     if((r.lines||[]).some(l=>l.itemId===r.outItemId)) rb.push({c:[r.name,'الوصفة بتستخدم ناتجها كخامة']}); });
+  { const by=new Map(); S.recipes.filter(r=>r.outQty>0).forEach(r=>{ (by.get(r.outItemId)||by.set(r.outItemId,[]).get(r.outItemId)).push(r); });
+    [...by.values()].filter(a=>a.length>1).forEach(a=>{ const it=item(a[0].outItemId); rb.push({c:[`${a.length} وصفات لنفس المنتج «${it?it.name:'?'}»`, `المستخدمة: «${a[0].name}» (ناتج ${fmt(a[0].outQty)}) — امسح المكررة أو عدّل ناتجها`]}); }); }
   add({id:'rec',lvl:rb.length?'bad':'ok',title:rb.length?`${rb.length} مشكلة في الوصفات`:`الوصفات سليمة (${S.recipes.length})`,desc:rb.length?'وصفة ناقصة معناها خصم خامات غلط مع كل صرف تلقائي.':'',rows:rb});
   { const RS=S.recipes.map(r=>({r,st:recipeStaleRuns(r)})).filter(x=>x.st.length);
     if(RS.length) add({id:'stale',lvl:'warn',title:`${RS.length} وصفة اتعدلت بعد ما اشتغلت`,desc:'التشغيلات القديمة خصمت المكونات القديمة. لو التعديل هو اللي كان بيتعمل فعلًا، طبّقه — الخامات القديمة ترجع والجديدة تتخصم.',
@@ -10657,7 +10677,8 @@ async function act(a,d){
     markAutoRuns(); await saveTx(); await logOp(g, `${n} منتج اتصنّع الناقص منه: `+list.map(E=>`${E.it.name} ${fmt(E.short.qty)}`).join('، ').slice(0,400));
     toast(`اتسجل إنتاج ${n} منتج ✓`); ui.modal=a==='make-short'?balanceModal(d.id):healthModal(); return render(); }
   if(a==='hc-copy'){ const t=healthText(); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
-  if(a==='hc-untrack'){ if(!S.untracked) S.untracked={}; S.untracked[d.id]=1; await saveMain(); toast(`"${(item(d.id)||{}).name}" مش هيتحسب في الأرصدة السالبة ولا طلبات الشراء`); ui.modal=healthModal(); return render(); }
+  if(a==='hc-untrack'){ await untrackItem(d.id); ui.modal=/ليه رصيد/.test(ui.modal||'')?balanceModal(d.id):healthModal(); return render(); }
+  if(a==='hc-untrack-old'){ if(!S.untracked) S.untracked={}; S.untracked[d.id]=1; await saveMain(); toast(`"${(item(d.id)||{}).name}" مش هيتحسب في الأرصدة السالبة ولا طلبات الشراء`); ui.modal=healthModal(); return render(); }
   if(a==='hc-backup-now'){ const r=await snapshotBefore('نسخة يدوية من الفحص اليومي'); if(r.ok){ BACKUPS_LIST=await listBackups(); backupsLoaded=true; toast('اتاخدت نسخة ✓'); } else toast('النسخة فشلت: '+r.err,1); ui.modal=healthModal(); return render(); }
   if(a==='hc-fix-runs'){
     { const x=new Date(); x.setDate(x.getDate()-7); if(autoRunRepairPlan(ymdLocal(x)).acts.length && !confirm('⚠️ في إنتاج تلقائي زايد لسه ما اتنظفش. لو طابقت السجل دلوقتي، الزيادة هتتثبت في السجل. الأفضل تنظف الأول.\n\nتطابق برضه؟')) return; }
@@ -10684,7 +10705,7 @@ async function act(a,d){
     S.moves.forEach((m,i)=>{ if(ids.has(m.id)){ m.date=A.D; n++; for(let j=i-1;j>=0 && j>=i-40;j--){ const p=S.moves[j]; if(!p.runId || !others.has(p.date)) break; p.date=A.D; } } });
     (S.runs||[]).forEach(r=>{ if(others.has(r.date) && S.moves.some(m=>m.runId===r.id && m.date===A.D)) r.date=A.D; });
     await saveTx(); await saveMain(); await logOp(g, `${n} حركة صرف اتنقلت ليوم ${A.D}`); toast(`اتنقلت ${n} حركة ليوم ${A.D} ✓`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
-  if(a==='untrack-toggle'){ if(!S.untracked) S.untracked={}; if(S.untracked[d.id]) delete S.untracked[d.id]; else S.untracked[d.id]=1; await saveMain(); ui.modal=boAuditModal(($('#aud-date')||{}).value); render(); boAuditBind(); return; }
+  if(a==='untrack-toggle'){ if(!S.untracked) S.untracked={}; if(S.untracked[d.id]){ delete S.untracked[d.id]; await saveMain(); } else await untrackItem(d.id); ui.modal=boAuditModal(($('#aud-date')||{}).value); render(); boAuditBind(); return; }
   if(a==='bo-audit-trim'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='more' && !r.unknown); if(!rows.length) return;
     if(!confirm(`هيترجع ${rows.length} سطر للكمية المطلوبة في الطلبية (الزيادة هتتمسح من آخر الحركات). تكمل؟`)) return;
     const g=await guardBulk('رجّع الزيادة للمطلوب — '+A.D); if(!g) return;
@@ -11222,6 +11243,8 @@ async function act(a,d){
       S.items.push(outIt);
     }
     const outId=outIt.id;
+    { const other=S.recipes.find(x=>x.id!==d.id && x.outItemId===outId && x.outQty>0);
+      if(other && !confirm(`«${outIt.name}» ليه وصفة تانية بالفعل: «${other.name}» (ناتج ${fmt(other.outQty)}).\n\nالبرنامج بيصنّع بوصفة واحدة بس لكل منتج${S.recipes.indexOf(other)<S.recipes.findIndex(x=>x.id===d.id)||!d.id?` — وهيفضل يستخدم «${other.name}» مش دي`:''}. الأحسن تعدّل الوصفة الموجودة أو تمسحها.\n\nتحفظ برضه؟`)) return; }
 
     if(d.id){
       const r=S.recipes.find(x=>x.id===d.id);
@@ -11259,7 +11282,7 @@ async function act(a,d){
     const r=S.recipes.find(x=>x.id===d.id), b=+$('#run-b').value||0;
     if(b<=0) return toast('اكتب عدد التشغيلات',1);
     const date=today(), runId=uid('run');
-    for(const l of r.lines) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*b),date,price:0,party:r.name,reason:'صرف للإنتاج',runId});
+    for(const l of r.lines.filter(l=>!isUntracked(l.itemId))) S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:n2(l.qty*b),date,price:0,party:r.name,reason:'صرف للإنتاج',runId});
     const cost=recipeCost(r)*b, outQty=n2(r.outQty*b);
     S.moves.push({id:uid('m'),dir:'in',itemId:r.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج: '+r.name,runId});
     S.runs=S.runs||[]; S.runs.push({id:runId,date,name:r.name,batches:b,outQty,cost});
