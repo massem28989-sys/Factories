@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-10 · 13:30';
+const APP_BUILD = '20-10 · 13:55';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -9404,6 +9404,11 @@ function pcParse(text){
   return out;
 }
 const isPcsUnit=u=>/^(حب|حبة|حبه|حبات|pcs?|قطعه|قطعة)$/i.test(String(u||'').trim());
+// «غ» = جرام و«كغ» = كيلو — لازم نفرّق، وإلا 470 جرام بتتقري 470 كيلو
+const isGramUnit=u=>/^(غ|غم|غرام|جم|جرام|g|gm|gr|grams?)$/i.test(String(u||'').trim().replace(/\.$/,''));
+const isMlUnit=u=>/^(مل|ملي|ml)$/i.test(String(u||'').trim());
+const isKgUnit=u=>/^(كغ|كجم|كيلو|كيلوجرام|كجم\.|kg|kgs|k)$/i.test(String(u||'').trim());
+const isLiterUnit=u=>/^(لتر|ل|l|ltr|liter|litre)$/i.test(String(u||'').trim());
 // الرصيد الدفتري أول يوم D (قبل أي حركة في اليوم ده)
 function bookAt(it, D){ let q=+it.opening||0; for(const m of S.moves){ if(m.itemId!==it.id || !(m.date<D)) continue; q+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); } return n2(q); }
 // وارد اليوم (شراء/استلام) للصنف — الجرد غالبًا بيتعمل قبل الاستلام، فاللي مش متعلّم «داخل في الجرد» بيتشال من الدفتري وقت المقارنة
@@ -9413,7 +9418,9 @@ function pcBook(it, P){ const D=P.date||today(); if(P.when==='start') return boo
 function pcPlan(P){
   const rows=P.rows.map(r=>{ const it=item(r.itemId); if(!it) return {...r, err:'مش لاقي الصنف ده — اختاره من القايمة'};
     let q=+r.qty; let conv='';
-    if(r.unit && isPcsUnit(r.unit) && !isPcsUnit(it.unit)){
+    if(r.unit && isGramUnit(r.unit) && (isKgUnit(it.unit)||!isGramUnit(it.unit))){ q=Math.round(q)/1000; conv=`${fmt(r.qty)} جرام = ${fmt(q)} ${it.unit}`; }
+    else if(r.unit && isMlUnit(r.unit) && !isMlUnit(it.unit)){ q=Math.round(q)/1000; conv=`${fmt(r.qty)} مل = ${fmt(q)} ${it.unit}`; }
+    else if(r.unit && isPcsUnit(r.unit) && !isPcsUnit(it.unit)){
       if(+it.packSize>0 && isPcsUnit(it.packUnit)){ q=n2(q*it.packSize); conv=`${fmt(r.qty)} حبة × ${fmt(it.packSize)} = ${fmt(q)} ${it.unit}`; }
       else { const per=(S.boKgPer||{})[it.name]||(S.boConv||{})[it.name]; if(+per>0){ q=n2(q*per); conv=`${fmt(r.qty)} حبة × ${fmt(per)} = ${fmt(q)} ${it.unit}`; } else return {...r, it, err:`الكمية بالحبة والصنف بالـ${it.unit} — اكتبها بالـ${it.unit}`}; } }
     return {...r, it, actual:q, conv}; });
