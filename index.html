@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-10 · 01:40';
+const APP_BUILD = '20-10 · 13:30';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4268,6 +4268,7 @@ function viewBranchOrders(){
       ${isOwner()?`<button class="btn sm" data-act="bo-sync-prices" title="يخلي أسعار كتالوج الفروع = سعر تكلفة المصنع للأصناف المتطابقة">🔄 حدّث أسعار الفروع من المصنع</button>`:''}
       <button class="btn sm ${BO.view==='compare'?'p':''}" data-act="import-dispense-compare">مقارنة الصرف الفعلي</button>
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
+      <button class="btn sm" data-act="bo-odd" style="background:#FDF3E6;color:#8A4A0B;border-color:#E9C79A">✏️ تعديلات مقترحة${BO.hist&&BO.hist.base===BO.from&&BO.from===BO.to?` (${boRuleLines().length+boOddLines().length})`:''}</button>
       <button class="btn sm" data-act="bo-log">📜 سجل التعديلات</button>
       <button class="btn sm${BO._badKeys&&BO._badKeys.size?' danger':''}" data-act="bo-raw">🔎 الطلبيات على السيرفر${BO._badKeys&&BO._badKeys.size?` ⚠ ${BO._badKeys.size}`:''}</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
@@ -9051,6 +9052,97 @@ function boNaderBranchHtml(rows,B){
 }
 /* تعديل سهل: تختار فرع وتشوف طلبيته كقايمة كبيرة واضحة (أو تختار صنف وتشوف كل الفروع) وتعدّل بـ − / + */
 // تفاصيل خام لكل طلبية على الجسر: المفتاح، الفرع اللي جوه الطلبية، التاريخ، وقت الإرسال — بيكشف أي طلبية متسجلة باسم فرع غلط أو مكررة
+/* ================= ⚠ أرقام غريبة في الطلبيات — بدل ما تلف على الفروع واحد واحد ================= */
+// بنجيب طلبيات آخر كام يوم لنفس الفروع، ونقارن كل رقم بالمعتاد للفرع ده من الصنف ده
+async function boLoadHistory(days){
+  days=days||6; const base=BO.from; const branches=[...new Set(BO.orders.map(o=>o.branch))];
+  const slug=b=>String(b).replace(/\s+/g,'_').replace(/["'\/\\]/g,'');
+  const dates=[]; for(let i=1;i<=days;i++){ const x=new Date(base+'T12:00:00'); x.setDate(x.getDate()-i); dates.push(ymdLocal(x)); }
+  const keys=[]; dates.forEach(d=>branches.forEach(b=>keys.push(`${BRANCH_APP.keyPrefix}:${d}:${slug(b)}`)));
+  const cache=BO._histCache||(BO._histCache={});
+  keys.forEach(k=>{ if(cache[k]===undefined){ try{ const v=localStorage.getItem('bohist:'+k); if(v!==null) cache[k]=(v==='∅'?null:v); }catch(e){} } });
+  const vals=await boFetchLimited(keys, cache, 6);
+  const old=ymdLocal(new Date(Date.now()-2*864e5)); // اللي أقدم من يومين بيتحفظ على الجهاز عشان المرة الجاية تبقى أسرع
+  keys.forEach((k,i)=>{ if(vals[i]===undefined) return; if(k.split(':')[1]>old) return; try{ localStorage.setItem('bohist:'+k, vals[i]==null?'∅':vals[i]); }catch(e){} });
+  const H=new Map(); let n=0; const orders=[];
+  vals.forEach(v=>{ const d=boParse(v); if(!d||!d.branch) return; n++; orders.push(d); (d.items||[]).forEach(l=>{ const q=l.orig!=null?+l.orig:+l.qty; if(!(q>0)) return; const k=d.branch+'|'+l.name; (H.get(k)||H.set(k,[]).get(k)).push(q); }); });
+  BO.hist={base, H, n, days, orders, at:Date.now()}; return BO.hist;
+}
+// بنتعلّم من تعديلات المصنع في الأيام اللي فاتت (اللي الفرع طلبه ← اللي المصنع خلّاه)، ونقترح نفس التعديل على طلبيات النهارده
+function boLearnRules(){
+  const R=new Map(); const hist=(BO.hist&&BO.hist.orders)||[];
+  hist.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(d=>(d.items||[]).forEach(l=>{ const f=+l.qty, o=l.orig!=null?+l.orig:f; if(!(o>0)||!(f>0)) return;
+    const e=R.get(l.name)||{pairs:[]}; e.pairs.push({b:d.branch, o, f, ed:Math.abs(o-f)>0.0001, date:d.date}); R.set(l.name,e); }));
+  const med=a=>{ const s=[...a].sort((x,y)=>x-y); const m=s.length>>1; return s.length%2?s[m]:(s[m-1]+s[m])/2; };
+  R.forEach(e=>{ const ed=e.pairs.filter(p=>p.ed); e.share=e.pairs.length?ed.length/e.pairs.length:0; e.ed=ed;
+    if(ed.length>=2 && e.share>=0.5){
+      const rs=ed.map(p=>p.f/p.o), mr=med(rs); if(rs.every(r=>Math.abs(r/mr-1)<0.12)) e.ratio=mr;
+      const ds=ed.map(p=>Math.round((p.f-p.o)*100)/100); if(!e.ratio && ds.every(x=>Math.abs(x-ds[0])<0.011)) e.delta=ds[0];
+    } });
+  return R;
+}
+function boRuleSuggest(R, branch, name, q){
+  const e=R.get(name); if(!e||!e.ed||!e.ed.length) return null;
+  const same=e.ed.filter(p=>p.b===branch && Math.abs(p.o-q)<0.0001).pop();
+  if(same) return {v:same.f, txt:`آخر مرة الفرع ده طلب ${fmt(q)} اتعدلت لـ ${fmt(same.f)}`};
+  if(e.ratio) return {v:Math.round(q*e.ratio*100)/100, txt:`كل 1 ${''} = ${String(Math.round(e.ratio*1000)/1000)} (من ${e.ed.length} تعديل)`};
+  if(e.delta!=null) return {v:Math.round((q+e.delta)*100)/100, txt:`${e.delta>0?'+':''}${fmt(e.delta)} زي كل مرة (من ${e.ed.length} تعديل)`};
+  return null;
+}
+function boRuleLines(){
+  if(!BO.hist||BO.hist.base!==BO.from) return [];
+  const R=boLearnRules(); const out=[];
+  BO.orders.forEach(o=>(o.items||[]).forEach(l=>{ const q=+l.qty; if(!(q>0)) return; if(l.orig!=null) return; // اتعدل خلاص
+    const sg=boRuleSuggest(R, o.branch, l.name, q); if(!sg || Math.abs(sg.v-q)<0.005) return;
+    out.push({o, l, q, sug:sg.v, txt:sg.txt}); }));
+  return out;
+}
+function boOddIgn(){ try{ return new Set(JSON.parse(localStorage.getItem('bo-oddign:'+FACTORY)||'[]')); }catch(e){ return new Set(); } }
+function boOddLines(){
+  const H=BO.hist&&BO.hist.base===BO.from?BO.hist.H:null; const out=[]; const ign=boOddIgn();
+  const med=a=>{ const s=[...a].sort((x,y)=>x-y); const m=s.length>>1; return s.length%2?s[m]:(s[m-1]+s[m])/2; };
+  const day=new Map(); BO.orders.forEach(o=>(o.items||[]).forEach(l=>{ if(+l.qty>0) (day.get(l.name)||day.set(l.name,[]).get(l.name)).push(+l.qty); }));
+  const RL=new Set(boRuleLines().map(x=>x.o._key+'|'+x.l.name));
+  BO.orders.forEach((o,oi)=>(o.items||[]).forEach(l=>{ const q=+l.qty; if(!(q>0)) return; if(ign.has(o._key+'|'+l.name+'|'+q)) return; if(l.orig!=null || RL.has(o._key+'|'+l.name)) return;
+    const hs=(H&&H.get(o.branch+'|'+l.name))||[]; let ref=null, src='', lim=3;
+    if(hs.length>=2){ ref=med(hs); src=`المعتاد للفرع (${hs.length} طلبيات)`; }
+    else { const ds=(day.get(l.name)||[]).filter(x=>x!==q); if(ds.length>=4){ ref=med(ds); src='المعتاد عند باقي الفروع النهارده'; lim=5; } }
+    if(!ref) return; const r=q/ref; if(r<lim && r>1/lim) return;
+    let sug=null, why='';
+    { let best=null; for(const f of [10,100,1000,0.1,0.01,0.001]){ const c=q*f, d=Math.abs(Math.log(c/ref)); if(c/ref<1.4 && c/ref>0.7 && (!best||d<best.d)) best={c,f,d}; }
+      if(best){ sug=Math.round(best.c*1000)/1000; why=best.f>1?'غالبًا الفاصلة اتحطت غلط':'غالبًا في صفر زيادة'; } }
+    if(sug==null){ sug=Math.round(ref*100)/100; why=r>1?`أكتر من المعتاد ${fmt(Math.round(r*10)/10)} مرة`:`أقل من المعتاد بكتير`; }
+    out.push({oi, o, l, q, ref:Math.round(ref*100)/100, src, sug, why, ratio:r, hs});
+  }));
+  return out.sort((a,b)=>Math.abs(Math.log(b.ratio))-Math.abs(Math.log(a.ratio)));
+}
+function boOddModal(){
+  const loading=!BO.hist || BO.hist.base!==BO.from;
+  if(loading && !BO._histLoading){ BO._histLoading=true; boLoadHistory().then(()=>{ BO._histLoading=false; if(ui.modal&&/تعديلات مقترحة/.test(ui.modal)){ ui.modal=boOddModal(); render(); } else render(); }).catch(()=>{ BO._histLoading=false; }); }
+  const L=boOddLines(); const RL=boRuleLines();
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:960px">
+    <h3>✏️ تعديلات مقترحة على الطلبيات <em class="hint">${esc(BO.from)}</em></h3>
+    <div class="pad" style="max-height:72vh;overflow:auto">
+      <b style="display:block;margin-bottom:4px">1) زي ما بتعدّل كل مرة (${RL.length})</b>
+      <div class="hint" style="line-height:1.8;margin-bottom:6px">البرنامج اتعلّم من تعديلاتك على طلبيات الأيام اللي فاتت (الفرع طلب كام ← إنت خلّيته كام)، وبيقترح نفس التعديل. كل ما تعدّل أكتر، الاقتراحات تبقى أدق.</div>
+      ${RL.length?`<table class="gridcols" style="margin-bottom:14px"><thead><tr><th>الفرع</th><th>الصنف</th><th class="n">الفرع طلب</th><th>القاعدة</th><th class="n">يبقى</th><th></th></tr></thead><tbody>
+      ${RL.map((x,i)=>`<tr><td><b>${esc(x.o.branch)}</b></td><td>${esc(boLabel(x.l.name))}</td><td class="n">${fmt(x.q)} <span class="hint">${esc(x.l.unit||'')}</span></td><td style="font-size:12px;color:#2F5E8A">${esc(x.txt)}</td>
+        <td class="n"><input type="number" step="any" min="0" value="${x.sug}" data-rulev="${i}" style="width:80px;text-align:center"></td><td><button class="btn sm p" data-act="bo-rule-fix" data-i="${i}">✓ عدّل</button></td></tr>`).join('')}
+      </tbody></table><button class="btn p" data-act="bo-rule-fixall" style="margin-bottom:14px">✓ طبّق كل التعديلات دي (${RL.length})</button>`:`<div class="empty" style="margin-bottom:12px">${loading?'⏳ بنجيب تعديلات الأيام اللي فاتت…':'مفيش اقتراحات — لسه مفيش تعديلات كفاية متسجلة، أو كل الطلبيات اتعدلت خلاص'}</div>`}
+      <b style="display:block;margin:6px 0 4px">2) أرقام غريبة (مالهاش قاعدة)</b>
+      <div class="hint" style="line-height:1.9;margin-bottom:8px">كل رقم بيتقارن باللي <b>نفس الفرع</b> بيطلبه عادةً من نفس الصنف في آخر ${(BO.hist&&BO.hist.days)||6} أيام (ولو مفيش تاريخ كفاية: بباقي الفروع النهارده). بيظهر هنا بس اللي بعيد جدًا عن المعتاد — والمقترح جنبه، عدّله أو اقبله بضغطة.</div>
+      ${loading?`<div class="warnbar" style="margin-bottom:8px">⏳ بنجيب طلبيات الأيام اللي فاتت عشان المقارنة… (أول مرة بتاخد دقيقة، بعد كده أسرع)</div>`:''}
+      ${L.length?`<table class="gridcols"><thead><tr><th>الفرع</th><th>الصنف</th><th class="n">الفرع طلب</th><th class="n">المعتاد</th><th>ليه</th><th class="n">يبقى</th><th></th></tr></thead><tbody>
+      ${L.map((x,i)=>`<tr><td><b>${esc(x.o.branch)}</b></td><td>${esc(boLabel(x.l.name))}</td>
+        <td class="n"><b style="color:#A32D2D">${fmt(x.q)}</b> <span class="hint">${esc(x.l.unit||'')}</span></td>
+        <td class="n">${fmt(x.ref)}<div class="hint" style="font-size:10.5px">${esc(x.src)}${x.hs.length?' · '+x.hs.slice(-5).map(v=>fmt(v)).join('، '):''}</div></td>
+        <td style="font-size:12px;color:#8A4A0B">${esc(x.why)}</td>
+        <td class="n"><input type="number" step="any" min="0" value="${x.sug}" data-oddv="${i}" style="width:80px;text-align:center"></td>
+        <td style="white-space:nowrap"><button class="btn sm p" data-act="bo-odd-fix" data-i="${i}">✓ عدّل</button> <button class="btn sm" data-act="bo-odd-ign" data-i="${i}">سيبه</button></td></tr>`).join('')}
+      </tbody></table>`:(loading?'':`<div class="empty">✅ مفيش أرقام غريبة في طلبيات النهارده</div>`)}
+    </div>
+    <div class="foot">${L.length>1?`<button class="btn" data-act="bo-odd-fixall">✓ عدّل كل الأرقام الغريبة (${L.length})</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
 function boRawModal(){
   const slug=b=>String(b||'').replace(/\s+/g,'_').replace(/["'\/\\]/g,'');
   const badList=[...(BO._badKeys||new Map()).entries()];
@@ -10760,6 +10852,21 @@ async function act(a,d){
     await saveTx(); await logOp(g, `${gone} تشغيلة من غير حركات اتشالت · ${fixed} اتظبطت كميتها · ${added} اتضافت`);
     toast(`السجل اتطابق ✓ (${gone} اتشالت، ${fixed} اتظبطت، ${added} اتضافت)`); ui.modal=healthModal(); return render(); }
   if(a==='bo-audit'){ ui.modal=boAuditModal(); render(); boAuditBind(); return; }
+  if(a==='bo-odd'){ if(BO.hist&&BO.hist.base===BO.from&&Date.now()-(BO.hist.at||0)>5*60e3) BO.hist=null; ui.modal=boOddModal(); return render(); }
+  if(a==='bo-odd-ign'){ const L=boOddLines(); const x=L[+d.i]; if(!x) return; const S2=boOddIgn(); S2.add(x.o._key+'|'+x.l.name+'|'+x.q); try{ localStorage.setItem('bo-oddign:'+FACTORY, JSON.stringify([...S2].slice(-500))); }catch(e){} ui.modal=boOddModal(); return render(); }
+  if(a==='bo-rule-fix' || a==='bo-rule-fixall'){ const RL=boRuleLines(); const pick=a==='bo-rule-fix'?[+d.i]:RL.map((_,i)=>i);
+    const ch=pick.map(i=>{ const x=RL[i]; const inp=document.querySelector(`[data-rulev="${i}"]`); const v=inp?parseFloat(inp.value):x&&x.sug; return x&&!isNaN(v)&&v>=0?{x,v}:null; }).filter(Boolean); if(!ch.length) return;
+    if(a==='bo-rule-fixall' && !confirm(`هيتعدل ${ch.length} سطر زي تعديلاتك المعتادة:\n\n${ch.slice(0,12).map(c=>`• ${c.x.o.branch}: ${boLabel(c.x.l.name)} ${fmt(c.x.q)} ← ${fmt(c.v)}`).join('\n')}${ch.length>12?'\n…':''}\n\nتكمل؟`)) return;
+    const byO=new Set(); ch.forEach(c=>{ c.x.l.qty=n2(c.v); byO.add(c.x.o); }); let ok=0; for(const o of byO){ if(await boSaveOrder(o)) ok++; }
+    toast(`اتعدل ${ch.length} سطر في ${ok} طلبية ✓`); ui.modal=boOddModal(); return render(); }
+  if(a==='bo-odd-fix' || a==='bo-odd-fixall'){ const L=boOddLines(); const pick=a==='bo-odd-fix'?[+d.i]:L.map((_,i)=>i);
+    const ch=pick.map(i=>{ const x=L[i]; const inp=document.querySelector(`[data-oddv="${i}"]`); const v=inp?parseFloat(inp.value):x.sug; return x&&!isNaN(v)&&v>=0?{x,v}:null; }).filter(Boolean);
+    if(!ch.length) return;
+    const done=ch.filter(c=>boIsDone(c.x.l.name)); if(done.length && !confirm(`${done.length} صنف منهم اتصرف قبل كده — التعديل هيتكتب في طلبية الفرع بس، وحركة الصرف مش هتتغير. تكمل؟`)) return;
+    if(a==='bo-odd-fixall' && !confirm(`هيتعدل ${ch.length} سطر في طلبيات الفروع:\n\n${ch.slice(0,12).map(c=>`• ${c.x.o.branch}: ${boLabel(c.x.l.name)} ${fmt(c.x.q)} ← ${fmt(c.v)}`).join('\n')}${ch.length>12?'\n…':''}\n\nتكمل؟`)) return;
+    const byO=new Map(); ch.forEach(c=>{ c.x.l.qty=n2(c.v); byO.set(c.x.o, true); });
+    let ok=0; for(const o of byO.keys()){ if(await boSaveOrder(o)) ok++; }
+    toast(`اتعدل ${ch.length} سطر في ${ok} طلبية ✓ — التعديل متسجل في «📜 سجل التعديلات»`); ui.modal=boOddModal(); return render(); }
   if(a==='bo-raw'){ ui.modal=boRawModal(); return render(); }
   if(a==='bo-raw-del'){ const k=d.k; const b=(BO._badKeys||new Map()).get(k); const ks=String(k).split(':').slice(2).join(':');
     if(!confirm(`هيتمسح من السيرفر المفتاح «${ks}» اللي جواه طلبية «${b}» (نسخة غلط).\n\nطلبية «${b}» الأصلية في مفتاحها هتفضل زي ما هي. بعد المسح الفرع صاحب المفتاح يقدر يبعت طلبيته تاني. تكمل؟`)) return;
