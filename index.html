@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-10 · 13:55';
+const APP_BUILD = '21-10 · 00:45';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3656,6 +3656,24 @@ function totals(){
 /* حالة مزامنة سعر كل منتج مع تكلفة وصفته:
    - لو المنتج ليه أكتر من وصفة بتكاليف مختلفة → "multi" (لازم تختار إنت أنهي تكلفة)
    - المقارنة بعد التقريب لقرشين، عشان الفرق الصغير من التقريب ما يفضلش يطلع "مختلف" على طول */
+// تحديث سعر المنتجات من تكلفة وصفاتها (مع المنتجات الداخلة في منتجات تانية)
+function applyRecipePriceSync(){ let n=0; for(let pass=0; pass<7; pass++){ const st=recipeSyncState().stale; if(!st.length) break; st.forEach(x=>{ x.item.price=x.to; }); n+=st.length; } return n; }
+// بعد أي استلام غيّر سعر خامة: نسأل نحدّث أسعار المنتجات اللي اتأثرت دلوقتي — قبل ما الصرف يطلع بسعر قديم
+async function afterPriceChange(changes){
+  changes=(changes||[]).filter(c=>c && Math.abs((+c.to||0)-(+c.from||0))>0.004); if(!changes.length) return;
+  const st=recipeSyncState().stale; if(!st.length) return;
+  const uses=id=>{ const seen=new Set(); const go=x=>{ S.recipes.filter(r=>(r.lines||[]).some(l=>l.itemId===x)).forEach(r=>{ if(!seen.has(r.outItemId)){ seen.add(r.outItemId); go(r.outItemId); } }); }; go(id); return seen; };
+  const hit=new Set(); changes.forEach(c=>uses(c.it.id).forEach(x=>hit.add(x)));
+  // معاينة بالسعر النهائي (المنتج اللي جواه منتج تاني بيتحسب بعد ما اللي جواه يتحدث)
+  const keep=new Map(S.items.map(i=>[i.id,i.price])); applyRecipePriceSync(); const fin=new Map(S.items.map(i=>[i.id,i.price])); S.items.forEach(i=>{ i.price=keep.get(i.id); });
+  const mine=[...hit].map(id=>item(id)).filter(it=>it && Math.abs((fin.get(it.id)||0)-(+it.price||0))>0.01).map(it=>({item:it, from:+it.price||0, to:fin.get(it.id)})); if(!mine.length) return;
+  const jump=changes.filter(c=>c.from>0 && (c.to/c.from>1.5 || c.to/c.from<0.67));
+  const msg=`${changes.map(c=>`سعر «${c.it.name}» اتغير: ${fmt(c.from)} ← ${fmt(c.to)}`).join('\n')}`+
+    (jump.length?`\n\n⚠ ${jump.map(c=>`«${c.it.name}» ${c.to>c.from?'زاد':'قلّ'} ${Math.round(Math.abs(c.to/c.from-1)*100)}%`).join('، ')} — اتأكد إنه سعر الوحدة (${jump.map(c=>c.it.unit).join('/')}) مش سعر الكرتونة أو الشوال.`:'')+
+    `\n\n${mine.length} منتج تكلفتهم اتغيرت:\n${mine.slice(0,10).map(x=>`• ${x.item.name}: ${fmt(x.from)} ← ${fmt(x.to)}`).join('\n')}${mine.length>10?`\n… و${mine.length-10} كمان`:''}\n\nأحدّث أسعارهم في كارت الأصناف دلوقتي؟ (اللي هيتصرف للفروع بعد كده هيطلع بالسعر الجديد)`;
+  if(!confirm(msg)) return;
+  const n=applyRecipePriceSync(); await saveMain(); toast(`اتحدّث سعر ${n} منتج من تكلفة وصفاتهم ✓`);
+}
 function recipeSyncState(){
   const byOut=new Map();
   for(const r of S.recipes){ const o=item(r.outItemId); if(!o||!(+r.outQty>0)) continue; const uc=n2(recipeCost(r)/r.outQty); if(!(uc>0)) continue;
@@ -6972,9 +6990,11 @@ async function prReceiveSave(key){
   SUBMITTING++;
   try{
     const moves=[];
+    const pch=[];
     for(const l of lines){ const it=item(l.r.itemId);
       const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:''};
-      S.moves.push(m); moves.push(m); if(l.priceBase>0) it.price=m.price; }
+      S.moves.push(m); moves.push(m); if(l.priceBase>0){ pch.push({it, from:+it.price||0, to:m.price}); it.price=m.price; } }
+    setTimeout(()=>afterPriceChange(pch), 900);
     let invMsg='';
     const f=($('#prr-inv')||{}).files; 
     if(f && f[0]){ try{ const path=await uploadInvoiceImage(f[0], moves[0].id); moves.forEach(m=>{ const cur=S.moves.find(x=>x.id===m.id)||m; cur.invoice=path; }); invMsg=' + اترفعت صورة الفاتورة'; }
@@ -9352,7 +9372,7 @@ function boAudit(D){
   const moves=S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && m.date===D);
   // حركات صرف في الأيام اللي حوالين اليوم ده (قبله بيومين/بعده بيوم) — عشان نعرف لو الصرف اتسجل بتاريخ تاني
   const dd=n=>{ const x=new Date(D+'T12:00:00'); x.setDate(x.getDate()+n); return ymdLocal(x); }; const near=new Set([dd(-2),dd(-1),dd(1)]);
-  const nearMv=new Map(); S.moves.forEach(m=>{ if(m.dir==='out' && m.reason==='صرف للفروع' && near.has(m.date)){ const k=m.itemId+'|'+m.party; const e=nearMv.get(k)||{qty:0,dates:new Set(),ids:[]}; e.qty=n2(e.qty+m.qty); e.dates.add(m.date); e.ids.push(m.id); nearMv.set(k,e); } });
+  const nearMv=new Map(); S.moves.forEach(m=>{ if(m.dir==='out' && m.reason==='صرف للفروع' && near.has(m.date)){ const k=m.itemId+'|'+m.party; const e=nearMv.get(k)||{qty:0,dates:new Set(),ids:[],per:{}}; e.qty=n2(e.qty+m.qty); e.dates.add(m.date); e.ids.push(m.id); e.per[m.date]=(e.per[m.date]||0)+1; (e.list=e.list||[]).push(m); nearMv.set(k,e); } });
   const got=new Map(); moves.forEach(m=>{ const k=m.itemId+'|'+m.party; const e=got.get(k)||{qty:0,n:0,forced:0}; e.qty=n2(e.qty+m.qty); e.n++; if(m.forced) e.forced++; got.set(k,e); });
   const exp=new Map(); const notMatched=[]; const notDone=[]; const doneNoMove=[];
   Object.keys(BO.totals||{}).forEach(fn=>{
@@ -9368,7 +9388,10 @@ function boAudit(D){
   const rows=[];
   exp.forEach((e,k)=>{ const g=got.get(k); const it=item(e.itemId); const r={...e, item:it?it.name:'?', unit:it?it.unit:'', got:g?g.qty:0, n:g?g.n:0, forced:g?g.forced:0};
     const nm=nearMv.get(k);
-    if(!g && nm){ r.st='other-day'; r.otherDates=[...nm.dates].sort(); r.otherQty=nm.qty; r.otherIds=nm.ids; }
+    // «اتصرف بتاريخ تاني» بس لو صرف اليوم ده بدأ فعلًا، واليوم التاني فيه أكتر من صرفة لنفس الفرع والصنف (صرفته هو + صرفة اليوم ده اتسجلت غلط).
+    // الفروع بتطلب كل يوم، فوجود صرف امبارح لوحده طبيعي ومش معناه إن صرف النهارده اتسجل بتاريخ امبارح
+    if(!g && nm && moves.length && Object.values(nm.per).some(c=>c>=2)){ const ex=[]; Object.keys(nm.per).filter(d=>nm.per[d]>=2).forEach(d=>{ const L=nm.list.filter(m=>m.date===d); ex.push(...L.slice(1)); }); // الصرفة الأولى في اليوم التاني بتاعته هو — الزيادة بس هي اللي ممكن تكون بتاعة النهارده
+      r.st='other-day'; r.otherDates=[...new Set(ex.map(m=>m.date))].sort(); r.otherQty=n2(ex.reduce((t,m)=>t+(+m.qty||0),0)); r.otherIds=ex.map(m=>m.id); }
     else if(!g) r.st = e.done ? 'done-no-move' : 'pending';
     else if(g.n>1 && !e.weigh && Math.abs(g.qty-e.qty)>0.01 && Math.abs(g.qty-e.qty*g.n)<0.01) r.st='dup';
     else if(e.unknown) r.st='ok?';
@@ -9754,6 +9777,10 @@ function healthCheck(){
       desc:[c('dup')?`${c('dup')} متكرر`:'', c('more')?`${c('more')} زيادة`:'', c('less')?`${c('less')} ناقص`:'', c('done-no-move')?`${c('done-no-move')} متعلّم اتصرف ومفيش حركة`:'', pend?`${pend} لسه ما اتصرفش`:''].filter(Boolean).join(' · '),
       act:['bo-audit','🔍 افتح المراجعة']});
   } else add({id:'bo',lvl:'info',title:'صرف الفروع: افتح طلبيات النهارده عشان نقارنها',desc:'من «الإنتاج ← طلبيات الفروع» اختار يوم النهارده، وبعدين ارجع للفحص.'});
+  { const {stale, multi}=recipeSyncState();
+    add({id:'psync',lvl:stale.length?'warn':'ok',title:stale.length?`${stale.length} منتج سعره في الكارت غير تكلفة وصفته`:'أسعار المنتجات مطابقة لتكلفة الوصفات',
+      desc:stale.length?'أسعار خامات اتغيرت في الاستلام. زامن قبل الصرف — السعر اللي بيتكتب على فاتورة الفرع بيتثبت وقت الصرف.'+(multi.length?` (و${multi.length} منتج ليه أكتر من وصفة — اختار تكلفته من شاشة الوصفات)`:''):'',
+      rows:stale.map(x=>({c:[x.item.name, `${fmt(x.from)} ← ${fmt(x.to)}`]})), act:stale.length?['sync-prices','💲 حدّث الأسعار']:null}); }
   // 7) أصناف من غير سعر عليها حركة
   const used=new Set(S.moves.map(m=>m.itemId));
   const noPrice=S.items.filter(it=>used.has(it.id) && !(+it.price>0) && !isUntracked(it.id));
@@ -9783,6 +9810,7 @@ function healthCheck(){
   const steps=[]; if(isBad('save')) steps.push('الحفظ الأول — استنى أو دوس «احفظ تاني»');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
+  if(isBad('psync')) steps.push('قبل الصرف: «💲 حدّث الأسعار» عشان فواتير الفروع تطلع بالتكلفة الجديدة');
   if(isBad('stale')) steps.push('الوصفات اللي اتعدلت: «🔁 طبّق» لو التعديل هو اللي كان بيتعمل فعلًا');
   if(isBad('short')) steps.push('المنتجات اللي اتصرفت من غير إنتاج: «صنّع الناقص» (بعد التنظيف، مش قبله)');
   if(isBad('runs')) steps.push('بعد كده بس: «طابق السجل مع الحركات»');
@@ -11112,11 +11140,10 @@ async function act(a,d){
     if(!stale.length) return toast(multi.length?`فيه ${multi.length} منتج ليه أكتر من وصفة — اختار تكلفته من اللوحة الصفرا`:'كل الأسعار متطابقة مع تكلفة الوصفات بالفعل', multi.length?1:0);
     const preview = stale.slice(0,12).map(s=>`• ${s.item.name}: ${fmt(s.from)} ← ${fmt(s.to)}`).join('\n');
     if(!confirm(`هيتم تحديث سعر ${stale.length} منتج في كارت الأصناف لتكلفتها الحقيقية من الوصفة:\n\n${preview}${stale.length>12?`\n… و${stale.length-12} منتج كمان`:''}\n\nتكمل؟`)) return;
-    stale.forEach(s=>{ s.item.price = s.to; });
-    // لو منتج داخل كخامة في وصفة تانية (زي صوص جوه ساندوتش)، تغيير سعره بيغيّر تكلفة التانية — نكرر لحد ما كله يتظبط
-    let extra=0; for(let pass=0; pass<6; pass++){ const again=recipeSyncState().stale; if(!again.length) break; again.forEach(s=>{ s.item.price=s.to; }); extra+=again.length; }
-    await saveMain();
-    toast(`اتحدّث سعر ${stale.length+extra} منتج من تكلفة وصفاتهم`);
+    // لو منتج داخل كخامة في وصفة تانية (زي صوص جوه ساندوتش)، تغيير سعره بيغيّر تكلفة التانية — بنكرر لحد ما كله يتظبط
+    const nn=applyRecipePriceSync(); await saveMain();
+    toast(`اتحدّث سعر ${nn} منتج من تكلفة وصفاتهم`);
+    if(ui.modal&&/الفحص اليومي/.test(ui.modal)) ui.modal=healthModal();
     return render();
   }
   if(a==='rx-export'){ rxExport(); return; }
@@ -11240,7 +11267,7 @@ async function act(a,d){
       const unitPrice = unitMul>1 ? n2(enteredPrice/unitMul) : enteredPrice;
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:unitPrice,party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
-      if(m.price>0){ it.price=m.price; await saveMain(); }
+      if(m.price>0){ const old=+it.price||0; it.price=m.price; await saveMain(); setTimeout(()=>afterPriceChange([{it, from:old, to:m.price}]), 400); }
       // الوارد العادي منفصل تمامًا عن طلبات الشراء — مابيخصمش منها. استلام طلب الشراء بيتم من زرار «استلام» في الطلب نفسه بس.
       // بنكتفي بتنبيه لو فيه طلب مفتوح لنفس الصنف، عشان لو الوارد ده كان من الطلب فعلًا
       { const op=openPurchaseFor(id); if(op.length) autoMsg += ` — ملحوظة: فيه طلب شراء مفتوح لـ"${it.name}" (${op.map(r=>fmt(Math.max(0,(+r.qty||0)-(+r.receivedQty||0)))+' '+(r.unit||'')+(r.supplier?' من '+r.supplier:'')).join('، ')}) ومااتخصمش منه. لو الوارد ده من الطلب، امسح الحركة دي واستلمه من «طلبات الشراء ← استلام»`; }
