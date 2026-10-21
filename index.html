@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '21-10 · 11:45';
+const APP_BUILD = '21-10 · 17:00';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4045,6 +4045,13 @@ async function boFetchLimited(keys, cache, limit){
     if(cache[k]!==undefined){ out[i]=cache[k]; continue; } const v=await one(k); if(v!==undefined){ cache[k]=v; out[i]=v; } else out[i]=undefined; } };
   await Promise.all(Array.from({length:Math.min(limit||5,keys.length)},worker)); return out;
 }
+// الفرع ساعات بيدوس «إرسال» مرتين — نفس الطلب/البلاغ بيوصل مكرر. بنعرضه مرة واحدة، والقرار بيتطبق على كل النسخ
+function boDedupe(list, keyOf){
+  const g=new Map(); const out=[];
+  list.forEach(r=>{ const k=keyOf(r); const e=g.get(k); if(e){ e.dupIds.push(r.id); if(r.status==='pending') e._anyPending=true; return; } const x={...r, dupIds:[r.id]}; g.set(k,x); out.push(x); });
+  out.forEach(x=>{ if(x.status!=='pending' && x._anyPending) x.status='pending'; });
+  return out;
+}
 const boParse = v => { if(v==null) return null; if(typeof v==='object') return v; try{ return JSON.parse(v); }catch(e){ return null; } };
 async function fetchFactoryChangeRequests(){
   try{
@@ -4060,6 +4067,7 @@ async function fetchFactoryChangeRequests(){
       if(!note){ const d=boParse(details[i]); note = d ? (d.note||d.text||d.message||'(من غير نص)') : (details[i]===undefined ? '⚠ تعذر التحميل — دوس «جلب» تاني' : '-'); }
       return {...r, note};
     });
+    { const nz=t=>String(t||'').replace(/\s+/g,' ').trim(); BO.changes=boDedupe(BO.changes, r=>r.branch+'|'+r.date+'|'+nz(r.note)); }
     BO.changesCount = BO.changes.filter(r=>r.status==='pending').length;
   }catch(e){ BO.changes=[]; BO.changesCount=0; }
 }
@@ -4077,6 +4085,7 @@ async function fetchFactoryShortageReports(){
       { const d=boParse(details[i]); if(d) items=d.items||[]; }
       return {...r, items};
     });
+    BO.shortages=boDedupe(BO.shortages, r=>r.branch+'|'+r.date+'|'+(r.items&&r.items.length?r.items.map(x=>x.name+':'+(x.missingQty||x.extraQty)).sort().join('|'):'id'+r.id));
     BO.shortagesCount = BO.shortages.filter(r=>r.status==='pending').length;
   }catch(e){ BO.shortages=[]; BO.shortagesCount=0; }
 }
@@ -4085,14 +4094,15 @@ async function decideFactoryShortageReport(id, decision){
   try{
     const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:index`);
     let index = idxVal ? JSON.parse(idxVal) : [];
+    const grp = (BO.shortages||[]).find(r=>(r.dupIds||[r.id]).includes(id)); const ids = grp ? grp.dupIds : [id];
     const idx = index.findIndex(r=>r.id===id);
     if(idx===-1) return;
-    index[idx].status = decision;
+    index.forEach(r=>{ if(ids.includes(r.id)) r.status = decision; });
     const ok = await faroojSet(`${BRANCH_APP.keyPrefix}_shortage:index`, JSON.stringify(index));
     if(!ok) throw new Error();
     try{
-      const fullVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:${id}`);
-      if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`${BRANCH_APP.keyPrefix}_shortage:${id}`, JSON.stringify(obj)); }
+      for(const x of ids){ const fullVal = await faroojGet(`${BRANCH_APP.keyPrefix}_shortage:${x}`);
+        if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`${BRANCH_APP.keyPrefix}_shortage:${x}`, JSON.stringify(obj)); } }
     }catch(e){}
     toast(decision==='resolved' ? 'اتعلّم البلاغ إنه اتحل' : 'اترفض البلاغ');
     await fetchFactoryShortageReports();
@@ -4104,14 +4114,15 @@ async function decideFactoryChangeRequest(id, decision){
   try{
     const idxVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:index`);
     let index = idxVal ? JSON.parse(idxVal) : [];
+    const grp = (BO.changes||[]).find(r=>(r.dupIds||[r.id]).includes(id)); const ids = grp ? grp.dupIds : [id];
     const idx = index.findIndex(r=>r.id===id);
     if(idx===-1) return;
-    index[idx].status = decision;
+    index.forEach(r=>{ if(ids.includes(r.id)) r.status = decision; });
     const ok = await faroojSet(`${BRANCH_APP.keyPrefix}_change:index`, JSON.stringify(index));
     if(!ok) throw new Error();
     try{
-      const fullVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:${id}`);
-      if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`${BRANCH_APP.keyPrefix}_change:${id}`, JSON.stringify(obj)); }
+      for(const x of ids){ const fullVal = await faroojGet(`${BRANCH_APP.keyPrefix}_change:${x}`);
+        if(fullVal){ const obj=JSON.parse(fullVal); obj.status=decision; await faroojSet(`${BRANCH_APP.keyPrefix}_change:${x}`, JSON.stringify(obj)); } }
     }catch(e){}
     toast(decision==='done' ? 'اتعلّم الطلب إنه اتعمل' : 'اترفض الطلب');
     await fetchFactoryChangeRequests();
@@ -4288,6 +4299,7 @@ function viewBranchOrders(){
       <button class="btn sm ${BO.view==='changes'?'p':''}" data-boview="changes">طلبات تعديل الفروع${BO.changesCount?` (${BO.changesCount})`:''}</button>
       <button class="btn sm" data-act="bo-odd" style="background:#FDF3E6;color:#8A4A0B;border-color:#E9C79A">✏️ تعديلات مقترحة${BO.hist&&BO.hist.base===BO.from&&BO.from===BO.to?` (${boRuleLines().length+boOddLines().length})`:''}</button>
       <button class="btn sm" data-act="bo-log">📜 سجل التعديلات</button>
+      <button class="btn sm" data-act="bo-resync" title="لو عدّلت صرف من المنصرف بعد ما اتصرف">🔄 طابق الفواتير مع الصرف</button>
       <button class="btn sm${BO._badKeys&&BO._badKeys.size?' danger':''}" data-act="bo-raw">🔎 الطلبيات على السيرفر${BO._badKeys&&BO._badKeys.size?` ⚠ ${BO._badKeys.size}`:''}</button>
       <button class="btn sm ${BO.view==='shortages'?'p':''}" data-boview="shortages">بلاغات الفروق${BO.shortagesCount?` (${BO.shortagesCount})`:''}</button>
       <button class="btn sm ${BO.view==='plan'?'p':''}" data-boview="plan">تخطيط الإنتاج (المواد الخام)</button>
@@ -4338,7 +4350,7 @@ function viewBranchOrders(){
         return `<tr>
           <td><div class="iname">${esc(r.branch)}</div></td>
           <td>${esc(r.date)}</td>
-          <td style="max-width:320px;white-space:normal">${esc(r.note)}</td>
+          <td style="max-width:320px;white-space:normal">${esc(r.note)}${(r.dupIds||[]).length>1?` <span class="chip" title="الفرع بعته ${r.dupIds.length} مرات — القرار بيتطبق على الكل">×${r.dupIds.length} مكرر</span>`:''}</td>
           <td>${esc(r.requestedBy||'-')}</td>
           <td style="font-size:12px">${r.createdAt?new Date(r.createdAt).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-'}</td>
           <td><span class="chip ${cls}">${labels[r.status]||r.status}</span></td>
@@ -4367,7 +4379,7 @@ function viewBranchOrders(){
         return `<tr>
           <td><div class="iname">${esc(r.branch)}</div></td>
           <td>${esc(r.date)}</td>
-          <td style="max-width:340px;white-space:normal;font-size:12.5px">${itemsList||'—'}</td>
+          <td style="max-width:340px;white-space:normal;font-size:12.5px">${itemsList||'—'}${(r.dupIds||[]).length>1?` <span class="chip" title="الفرع بعته ${r.dupIds.length} مرات — القرار بيتطبق على الكل">×${r.dupIds.length} مكرر</span>`:''}</td>
           <td>${esc(r.reportedBy||'-')}</td>
           <td style="font-size:12px">${r.createdAt?new Date(r.createdAt).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-'}</td>
           <td><span class="chip ${cls}">${labels[r.status]||r.status}</span></td>
@@ -7915,6 +7927,7 @@ function bind(){
     }
     m.qty = n2(v);
     await saveTx();
+    if(m.reason==='صرف للفروع' && m.party){ boSyncDispenseToOrder(m.party, m.itemId, m.date).then(x=>{ if(x) toast(`واتعدلت فاتورة «${m.party}» كمان: ${boLabel(x.l.name)} ${x.oldSent!=null?fmt(x.oldSent)+' ← ':''}${fmt(x.newSent)}`); }); }
     // لو الحركة دي "صرف لمصنع تاني" وليها إشعار موصول، لازم نحدّث الكمية في الإشعار نفسه
     // عشان المصنع التاني ميستلمش رقم قديم لو لسه معلّق، أو يعرف إن الرقم اتغيّر لو كان استلم بالفعل
     if(m.reason==='صرف لمصنع تاني' && m.notifyId && m.notifyFactory){
@@ -8039,7 +8052,8 @@ function bind(){
       return;
     }
     DELETED_MOVE_IDS.add(b.dataset.del);
-    S.moves=S.moves.filter(m=>m.id!==b.dataset.del); await saveTx(); toast('اتحذفت الحركة'); render();});
+    S.moves=S.moves.filter(m=>m.id!==b.dataset.del); await saveTx(); toast('اتحذفت الحركة'); render();
+    if(m && m.reason==='صرف للفروع' && m.party){ const x=await boSyncDispenseToOrder(m.party, m.itemId, m.date); if(x) toast(`واتعدلت فاتورة «${m.party}» كمان: ${boLabel(x.l.name)} ← ${fmt(x.newSent)}`); } });
   root.querySelectorAll('[data-delr]').forEach(b=>b.onclick=async()=>{
     if(!isOwner()) return toast('مسح الوصفات لصاحب النظام بس',1);
     S.recipes=S.recipes.filter(r=>r.id!==b.dataset.delr); await saveMain(); render();});
@@ -9268,6 +9282,30 @@ function boCatFactor(catName, catUnit){
   if(bu && m.packUnit && m.packSize>0 && normUnit(m.packUnit)===bu) return {m, f:+m.packSize};
   const sv=S.boConv?S.boConv[catName]:undefined; if(sv>0 && !boIsWeigh(catName)) return {m, f:+sv};
   return null;
+}
+// فاتورة الفرع (الـ«اتبعت» في الطلبية) لازم تمشي مع حركة الصرف. لو الصرف اتعدل أو اتمسح من المنصرف، بنعدّل الفاتورة كمان
+function boDispTotal(branch, itemId, date){ return n2(S.moves.filter(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.party===branch&&m.itemId===itemId&&m.date===date).reduce((t,m)=>t+(+m.qty||0),0)); }
+async function boOrderFor(branch, date){
+  if(!BRANCH_APP) return null; const key=`${BRANCH_APP.keyPrefix}:${date}:${String(branch).replace(/\s+/g,'_').replace(/["'\/\\]/g,'')}`;
+  const o=BO.orders.find(x=>x._key===key); if(o) return o;
+  const d=boParse(await faroojGet(key).catch(()=>null)); return d?{...d,_key:key,_loaded:boSnapItems(d.items)}:null;
+}
+function boLineDiff(o, itemId, date){
+  const lines=(o.items||[]).filter(l=>{ const m=findMatchingLocalItem(l.name); return m&&m.id===itemId; }); if(lines.length!==1) return null;
+  const l=lines[0]; const tot=boDispTotal(o.branch, itemId, date);
+  if(l.sent==null && !(tot>0)) return null;
+  if(l.sent!=null && Math.abs((+l.factoryQty||0)-tot)<0.005) return null;
+  const cf=(+l.factoryQty>0 && +l.sent>0) ? (+l.factoryQty)/(+l.sent) : (convFactorOf(l.name)||1);
+  return {o, l, tot, newSent:n2(tot/cf), oldSent:l.sent!=null?+l.sent:null};
+}
+async function boSyncDispenseToOrder(branch, itemId, date){
+  try{ const o=await boOrderFor(branch, date); if(!o) return null; const x=boLineDiff(o, itemId, date); if(!x) return null;
+    boStampLine(o, x.l.name, x.newSent, x.tot, item(itemId)); return (await boSaveOrder(o)) ? x : null; }catch(e){ return null; }
+}
+async function boResyncPlan(){
+  const out=[]; const D=BO.from; if(BO.from!==BO.to) return out;
+  BO.orders.forEach(o=>(o.items||[]).forEach(l=>{ const m=findMatchingLocalItem(l.name); if(!m) return; const x=boLineDiff(o, m.id, D); if(x && x.l===l) out.push({...x, itemId:m.id}); }));
+  return out;
 }
 function boStampLine(o, name, sentBranchQty, factoryQty, m){
   const l=(o.items||[]).find(x=>x.name===name); if(!l) return false;
@@ -10967,6 +11005,10 @@ async function act(a,d){
     let ok=0; for(const o of byO.keys()){ if(await boSaveOrder(o)) ok++; }
     toast(`اتعدل ${ch.length} سطر في ${ok} طلبية ✓ — التعديل متسجل في «📜 سجل التعديلات»`); ui.modal=boOddModal(); return render(); }
   if(a==='bo-raw'){ ui.modal=boRawModal(); return render(); }
+  if(a==='bo-resync'){ if(BO.from!==BO.to) return toast('اختار يوم واحد الأول',1); const L=await boResyncPlan(); if(!L.length) return toast('فواتير الفروع مطابقة للصرف ✓');
+    if(!confirm(`${L.length} سطر في فواتير الفروع مش مطابق للصرف المتسجل (غالبًا الصرف اتعدل من المنصرف بعد ما اتصرف):\n\n${L.slice(0,15).map(x=>`• ${x.o.branch}: ${boLabel(x.l.name)} — الفاتورة ${x.oldSent!=null?fmt(x.oldSent):'—'} ← الصرف ${fmt(x.newSent)}`).join('\n')}${L.length>15?'\n…':''}\n\nأعدّل الفواتير على الصرف؟`)) return;
+    const set=new Set(); L.forEach(x=>{ boStampLine(x.o, x.l.name, x.newSent, x.tot, item(x.itemId)); set.add(x.o); }); const n=await boFlushOrders(set);
+    toast(`اتعدلت ${L.length} سطر في ${n} فاتورة ✓ — الفروع هتشوف الكميات الجديدة`); return render(); }
   if(a==='bo-raw-del'){ const k=d.k; const b=(BO._badKeys||new Map()).get(k); const ks=String(k).split(':').slice(2).join(':');
     if(!confirm(`هيتمسح من السيرفر المفتاح «${ks}» اللي جواه طلبية «${b}» (نسخة غلط).\n\nطلبية «${b}» الأصلية في مفتاحها هتفضل زي ما هي. بعد المسح الفرع صاحب المفتاح يقدر يبعت طلبيته تاني. تكمل؟`)) return;
     try{ const r=await faroojRequest({action:'delete', key:k}); if(!r || r.success===false) throw new Error((r&&r.error)||'');
