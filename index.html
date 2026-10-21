@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '21-10 · 00:45';
+const APP_BUILD = '21-10 · 11:45';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1062,7 +1062,7 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1086,7 +1086,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1725,10 +1725,10 @@ async function pushAll(quiet){
       if(sv){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
-        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1759,7 +1759,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     MOVE_SIG.clear(); S.moves.forEach(m=>MOVE_SIG.set(m.id, moveSig(m))); // دي اللي على السيرفر فعلًا
@@ -3877,7 +3877,7 @@ function viewDailyStock(){
               : rows;
 
   return `
-  ${ROLE==='owner'||ROLE==='manager'?`<div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn p" data-act="pc-open">📋 جرد بعد الصرف</button><button class="btn" data-act="pa-open">📝 الإنتاج الفعلي</button><span class="hint">آخر اليوم: الزق الموجود فعلًا بعد خروج الطلبيات، أو اكتب المصنع عمل كام من كل منتج — البرنامج يحسب الفرق ويسجله.</span></div></div>`:''}
+  ${ROLE==='owner'||ROLE==='manager'?`<div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn p" data-act="cnt-open">📋 جرد النهارده</button><button class="btn" data-act="pc-open">📋 جرد بلصق قايمة</button><button class="btn" data-act="pa-open">📝 الإنتاج الفعلي</button><span class="hint">آخر اليوم: الزق الموجود فعلًا بعد خروج الطلبيات، أو اكتب المصنع عمل كام من كل منتج — البرنامج يحسب الفرق ويسجله.</span></div></div>`:''}
   <div class="panel"><div class="pad"><div class="cards">
     <div class="card"><div class="k">${t('ds_value_today')}</div><div class="v">${money(totalValue)}</div><div class="s">${rows.length} ${t('ds_items_in')}</div></div>
     <div class="card"><div class="k">${t('ds_available')}</div><div class="v" style="color:var(--green)">${okCount}</div><div class="s">${t('ds_good_balance')}</div></div>
@@ -9406,6 +9406,55 @@ function boAudit(D){
   const forced=moves.filter(m=>m.forced);
   return {D, rows, extra, neg, runs, forced, notMatched, notDone, moves, sameDay: BO.from===D && BO.to===D};
 }
+/* ================= 📋 جرد النهارده — جرد دوّار: أ كل يوم، ب يوم ويوم، ج مرة في الأسبوع ================= */
+// التقسيم التلقائي حسب قيمة الاستهلاك الشهر ده (الأغلى والأسرع حركة = أ). وتقدر تغيّر مجموعة أي صنف بإيدك
+function cntAutoGroups(){
+  const use=new Map(); S.moves.forEach(m=>{ if(m.dir!=='out') return; const it=item(m.itemId); if(!it) return; use.set(it.id,(use.get(it.id)||0)+(+m.qty||0)*(+it.price||0)); });
+  const cand=S.items.filter(it=>!isUntracked(it.id) && ((use.get(it.id)||0)>0 || Math.abs(calc(it).book)>0.001));
+  const sorted=cand.map(it=>({it,v:use.get(it.id)||0, sv:Math.max(0,calc(it).book)*(+it.price||0)})).sort((a,b)=>(b.v+b.sv*0.3)-(a.v+a.sv*0.3));
+  const tot=sorted.reduce((t,x)=>t+x.v+x.sv*0.3,0)||1; let acc=0; const G={};
+  sorted.forEach((x,i)=>{ acc+=x.v+x.sv*0.3; G[x.it.id]= (i<30 && acc/tot<=0.72) || i<12 ? 'A' : acc/tot<=0.93 ? 'B' : 'C'; });
+  return G;
+}
+function cntGroupOf(id, auto){ const m=(S.cntGrp||{})[id]; if(m) return m; return (auto||cntAutoGroups())[id]||''; }
+const CNT_LBL={A:'أ — كل يوم',B:'ب — يوم ويوم',C:'ج — مرة في الأسبوع',X:'مش بيتجرد'};
+function cntDayNo(D){ return Math.floor(new Date(D+'T12:00:00').getTime()/864e5); }
+function cntPlan(D){
+  D=D||today(); const auto=cntAutoGroups(); const all=S.items.filter(it=>!isUntracked(it.id)).map(it=>({it,g:cntGroupOf(it.id,auto)})).filter(x=>x.g&&x.g!=='X');
+  const by=g=>all.filter(x=>x.g===g).sort((a,b)=>String(a.it.cat||'').localeCompare(String(b.it.cat||''),'ar')||a.it.name.localeCompare(b.it.name,'ar'));
+  const dn=cntDayNo(D); const A=by('A'), B=by('B'), C=by('C');
+  const Bt=B.filter((x,i)=>i%2===dn%2);                         // نص مجموعة ب كل يوم
+  const cats=[...new Set(C.map(x=>x.it.cat||'—'))].sort((a,b)=>a.localeCompare(b,'ar'));   // ج: كل قسم ليه يوم في الأسبوع
+  const Ct=C.filter(x=>{ const ci=cats.indexOf(x.it.cat||'—'); return (ci%7)===(dn%7); });
+  const done=new Set(((S.cntLog||{})[D])||[]);
+  return {D, list:[...A,...Bt,...Ct].map(x=>({...x, done:done.has(x.it.id)})), A:A.length, B:B.length, C:C.length, all};
+}
+function cntModal(){
+  const P=ui.cnt||(ui.cnt={D:today(), edit:false, vals:{}}); const L=cntPlan(P.D);
+  const left=L.list.filter(x=>!x.done).length;
+  const row=x=>`<tr style="${x.done?'opacity:.55':''}"><td><b>${esc(x.it.name)}</b><div class="hint">${esc(x.it.cat||'')}</div></td>
+    <td><span class="chip ${x.g==='A'?'r':x.g==='B'?'a':'b'}">${x.g==='A'?'أ':x.g==='B'?'ب':'ج'}</span></td>
+    <td class="n">${fmt(calc(x.it).book)} <span class="hint">${esc(x.it.unit||'')}</span></td>
+    <td class="n">${x.done?'<span class="chip g">✓ اتجرد</span>':`<input type="number" step="any" min="0" inputmode="decimal" data-cntv="${esc(x.it.id)}" value="${P.vals[x.it.id]??''}" placeholder="الفعلي" style="width:90px;text-align:center">`}</td></tr>`;
+  const editTbl=()=>`<div class="hint" style="margin:6px 0">غيّر مجموعة أي صنف. «تلقائي» = البرنامج بيختار حسب قيمة استهلاكه.</div><table class="gridcols"><thead><tr><th>الصنف</th><th>المجموعة</th></tr></thead><tbody>
+    ${S.items.filter(it=>!isUntracked(it.id)).sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(it=>{ const m=(S.cntGrp||{})[it.id]||''; return `<tr><td>${esc(it.name)}</td><td><select data-cntg="${esc(it.id)}">${[['','تلقائي ('+(cntAutoGroups()[it.id]?{A:'أ',B:'ب',C:'ج'}[cntAutoGroups()[it.id]]:'—')+')'],['A',CNT_LBL.A],['B',CNT_LBL.B],['C',CNT_LBL.C],['X',CNT_LBL.X]].map(([v,t])=>`<option value="${v}"${m===v?' selected':''}>${t}</option>`).join('')}</select></td></tr>`; }).join('')}</tbody></table>`;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:820px">
+    <h3>📋 جرد النهارده <em class="hint">${L.list.length} صنف · فاضل ${left}</em></h3>
+    <div class="pad" style="max-height:72vh;overflow:auto">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span class="hint">اليوم:</span><input type="date" id="cnt-date" value="${esc(P.D)}">
+        <span class="hint">أ ${L.A} صنف كل يوم · ب ${L.B} (نصهم كل يوم) · ج ${L.C} (قسم كل يوم)</span>
+        <button class="btn sm" data-act="cnt-edit" style="margin-inline-start:auto">${P.edit?'← رجوع للجرد':'⚙ المجموعات'}</button></div>
+      ${P.edit?editTbl():`<div class="hint" style="line-height:1.8;margin-bottom:8px">اعد الأصناف دي بعد ما العربيات تخرج، واكتب الفعلي. بعد «كمّل» هتشوف الفرق لكل صنف قبل ما يتسجل (والاستلام اللي وصل النهارده تعلّم عليه «داخل في الجرد» أو لأ).</div>
+        ${L.list.length?`<table class="gridcols"><thead><tr><th>الصنف</th><th>مج</th><th class="n">الدفتري دلوقتي</th><th class="n">الفعلي</th></tr></thead><tbody>${L.list.map(row).join('')}</tbody></table>`:'<div class="empty">مفيش أصناف للجرد النهارده</div>'}`}
+    </div>
+    <div class="foot">${P.edit?'':`<button class="btn" data-act="cnt-print">🖨 اطبع ورقة الجرد</button><button class="btn p" data-act="cnt-go">كمّل ← راجع الفروق</button>`}<button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
+function cntBind(){
+  const P=ui.cnt; if(!P) return;
+  const d=$('#cnt-date'); if(d) d.onchange=()=>{ P.D=d.value; P.vals={}; ui.modal=cntModal(); render(); cntBind(); };
+  document.querySelectorAll('[data-cntv]').forEach(i=>i.oninput=()=>{ P.vals[i.dataset.cntv]=i.value; });
+  document.querySelectorAll('[data-cntg]').forEach(sl=>sl.onchange=async()=>{ S.cntGrp=S.cntGrp||{}; if(sl.value) S.cntGrp[sl.dataset.cntg]=sl.value; else delete S.cntGrp[sl.dataset.cntg]; await saveMain(); });
+}
 /* ================= 📋 جرد بعد الصرف — تلزق القايمة زي ما هي، والفرق يتسجل صح ================= */
 const AR_DIG={'٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','٫':'.','،':',' };
 function pcMatch(name){
@@ -9797,6 +9846,9 @@ function healthCheck(){
     if(RS.length) add({id:'stale',lvl:'warn',title:`${RS.length} وصفة اتعدلت بعد ما اشتغلت`,desc:'التشغيلات القديمة خصمت المكونات القديمة. لو التعديل هو اللي كان بيتعمل فعلًا، طبّقه — الخامات القديمة ترجع والجديدة تتخصم.',
       rows:RS.map(x=>({c:[x.r.name, x.st.length+' تشغيلة', recipeStaleSummary(x.st).replace(/\n/g,' ').replace(/• /g,'')], btn:['reapply-recipe','🔁 طبّق',x.r.id]})), act:['reapply-all',`🔁 طبّق الوصفات الحالية على الكل (${RS.length})`]}); }
   { const PR=prodActualRows(D); if(PR.length) add({id:'pa',lvl:'info',title:`${PR.length} منتج اتصنّع النهارده — سجّلت اللي اتعمل فعلًا؟`,desc:'لو المصنع عمل أكتر أو أقل من اللي اتصرف، اكتب الكمية الفعلية عشان الرصيد والخامات يبقوا مظبوطين.',act:['pa-open','📝 الإنتاج الفعلي']}); }
+  { const CP=cntPlan(D); const left=CP.list.filter(x=>!x.done).length; const hr=new Date().getHours();
+    if(CP.list.length) add({id:'cnt',lvl:left===0?'ok':(hr>=12?'warn':'info'),title:left===0?`جرد النهارده خلص (${CP.list.length} صنف)`:`جرد النهارده: فاضل ${left} من ${CP.list.length} صنف`,
+      desc:left?'الجرد الدوّار بعد خروج العربيات: مجموعة أ كل يوم، ب يوم ويوم، ج قسم كل يوم.':'',act:left?['cnt-open','📋 جرد النهارده']:null}); }
   // 9) تواريخ برا الشهر أو في المستقبل
   const P=S.period||''; const odd=S.moves.filter(m=>m.date && (m.date>D || (P && m.date.slice(0,7)!==P)));
   add({id:'dates',lvl:odd.length?'warn':'ok',title:odd.length?`${odd.length} حركة تاريخها برا ${periodLabel(P)} أو في المستقبل`:'كل الحركات تواريخها جوه الشهر',
@@ -10804,6 +10856,16 @@ async function act(a,d){
     let unit=(BO.totals[n]||{}).unit||((BO.catalog||[]).find(c=>c.name===n)||{}).unit||''; o.items=o.items||[]; const ex=o.items.find(x=>x.name===n); if(ex) ex.qty=n2(q); else o.items.push({name:n,unit,qty:n2(q)});
     const ok=await boSaveOrder(o); if(!ok){ o.items=o.items.filter(x=>x!==ex&&!(x.name===n&&!ex)); } else toast(`اتضاف "${boLabel(n)}" لطلبية ${o.branch}`); return render(); }
   if(a==='hc-open'){ ui.hcOpen=true; HC_CACHE.k=''; ui.modal=healthModal(); return render(); }
+  if(a==='cnt-open'){ ui.cnt=ui.cnt&&ui.cnt.D===today()?ui.cnt:{D:today(),edit:false,vals:{}}; ui.modal=cntModal(); render(); cntBind(); return; }
+  if(a==='cnt-edit'){ ui.cnt.edit=!ui.cnt.edit; ui.modal=cntModal(); render(); cntBind(); return; }
+  if(a==='cnt-print'){ const L=cntPlan(ui.cnt.D); const w=window.open('','_blank'); if(!w) return toast('افتح النوافذ المنبثقة',1);
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>جرد ${L.D}</title><style>body{font-family:Arial;padding:16px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #999;padding:7px;font-size:14px}th{background:#eee}.g{width:34px;text-align:center}</style></head><body>
+      <h2>ورقة جرد يوم ${L.D}</h2><p>اللي جرد: ____________ &nbsp; الوقت: ________</p>
+      <table><tr><th>الصنف</th><th class="g">مج</th><th>الوحدة</th><th style="width:120px">الفعلي</th><th>ملاحظة</th></tr>${L.list.map(x=>`<tr><td>${esc(x.it.name)}</td><td class="g">${x.g==='A'?'أ':x.g==='B'?'ب':'ج'}</td><td>${esc(x.it.unit||'')}</td><td></td><td></td></tr>`).join('')}</table></body></html>`); w.document.close(); setTimeout(()=>w.print(),300); return; }
+  if(a==='cnt-go'){ const P=ui.cnt; const L=cntPlan(P.D); const rows=L.list.filter(x=>!x.done && P.vals[x.it.id]!=='' && P.vals[x.it.id]!=null && !isNaN(parseFloat(P.vals[x.it.id])))
+      .map(x=>({raw:x.it.name, name:x.it.name, qty:parseFloat(P.vals[x.it.id]), unit:'', itemId:x.it.id}));
+    if(!rows.length) return toast('اكتب الفعلي لصنف واحد على الأقل',1);
+    ui.pc={text:rows.map(r=>`${r.name} ${r.qty}`).join('\n'), rows, scope:'none', date:P.D, when:'end', mode:'settle', fromCnt:true}; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:today()}; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-parse'){ const P=ui.pc; P.text=($('#pc-text')||{}).value||P.text; P.rows=pcParse(P.text); if(!P.rows.length) return toast('مش لاقي أسطر فيها اسم وكمية',1); ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-apply'){
@@ -10831,10 +10893,12 @@ async function act(a,d){
         if(need>0.005) settle(r.it, -need); } }
     // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
     for(const r of raw){ settle(r.it, n2(r.actual-pcBook(r.it, P)), true); }
+    { S.cntLog=S.cntLog||{}; const ids=new Set([...(S.cntLog[D]||[]), ...L.rows.filter(r=>r.it&&!r.err).map(r=>r.it.id)]); S.cntLog[D]=[...ids];
+      const keys=Object.keys(S.cntLog).sort(); keys.slice(0,Math.max(0,keys.length-14)).forEach(k=>delete S.cntLog[k]); await saveMain(); if(ui.cnt) ui.cnt.vals={}; }
     markAutoRuns(); await saveTx();
     await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
     toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
-    ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=null; return render(); }
+    const back=P.fromCnt; ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=back?cntModal():null; render(); if(back) cntBind(); return; }
   if(a==='pa-open'){ ui.modal=prodActualModal(ui.paDate||today()); render(); prodActualBind(); return; }
   if(a==='pa-save'){
     const D=ui.paDate||today(); const rows=prodActualRows(D); const byId=new Map(rows.map(r=>[r.id,r]));
