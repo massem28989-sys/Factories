@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '22-10 · 16:00';
+const APP_BUILD = '23-10 · 12:45';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2325,7 +2325,7 @@ function recipeImportModal(){
         <span class="hint">مثال: تشغيلة حمص | حمص جاهز | 10 | كيلو | حمص ناشف | 3</span>
       </div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <input type="file" id="ri-file" accept=".csv,text/csv" style="font-size:12.5px">
+        <input type="file" id="ri-file" accept=".csv,.xlsx,.xls,.xlsm,text/csv" style="font-size:12.5px"><span class="hint">ملف الإكسل نفسه أو CSV</span>
         <span class="hint">أو الصق في الخانة تحت</span>
       </div>
       <textarea id="ri-text" rows="9" placeholder="الصق هنا..." style="width:100%;padding:10px;font-family:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;direction:ltr;text-align:left"></textarea>
@@ -2343,6 +2343,17 @@ function recipeImportModal(){
 }
 
 // بيقرأ النص (سواء من إكسل بالـTab أو CSV بالفاصلة) ويحوّله لوصفات
+// ملفات CSV اللي إكسل بيحفظها على ويندوز عربي بتبقى مش UTF-8 (Windows-1256 أو DOS 720) — بنجرب الترميزات ونختار اللي طلع عربي سليم
+const CP720_HI="\u0080\u0081\u00e9\u00e2\u0084\u00e0\u0086\u00e7\u00ea\u00eb\u00e8\u00ef\u00ee\u008d\u008e\u008f\u0090\u0651\u0652\u00f4\u00a4\u0640\u00fb\u00f9\u0621\u0622\u0623\u0624\u00a3\u0625\u0626\u0627\u0628\u0629\u062a\u062b\u062c\u062d\u062e\u062f\u0630\u0631\u0632\u0633\u0634\u0635\u00ab\u00bb\u2591\u2592\u2593\u2502\u2524\u2561\u2562\u2556\u2555\u2563\u2551\u2557\u255d\u255c\u255b\u2510\u2514\u2534\u252c\u251c\u2500\u253c\u255e\u255f\u255a\u2554\u2569\u2566\u2560\u2550\u256c\u2567\u2568\u2564\u2565\u2559\u2558\u2552\u2553\u256b\u256a\u2518\u250c\u2588\u2584\u258c\u2590\u2580\u0636\u0637\u0638\u0639\u063a\u0641\u00b5\u0642\u0643\u0644\u0645\u0646\u0647\u0648\u0649\u064a\u2261\u064b\u064c\u064d\u064e\u064f\u0650\u2248\u00b0\u2219\u00b7\u221a\u207f\u00b2\u25a0\u00a0";
+function riDecode(buf){
+  const b=new Uint8Array(buf);
+  try{ return new TextDecoder('utf-8',{fatal:true}).decode(b).replace(/^\uFEFF/,''); }catch(e){}
+  const score=t=>{ const ar=(t.match(/[\u0621-\u064A]/g)||[]).length; const bad=(t.match(/[\uFFFD\u2500-\u259F]/g)||[]).length; const hd=/اسم الوصفة|الاسم في الوصفة|الخامة|كيلو/.test(t)?500:0; return ar+hd-bad*5; };
+  const cands=[];
+  try{ cands.push(new TextDecoder('windows-1256').decode(b)); }catch(e){}
+  let t=''; for(const x of b) t+= x<128?String.fromCharCode(x):CP720_HI[x-128]; cands.push(t);
+  return cands.sort((x,y)=>score(y)-score(x))[0]||'';
+}
 function parseRecipeImport(text, skipHeader){
   const lines = String(text||'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   if(skipHeader && lines.length) lines.shift();
@@ -2355,6 +2366,7 @@ function parseRecipeImport(text, skipHeader){
     const p = splitRow(line).map(x=>String(x||'').trim().replace(/^"|"$/g,''));
     const [rName, outName, outQty, outUnit, matName, matQty] = p;
     const rowNo = idx + (skipHeader?2:1);
+    if(!outName && !matName && !outQty && !matQty) return; // سطر ملاحظة أو فاضي في آخر الشيت
     if(!rName || !outName || !matName){ errors.push(`سطر ${rowNo}: ناقص اسم الوصفة أو المنتج أو الخامة`); return; }
     if(!(+outQty>0)){ errors.push(`سطر ${rowNo}: الكمية الناتجة لازم تكون رقم أكبر من صفر`); badRecipes.add(rName); return; }
     if(!(+matQty>0)){ errors.push(`سطر ${rowNo}: كمية الخامة "${matName}" لازم تكون رقم أكبر من صفر`); badRecipes.add(rName); return; }
@@ -2385,6 +2397,7 @@ function renderRecipeImportPreview(){
   const wrap = $('#ri-preview'); if(!wrap) return;
   if(!text.trim()){ wrap.innerHTML = '<div class="warnbar" style="margin:0">الصق البيانات الأول أو ارفع ملف</div>'; return; }
 
+  { const h=text.split(/\r?\n/)[0]||''; if(/الاسم في الوصفة/.test(h) && /اسم للاستيراد/.test(h)){ RI_PARSED=[]; wrap.innerHTML='<div class="warnbar" style="margin:0">ده شيت <b>«ربط الأصناف»</b> — مش ده اللي بيتستورد. ارفع ملف الإكسل نفسه (البرنامج هيختار شيت <b>«للاستيراد»</b> لوحده)، أو افتح شيت «للاستيراد» وانسخ الأعمدة من A لـ F والصقها هنا.</div>'; return; } }
   const {list, errors} = parseRecipeImport(text, skip);
   RI_PARSED = list;
 
@@ -7529,9 +7542,21 @@ function bind(){
   };
   const riFile=$('#ri-file'); if(riFile) riFile.onchange=e=>{
     const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const isExcel=/\.(xlsx?|xlsm)$/i.test(f.name||'');
     const rd=new FileReader();
-    rd.onload=()=>{ const ta=$('#ri-text'); if(ta){ ta.value=String(rd.result||''); renderRecipeImportPreview(); } };
-    rd.readAsText(f,'utf-8');
+    rd.onload=()=>{ const ta=$('#ri-text'); if(!ta) return;
+      try{
+        if(isExcel){
+          if(typeof XLSX==='undefined') return toast('مكتبة قراءة إكسل ما اتحمّلتش، جرب تاني أو انسخ والصق',1);
+          const wb=XLSX.read(rd.result,{type:'array'});
+          // بنختار شيت «للاستيراد» لو موجود، أو أول شيت عناوينه فيها «اسم الوصفة»
+          const pick=wb.SheetNames.find(n=>n.trim()==='للاستيراد') || wb.SheetNames.find(n=>{ const r=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,range:0})[0]||[]; return String(r[0]||'').trim()==='اسم الوصفة'; }) || wb.SheetNames[0];
+          ta.value=XLSX.utils.sheet_to_csv(wb.Sheets[pick],{FS:'\t',blankrows:false});
+          toast('اتقرا شيت «'+pick+'»');
+        } else ta.value=riDecode(rd.result);
+        renderRecipeImportPreview();
+      }catch(err){ toast('تعذرت قراءة الملف: '+err.message,1); } };
+    rd.readAsArrayBuffer(f);
   };
   const riText=$('#ri-text'); if(riText) riText.onblur=()=>renderRecipeImportPreview();
   const iriFile=$('#iri-file'); if(iriFile) iriFile.onchange=e=>{
