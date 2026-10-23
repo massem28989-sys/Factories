@@ -964,11 +964,11 @@ const BRANCH_APP_CONFIG = {
       { label: "صوص وردي دبي", batch: true, name: "pink sauce dubai - صوص وردي دبي", match: /(صوص\s*وردي|pink\s*sauce).*(dubai|دبي)|(dubai|دبي).*(وردي|pink)/i },
       { label: "صوص سبايسي", batch: true, name: "Spicy sauce - صوص سبايسي", match: /صوص\s*سبايسي|^spicy\s*sauce/i, not: /dubai|دبي/i },
       { label: "صوص سبايسي دبي", batch: true, name: "Spicy sauce dubai - صوص سبايسي دبي", match: /(صوص\s*سبايسي|spicy\s*sauce).*(dubai|دبي)|(dubai|دبي).*(سبايسي|spicy)/i },
-      { label: "صوص طحينة", name: "Tahina Suace - صوص طحينة", match: /صوص\s*طحين|tahina/i },
+      { label: "صوص طحينة", name: "Tahina Suace - صوص طحينة", match: /صوص\s*(ال)?طحين|tahina\s*s(au|ua)ce/i },
       { label: "صوص كوكتيل دجاج", name: "Cocktail Sauce - صوص كوكتيل دجاج", match: /كوكتيل\s*دجاج|cocktail\s*sauce/i },
-      { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش", match: /ساندو|sandwich/i },
-      { label: "صوص حريقة", name: "Hareqa Sauce - صوص حريقه", match: /حريق|hareq/i },
-      { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace", match: /بطاطا|potato/i, not: /فريش|fresh|بهارات|مشوي|seasoning/i },
+      { label: "صوص ساندوتش", name: "sandwich sauce - صوص كوكتيل ساندوش", match: /صوص\s*(كوكتيل\s*)?(ال)?ساندو|sandwich\s*s(au|ua)ce/i },
+      { label: "صوص حريقة", name: "Hareqa Sauce - صوص حريقه", match: /صوص\s*(ال)?حريق|hareq\w*\s*s(au|ua)ce/i },
+      { label: "صوص بطاطا حارة", name: "صوص البطاطا الحاره - Spicy Potato Suace", match: /صوص\s*(ال)?بطاطا|potato\s*s(au|ua)ce/i },
       { label: "صوص سطل أبيض", unitLabel: "باكت", name: "White Sauce - صوص سطل ابيض مع ذره", match: /سطل\s*ابيض|white\s*sauce/i },
       { label: "صوص سطل أحمر", unitLabel: "باكت", name: "Red Sauce - صوص سطل احمر مع ذره", match: /سطل\s*احمر|red\s*sauce/i },
       { label: "صوص ميكس", name: "Mix sauce - صوص ميكس", match: /(صوص\s*(ال)?ميكس|mix\s*sauce)/i }
@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '23-10 · 22:30';
+const APP_BUILD = '24-10 · 00:30';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
