@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '23-10 · 12:45';
+const APP_BUILD = '23-10 · 20:00';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1112,7 +1112,7 @@ let AUTH=(()=>{ try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); 
 let PROFILE=null, AUTH_REQUIRED=false, AUTH_TABLE_READY=false;
 // حساب «متابع»: بيشوف كل حاجة في كل المصانع من غير أي تعديل. القفل الحقيقي في القاعدة (سياسات RLS) — ده بس عشان الشاشة ماتسمحش بالتعديل
 var VIEWER=false;
-const VIEW_OK=new Set(['tab','cat','switch-fac','toggle-lang','logout','login','login-screen','reload','cancel','copy-link','why-bal','db-pull','db-pull-quiet','bo-fetch','bo-day','bo-range-toggle','bo-edit-mode','bo-edit-br','bo-raw','bo-log','bo-odd','bo-audit','bo-rev-sort','hc-open','archive-size','check-db-size','inv-view','sup-open','edit-recipe','po-lang','po-img','po-download','po-share','do-print','print-move','settlement-print-one','cnt-print','ko-bview','ko-cat','ko-refresh','pc-parse','users-refresh','backups-refresh','inbox-refresh','dashboard-refresh','rr-close','pk-close','bkp-close']);
+const VIEW_OK=new Set(['tab','cat','switch-fac','toggle-lang','logout','login','login-screen','reload','cancel','copy-link','why-bal','db-pull','db-pull-quiet','bo-fetch','bo-day','bo-range-toggle','bo-edit-mode','bo-edit-br','bo-raw','bo-log','bo-odd','bo-audit','bo-rev-sort','hc-open','archive-size','check-db-size','inv-view','sup-open','edit-recipe','po-lang','po-img','po-download','po-share','do-print','print-move','settlement-print-one','cnt-print','ko-bview','ko-cat','ko-refresh','pc-parse','bo-recv','bo-recv-refresh','users-refresh','backups-refresh','inbox-refresh','dashboard-refresh','rr-close','pk-close','bkp-close']);
 const viewerAllowed = a => VIEW_OK.has(a) || (/-(export|copy|print|open|refresh)$/.test(a) || /^(print-|count-print-|settlement-history-open)/.test(a));
 const VIEWER_MSG='👁 حسابك للعرض بس — مينفعش تعدّل أو تسجّل حاجة';
 function viewerGuard(){ if(VIEWER) throw new Error(VIEWER_MSG); }
@@ -4018,8 +4018,45 @@ async function fetchBranchOrders(){
   BO.loading=false; BO.refreshing=false; render();
   if(seq===BO.reqSeq && isOwner() && !BO.err){ boBackfillPrices().catch(()=>{}); }
   // طلبات التعديل وبلاغات الاستلام بتتجاب بعد ما الطلبيات تظهر — مش بتأخرها
-  await Promise.all([fetchFactoryChangeRequests(), fetchFactoryShortageReports()]);
+  await Promise.all([fetchFactoryChangeRequests(), fetchFactoryShortageReports(), fetchReceiptMarks(seq)]);
   if(seq===BO.reqSeq) render();
+}
+// تأكيد الاستلام من الفروع: الفرع بيسجّل علامة لما يشيّك الطلبية (كاملة أو فيها فروق)
+async function fetchReceiptMarks(seq){
+  try{
+    const dates=faroojDateRange(BO.from, BO.to);
+    const keys=[...new Set((await Promise.all(dates.map(d=>faroojList(`${BRANCH_APP.keyPrefix}_receipt:${d}:`).catch(()=>[])))).flat())];
+    const vals=await Promise.all(keys.map(k=>faroojGet(k).catch(()=>null)));
+    if(seq!==undefined && seq!==BO.reqSeq) return;
+    const M=new Map(); vals.forEach(v=>{ const d=boParse(v); if(d&&d.branch&&d.date) M.set(d.branch+'|'+d.date, d); });
+    BO.receipts=M;
+  }catch(e){ BO.receipts=BO.receipts||new Map(); }
+}
+// حالة كل طلبية: أكّد كامل / بلّغ فروق / لسه
+function boRecvRows(){
+  const R=BO.receipts||new Map(), sh=BO.shortages||[];
+  const rows=[]; const seen=new Set();
+  (BO.orders||[]).forEach(o=>{ const k=o.branch+'|'+o.date; if(seen.has(k)) return; seen.add(k);
+    const m=R.get(k); const rep=sh.filter(r=>r.branch===o.branch&&r.date===o.date);
+    const sent=(o.items||[]).some(it=>it.sent!=null);
+    const st = m ? (m.result==='ok'&&!rep.length?'ok':'diff') : rep.length ? 'diff' : 'wait';
+    rows.push({branch:o.branch, date:o.date, st, m, rep, sent}); });
+  return rows.sort((a,b)=>({wait:0,diff:1,ok:2}[a.st]-{wait:0,diff:1,ok:2}[b.st]) || a.branch.localeCompare(b.branch,'ar'));
+}
+function boRecvModal(){
+  const rows=boRecvRows(); const multi=new Set(rows.map(r=>r.date)).size>1;
+  const lab={ok:'<span class="chip g">✓ استلم كامل</span>', diff:'<span class="chip a">⚠ استلم وبلّغ فروق</span>', wait:'<span class="chip">⏳ لسه ماأكّدش</span>'};
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:720px">
+    <h3>📥 تأكيد الاستلام من الفروع</h3>
+    <div class="pad" style="max-height:70vh;overflow:auto">
+      <div class="hint" style="margin-bottom:8px;line-height:1.8">الفرع بيأكّد لما يفتح «استلام طلبية المصنع» ويشيّك الأصناف ويدوس <b>«إرسال تقرير الاستلام»</b> — سواء كله كامل أو فيه فروق. اللي لسه ماأكّدش معناه إنه ما دخلش الشاشة دي لسه.</div>
+      <table class="gridcols"><thead><tr><th>الفرع</th>${multi?'<th>اليوم</th>':''}<th>الحالة</th><th>مين وإمتى</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td><b>${esc(r.branch)}</b></td>${multi?`<td>${esc(r.date)}</td>`:''}<td>${lab[r.st]}${r.st==='diff'?`<div class="hint">${r.m?`${r.m.nShort?r.m.nShort+' ناقص ':''}${r.m.nSurplus?r.m.nSurplus+' زيادة':''}`:''}${r.rep.length?' — في «بلاغات الفروق»':''}</div>`:''}${r.st==='wait'&&!r.sent?'<div class="hint">الطلبية لسه ما اتصرفتش</div>':''}</td>
+        <td class="hint">${r.m?`${esc(r.m.by||'')} · ${esc(new Date(r.m.at).toLocaleString('ar-EG',{weekday:'short',hour:'2-digit',minute:'2-digit'}))}`:r.rep.length?esc(new Date(r.rep[0].createdAt).toLocaleString('ar-EG',{weekday:'short',hour:'2-digit',minute:'2-digit'})):'—'}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">مفيش طلبيات</td></tr>'}
+      </tbody></table>
+    </div>
+    <div class="foot"><button class="btn" data-act="bo-recv-refresh">تحديث</button><button class="btn" data-close="1">إغلاق</button></div>
+  </div></div>`;
 }
 function boApplyOrders(allKeys, results, rk){
   {
@@ -4319,6 +4356,8 @@ function viewBranchOrders(){
         <span class="chip g">اتصرف ${doneN}</span>
         <span class="chip a">جاهز ${readyN}</span>
         ${needN?`<span class="chip r">محتاج مطابقة ${needN}</span>`:''}
+        ${(()=>{ if(!BO.receipts) return ''; const rr=boRecvRows(); if(!rr.length) return ''; const ok=rr.filter(r=>r.st==='ok').length, df=rr.filter(r=>r.st==='diff').length, w=rr.length-ok-df;
+          return `<button class="btn sm" data-act="bo-recv" style="margin-inline-start:auto" title="مين من الفروع شيّك واستلم">📥 الاستلام: <b style="color:var(--green)">✓ ${ok}</b>${df?` · <b style="color:#B36B00">⚠ ${df}</b>`:''} · ⏳ ${w}</button>`; })()}
       </div>`;
     })():''}
   </div></div>
@@ -11192,6 +11231,8 @@ async function act(a,d){
   if(a==='bo-br-add'){ const n=prompt('اسم الفرع زي ما بيظهر في طلبيات الفروج بالظبط:'); if(!n||!n.trim()) return; if(!S.boSeen) S.boSeen={}; S.boSeen[n.trim()]=S.boSeen[n.trim()]||''; if(S.boHidden) delete S.boHidden[n.trim()]; await saveMain(); ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-range-toggle'){ BO.showRange=!BO.showRange; return render(); }
   if(a==='bo-print'){ return boPrint(d.v); }
+  if(a==='bo-recv'){ ui.modal=boRecvModal(); return render(); }
+  if(a==='bo-recv-refresh'){ await fetchReceiptMarks(); await fetchFactoryShortageReports(); ui.modal=boRecvModal(); return render(); }
   if(a==='bo-fetch'){
     const f=$('#bo-from'), t=$('#bo-to');
     if(f) BO.from=f.value; if(t) BO.to=t.value;
