@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-10 · 00:30';
+const APP_BUILD = '25-10 · 11:30';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1112,7 +1112,7 @@ let AUTH=(()=>{ try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); 
 let PROFILE=null, AUTH_REQUIRED=false, AUTH_TABLE_READY=false;
 // حساب «متابع»: بيشوف كل حاجة في كل المصانع من غير أي تعديل. القفل الحقيقي في القاعدة (سياسات RLS) — ده بس عشان الشاشة ماتسمحش بالتعديل
 var VIEWER=false;
-const VIEW_OK=new Set(['tab','cat','switch-fac','toggle-lang','logout','login','login-screen','reload','cancel','copy-link','why-bal','db-pull','db-pull-quiet','bo-fetch','bo-day','bo-range-toggle','bo-edit-mode','bo-edit-br','bo-raw','bo-log','bo-odd','bo-audit','bo-rev-sort','hc-open','archive-size','check-db-size','inv-view','sup-open','edit-recipe','po-lang','po-img','po-download','po-share','do-print','print-move','settlement-print-one','cnt-print','ko-bview','ko-cat','ko-refresh','pc-parse','bo-recv','bo-recv-refresh','users-refresh','backups-refresh','inbox-refresh','dashboard-refresh','rr-close','pk-close','bkp-close']);
+const VIEW_OK=new Set(['tab','mv-more','cat','switch-fac','toggle-lang','logout','login','login-screen','reload','cancel','copy-link','why-bal','db-pull','db-pull-quiet','bo-fetch','bo-day','bo-range-toggle','bo-edit-mode','bo-edit-br','bo-raw','bo-log','bo-odd','bo-audit','bo-rev-sort','hc-open','archive-size','check-db-size','inv-view','sup-open','edit-recipe','po-lang','po-img','po-download','po-share','do-print','print-move','settlement-print-one','cnt-print','ko-bview','ko-cat','ko-refresh','pc-parse','bo-recv','bo-recv-refresh','users-refresh','backups-refresh','inbox-refresh','dashboard-refresh','rr-close','pk-close','bkp-close']);
 const viewerAllowed = a => VIEW_OK.has(a) || (/-(export|copy|print|open|refresh)$/.test(a) || /^(print-|count-print-|settlement-history-open)/.test(a));
 const VIEWER_MSG='👁 حسابك للعرض بس — مينفعش تعدّل أو تسجّل حاجة';
 function viewerGuard(){ if(VIEWER) throw new Error(VIEWER_MSG); }
@@ -2075,6 +2075,16 @@ function inboxIsSuggested(notifName){
   return !!inboxMatchItem(notifName);
 }
 
+// تاريخ وارد المصنع التاني = اليوم اللي اتصرف فيه هناك، طول ما هو في نفس الشهر ومش في المستقبل
+function inboxMoveDate(n){ const d=String(n&&n.date||''); const T=today(); return (/^\d{4}-\d\d-\d\d$/.test(d) && d<=T && d.slice(0,7)===T.slice(0,7)) ? d : T; }
+// استلامات قديمة اتسجلت بيوم الاستلام بدل يوم الإرسال
+function inboxRedatePlan(){ const out=[]; const used=new Set();
+  MY_INBOX.filter(n=>n.status==='received' && n.type!=='discrepancy' && n.matchedItemId && n.receivedAt && n.date).forEach(n=>{
+    const want=inboxMoveDate(n); const got=ymdLocal(new Date(n.receivedAt)); if(want===got) return;
+    const q=n.actualQty!=null?+n.actualQty:+n.qty; const pn=arNorm(n.fromFactory||'');
+    const m=S.moves.find(m=>!used.has(m.id) && m.dir==='in' && m.itemId===n.matchedItemId && Math.abs((+m.qty||0)-q)<0.001 && m.date===got && (!pn || arNorm(m.party||'').includes(pn) || pn.includes(arNorm(m.party||''))));
+    if(m){ used.add(m.id); out.push({m, from:got, to:want, n}); } });
+  return out; }
 async function receiveInboxNotification(notifId){
   const n = MY_INBOX.find(x=>x.id===notifId);
   if(!n || n.status!=='pending') return; // حماية من الضغط المزدوج: لو مش معلّق (يعني قيد التنفيذ أو اتم بالفعل)، منكملش
@@ -2130,10 +2140,11 @@ async function receiveInboxNotification(notifId){
       await saveMain();
     }
     // بنسجّل السعر المعروف عندك للصنف ده (لو موجود) بدل ما نسجّل صفر دايمًا — عشان قيمة المخزون متتأثرش غلط
-    const inMv={id:uid('m'), dir:'in', itemId:it.id, qty:actualQty, date:today(), price:+it.price||0, party:n.fromFactory||'مصنع تاني', reason:'', inboxNotifId:n.id};
+    const inD=inboxMoveDate(n); // بتاريخ الإرسال من المصنع التاني — مش يوم ما دوست استلام
+    const inMv={id:uid('m'), dir:'in', itemId:it.id, qty:actualQty, date:inD, price:+it.price||0, party:n.fromFactory||'مصنع تاني', reason:'', inboxNotifId:n.id};
     S.moves.push(inMv);
     await saveTx();
-    let prMsg=''; try{ const pm=await applyPurchaseReceipt(it.id, actualQty, n.fromFactory||'', inMv.id, today(), {anyDate:true}); if(pm.length) prMsg=' + طلب شراء "'+it.name+'": '+pm.join(' · '); }catch(e){}
+    let prMsg=''; try{ const pm=await applyPurchaseReceipt(it.id, actualQty, n.fromFactory||'', inMv.id, inD, {anyDate:true}); if(pm.length) prMsg=' + طلب شراء "'+it.name+'": '+pm.join(' · '); }catch(e){}
 
     n.status='received'; n.receivedAt=new Date().toISOString(); n.matchedItemId=it.id; n.actualQty=actualQty;
     await commitMyInbox(n.id, {status:'received', receivedAt:n.receivedAt, matchedItemId:it.id, actualQty});
@@ -3431,7 +3442,11 @@ function viewInbox(){
   const processing = MY_INBOX.filter(n=>n.status==='processing');
   const done = MY_INBOX.filter(n=>n.status==='received');
   const discrepancies = MY_INBOX.filter(n=>n.type==='discrepancy' && n.status==='pending');
+  const RD=inboxRedatePlan();
   return `
+  ${RD.length?`<div class="panel" style="border:2px solid #2F5E8A"><div class="pad"><b style="color:#2F5E8A">📅 ${RD.length} استلام من مصانع تانية اتسجل بيوم الاستلام</b> <span class="hint">— المفروض يتسجل بيوم الإرسال:</span>
+    <div style="margin:8px 0;line-height:1.9">${RD.slice(0,12).map(x=>`<span class="chip">${esc((item(x.m.itemId)||{}).name||'')} ${fmt(x.m.qty)} · ${esc(x.from)} ← <b>${esc(x.to)}</b></span>`).join(' ')}${RD.length>12?` <span class="hint">و${RD.length-12} كمان</span>`:''}</div>
+    <button class="btn p" data-act="inbox-redate">صلّح التواريخ (${RD.length})</button></div></div>`:''}
   <div class="panel"><div class="pad">
     <div class="hint">لما مصنع تاني يصرفلك صنف، بيوصلك إشعار هنا عشان تستلمه — وقتها الصنف بيتضاف لمخزنك تلقائي. لو الكمية اللي وصلتك فعليًا مختلفة عن المُعلنة، عدّل الرقم قبل ما تستلم — المصنع المرسل هياخد إشعار بالفرق تلقائي.</div>
   </div></div>
@@ -3470,7 +3485,7 @@ function viewInbox(){
         <td class="n">
           <input type="number" step="any" min="0" data-inboxqty="${n.id}" value="${n.qty}" style="width:74px;padding:4px 6px;font-size:12.5px;text-align:center">
           <span class="chip">${esc(n.unit||'')}</span>
-          <div class="hint" style="margin-top:2px">المُرسل أعلن ${fmt(n.qty)}</div>
+          <div class="hint" style="margin-top:2px">المُرسل أعلن ${fmt(n.qty)} · هيتسجل بتاريخ <b>${esc(inboxMoveDate(n))}</b></div>
         </td>
         <td>
           <input type="text" list="inbox-items-list" data-inboxsearch="${esc(n.itemName)}" value="${mt?esc(mt.name):''}" placeholder="اكتب اسم الصنف للبحث…" style="width:100%;min-width:190px;padding:5px 7px;font-size:12.5px">
@@ -3655,9 +3670,13 @@ function unitDriftPanel(){
 }
 
 /* ---------- calculations ---------- */
+// أثناء الرسم بس: فهرس واحد لكل الحركات بدل ما كل صنف يلف على كل الحركات (كان أبطأ حاجة في الشاشات الكبيرة)
+let CALC_IDX=null;
+function calcIndex(){ const M=new Map(); for(const m of S.moves){ let e=M.get(m.itemId); if(!e){ e={i:0,o:0,v:0}; M.set(m.itemId,e); } if(m.dir==='in'){ e.i+=m.qty; e.v+=m.qty*(m.price||0); } else e.o+=m.qty; } return M; }
 function calc(it){
   let inQ=0,outQ=0,inVal=0;
-  for(const m of S.moves){
+  if(CALC_IDX){ const e=CALC_IDX.get(it.id); if(e){ inQ=e.i; outQ=e.o; inVal=e.v; } }
+  else for(const m of S.moves){
     if(m.itemId!==it.id) continue;
     if(m.dir==='in'){ inQ+=m.qty; inVal+=m.qty*(m.price||0); } else outQ+=m.qty;
   }
@@ -3743,7 +3762,8 @@ function restoreMoveDraft(d, skip){
   const p=document.getElementById('m-packs'); if(p) p.dispatchEvent(new Event('input'));
   if(d.__focus){ const f=document.getElementById(d.__focus); if(f) f.focus(); }
 }
-function render(){
+function render(){ if(CALC_IDX) return _render(); CALC_IDX=calcIndex(); try{ return _render(); } finally{ CALC_IDX=null; } }
+function _render(){
   const tt=totals();
   const isMgr=ROLE==='manager';
   const _scrollY = window.scrollY;
@@ -4930,7 +4950,7 @@ function viewMove(dir){
         <th></th></tr></thead>
       ${ui.mvEdit?`<datalist id="dl-mv-items">${S.items.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(i=>`<option value="${esc(i.name)}">${esc(i.cat||'')} · ${esc(i.unit||'')}</option>`).join('')}</datalist>
         <datalist id="dl-mv-sup">${[...new Set([...(isIn?S.suppliers:S.branches),...S.moves.filter(x=>x.dir===(isIn?'in':'out')).map(x=>x.party)].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar')).map(p=>`<option value="${esc(p)}"></option>`).join('')}</datalist>`:''}
-      <tbody>${shownMoves.map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
+      <tbody>${shownMoves.slice(0, ui.mvLimit||150).map(m=>{const it=item(m.itemId)||{name:'—',unit:''};
         return `<tr>
         ${ui.mvEdit?`<td><input type="checkbox" data-mvsel="${m.id}" ${mvSel.has(m.id)?'checked':''}></td>`:''}
         <td>${ui.mvEdit?`<input type="date" value="${m.date}" data-mvdate="${m.id}" style="padding:4px 6px;font-size:12px">`:`<span class="n">${m.date}</span>`}</td>
@@ -4953,6 +4973,7 @@ function viewMove(dir){
                 <td>${ui.mvEdit?`<input type="text" value="${esc(m.party||'')}" data-mvparty="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:120px">`:esc(m.party||'—')}</td>`}
         <td style="white-space:nowrap">${(m.reason==='صرف لمصنع تاني' && !m.notifyId)?`<button class="btn sm p" data-act="mv-notify" data-id="${m.id}" title="ابعت إشعار للمصنع المستلم">🔔 ابعت</button> `:''}${m.invoice?`<button class="btn sm" data-act="inv-view" data-id="${m.id}" title="عرض صورة الفاتورة">📎</button> `:''}<button class="btn sm" data-act="print-move" data-print="${m.id}">${t('print')}</button> ${isOwner()?`<button class="btn sm danger" data-del="${m.id}">${t('delete')}</button>`:''}</td></tr>`;}).join('')
         ||`<tr><td colspan="${(ui.mvEdit?10:9)+(isIn?1:0)+(isIn?0:1)}" class="empty">${rows.length?t('no_moves_filter'):t('no_moves_yet')+' '+(isIn?t('in_tab'):t('out_tab'))+' '+t('this_month')}</td></tr>`}
+      ${shownMoves.length>(ui.mvLimit||150)?`<tr><td colspan="12" style="text-align:center;padding:12px"><button class="btn" data-act="mv-more">عرض ${Math.min(300, shownMoves.length-(ui.mvLimit||150))} كمان <span class="hint">(ظاهر ${ui.mvLimit||150} من ${shownMoves.length} — الإجمالي تحت محسوب على الكل)</span></button></td></tr>`:''}
       </tbody>
       ${shownMoves.length?`<tfoot><tr style="font-weight:700">
         <td colspan="${ui.mvEdit?3:2}">${t('total')}</td>
@@ -5952,7 +5973,11 @@ async function fetchPurchaseRequests(){
     purReqLoaded = true;
   }catch(e){ PURCHASE_REQUESTS = []; }
 }
-let PR_FETCHED_AT = 0;
+let PR_FETCHED_AT = 0; let PR_BUSY=false;
+// طلبات مكررة: نفس الصنف ونفس الكمية واتعملوا ورا بعض في خلال ربع ساعة، ولسه مفتوحين
+function prDuplicates(){ const open=PURCHASE_REQUESTS.filter(r=>r.status==='pending'||r.status==='approved').slice().sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||''))); const keep=[], dup=[];
+  for(const r of open){ const k=keep.find(x=>x.itemId===r.itemId && Math.abs((+x.qty||0)-(+r.qty||0))<0.001 && (x.supplier||'')===(r.supplier||'') && !(+x.receivedQty>0) && !(+r.receivedQty>0) && Math.abs(new Date(r.createdAt||0)-new Date(x.createdAt||0))<15*60e3); if(k) dup.push({r,of:k}); else keep.push(r); }
+  return dup; }
 async function savePurchaseRequests(){
   try{
     // 1) نعلّم اللي اتغير على الجهاز ده
@@ -7116,8 +7141,12 @@ function viewPurchaseRequests(){
   const list = PURCHASE_REQUESTS.filter(r=>!q || r.itemName.toLowerCase().includes(q)).slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
   const pending = list.filter(r=>r.status==='pending');
   const others = list.filter(r=>r.status!=='pending');
+  const DUP=prDuplicates();
 
   return `
+  ${DUP.length?`<div class="panel" style="border:2px solid #B36B00"><div class="pad"><b style="color:#8A4A0B">⚠ ${DUP.length} طلب شراء مكرر</b> <span class="hint">— نفس الصنف ونفس الكمية واتعملوا ورا بعض (غالبًا ضغطة مرتين على «إرسال»):</span>
+    <div style="margin:8px 0;line-height:1.9">${DUP.slice(0,12).map(x=>`<span class="chip a">${esc(x.r.itemName)} · ${fmt(x.r.qty)} ${esc(x.r.unit||'')}${x.r.sentToSupplierAt?' · اتبعت للمورد':''}</span>`).join(' ')}${DUP.length>12?` <span class="hint">و${DUP.length-12} كمان</span>`:''}</div>
+    <button class="btn p" data-act="pr-dedupe">ألغِ المكرر (${DUP.length}) وسيب الأصلي</button>${DUP.some(x=>x.r.sentToSupplierAt)?' <span class="hint">اللي اتبعت للمورد مرتين: بلّغ المورد إن الطلب واحد بس.</span>':''}</div></div>`:''}
   <div class="panel"><div class="pad"><div class="cards">
     <div class="card"><div class="k">محتاجة موافقة</div><div class="v" style="color:var(--amber)">${pending.length}</div><div class="s">في انتظار صاحب النظام</div></div>
     <div class="card"><div class="k">موافق عليها ومستنية التوريد</div><div class="v" style="color:var(--blue)">${list.filter(r=>r.status==='approved').length}</div><div class="s">هتتقفل لوحدها لما تسجّل وارد</div></div>
@@ -7487,7 +7516,7 @@ function bind(){
     tab=k; ui.q=''; ui.only='الكل'; render();
     if(k==='inbox') loadMyInbox();
   });
-  root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{
+  root.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ ui.mvLimit=150;
     const k=b.dataset.tab;
     if(!canOpen(k)){ ui.modal=unlockModal(k); return render(); }
     tab=k;ui.q='';ui.only='الكل';render();
@@ -10403,6 +10432,11 @@ async function act(a,d){
     return toast('تم التصدير');
   }
   if(a==='mv-clear-sel'){ mvSel.clear(); return render(); }
+  if(a==='pr-dedupe'){ const D=prDuplicates(); if(!D.length) return toast('مفيش مكرر');
+    if(!confirm(`هيتلغي ${D.length} طلب مكرر، والطلب الأصلي لكل صنف هيفضل زي ما هو. تكمل؟`)) return;
+    const at=new Date().toISOString(); D.forEach(x=>{ x.r.status='cancelled'; x.r.cancelledAt=at; x.r.note=((x.r.note||'')+' · اتلغى: مكرر').replace(/^ · /,''); });
+    const ok=await savePurchaseRequests(); toast(ok?`اتلغى ${D.length} طلب مكرر`:'حصل خطأ، حاول تاني',ok?0:1); return render(); }
+  if(a==='mv-more'){ ui.mvLimit=(ui.mvLimit||150)+300; return render(); }
   if(a==='mv-sel-all'){
     const dir = tab==='in'?'in':'out';
     const mq=(ui.mvQ||'').trim().toLowerCase();
@@ -10595,6 +10629,7 @@ async function act(a,d){
     }catch(e){ toast('حصل خطأ أثناء الاسترجاع: '+e.message,1); }
     return render();
   }
+  if((a==='pur-create-suggested'||a==='pur-create') && PR_BUSY) return toast('لسه بيتحفظ — استنى ثانية',1);
   if(a==='pur-create-suggested'){
     const picks=[...document.querySelectorAll('[data-sugsel]:checked')].map(cb=>{
       const it=item(cb.dataset.sugsel); const q=+((document.querySelector(`[data-sugqty="${cb.dataset.sugsel}"]`)||{}).value||0);
@@ -10602,9 +10637,10 @@ async function act(a,d){
     if(!picks.length) return toast('محددتش أصناف بكمية صحيحة',1);
     if(!confirm(`هيتعمل ${picks.length} طلب شراء (هيستنوا موافقة صاحب النظام). تكمل؟`)) return;
     const by = ROLE==='owner'?'صاحب النظام':'مدير المصنع';
+    PR_BUSY=true; setTimeout(()=>{ PR_BUSY=false; },15000);
     picks.forEach(({it,q})=>PURCHASE_REQUESTS.push({ id:uid('pr'), itemId:it.id, itemName:it.name, unit:it.unit, qty:n2(q), supplier:lastSupplierOf(it.id),
       note:'اقتراح تلقائي — تحت الحد الأدنى', status:'pending', requestedBy:by, createdAt:new Date().toISOString() }));
-    const ok=await savePurchaseRequests();
+    const ok=await savePurchaseRequests(); PR_BUSY=false;
     if(!ok){ PURCHASE_REQUESTS.splice(-picks.length); return toast('حصل خطأ أثناء الحفظ، حاول تاني',1); }
     toast(`اتعمل ${picks.length} طلب شراء`);
     return render();
@@ -10642,9 +10678,15 @@ async function act(a,d){
     const needDate=($('#pr-need')||{}).value||'';
     // صاحب النظام مش محتاج يوافق على طلبه هو — بيتعمل موافق عليه على طول وجاهز يتبعت للمورد
     const own = ROLE==='owner';
-    const reqs=PR_CART.map(l=>({ id:uid('pr'), groupId, ...l, supplier: l.supplier||supplier, sendTo, note, needDate, status: own?'approved':'pending', ...(own?{decidedAt:at}:{}), requestedBy:by, createdAt:at }));
+    // نفس الطلب اتبعت من دقايق (ضغطة مرتين أو إعادة إرسال بعد خطأ نت)؟ ما نكررهوش
+    const recentDup = l => PURCHASE_REQUESTS.find(r=>(r.status==='pending'||r.status==='approved') && r.itemId===l.itemId && Math.abs((+r.qty||0)-(+l.qty||0))<0.001 && (Date.now()-new Date(r.createdAt||0).getTime())<20*60e3);
+    const dups=PR_CART.filter(recentDup);
+    if(dups.length && !confirm(`${dups.length} صنف من دول اتطلب بنفس الكمية من دقايق (${dups.slice(0,3).map(l=>l.itemName).join('، ')}).\n\nغالبًا الطلب الأول وصل. تبعت الباقي بس من غير المكرر؟\n\n(إلغاء = ما تبعتش حاجة)`)) return;
+    const cart=PR_CART.filter(l=>!recentDup(l)); if(!cart.length){ PR_CART=[]; prCartSave(); toast('الطلب ده اتبعت قبل كده ✓ — ما اتكررش'); return render(); }
+    PR_BUSY=true; setTimeout(()=>{ PR_BUSY=false; },15000);
+    const reqs=cart.map(l=>({ id:uid('pr'), groupId, ...l, supplier: l.supplier||supplier, sendTo, note, needDate, status: own?'approved':'pending', ...(own?{decidedAt:at}:{}), requestedBy:by, createdAt:at }));
     PURCHASE_REQUESTS.push(...reqs);
-    const ok = await savePurchaseRequests();
+    const ok = await savePurchaseRequests(); PR_BUSY=false;
     if(!ok){ PURCHASE_REQUESTS.splice(-reqs.length); return toast('حصل خطأ أثناء الإرسال، حاول تاني',1); }
     PR_CART=[]; prCartSave(); ui.prTo='';
     ui.prJustSent = own ? groupId : null;
@@ -10962,6 +11004,10 @@ async function act(a,d){
     return toast('تم تصدير حسابات الموردين');
   }
   if(a==='inbox-refresh'){ return loadMyInbox(); }
+  if(a==='inbox-redate'){ const P=inboxRedatePlan(); if(!P.length) return toast('مفيش حاجة تتصلح');
+    if(!confirm(`هيتغير تاريخ ${P.length} وارد من مصانع تانية ليوم الإرسال. الكميات زي ما هي. تكمل؟`)) return;
+    const g=await guardBulk('تصليح تواريخ وارد المصانع'); if(!g) return;
+    P.forEach(x=>{ x.m.date=x.to; }); await saveTx(); await logOp(g, P.length+' وارد اتغير تاريخه'); toast(`اتصلح تاريخ ${P.length} وارد`); return render(); }
   if(a==='inbox-receive'){ return receiveInboxNotification(d.id); }
   if(a==='inbox-ack-discrepancy'){
     const n = MY_INBOX.find(x=>x.id===d.id); if(!n) return;
