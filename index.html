@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-10 · 11:30';
+const APP_BUILD = '25-10 · 20:30';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4270,6 +4270,84 @@ function branchUnitOf(faroojName){
   return r ? String(r.unit||'').trim() : '';
 }
 // معامل التحويل: كمية الفرع × المعامل = كمية المصنع. لو الوحدتين متطابقتين (بعد التطبيع) المعامل = 1 تلقائي
+/* ===== 🛡 فحص قبل الصرف: الكميات والأسعار قبل ما يتسجل أي حاجة ===== */
+function boMedian(a){ if(a.length<3) return null; const v=a.slice().sort((x,y)=>x-y); return v[Math.floor(v.length/2)]; }
+function boHistOf(itemId, days){ const T=today(); const d=new Date(T+'T12:00:00'); d.setDate(d.getDate()-(days||21)); const from=ymdLocal(d);
+  const day=new Map(), br=new Map();
+  for(const m of S.moves){ if(m.dir!=='out'||m.reason!=='صرف للفروع'||m.itemId!==itemId||!(m.date>=from&&m.date<T)) continue;
+    day.set(m.date,(day.get(m.date)||0)+(+m.qty||0)); const k=m.party+'|'+m.date; br.set(k,(br.get(k)||0)+(+m.qty||0)); }
+  const byBr=new Map(); br.forEach((q,k)=>{ const b=k.split('|')[0]; (byBr.get(b)||byBr.set(b,[]).get(b)).push(q); });
+  return {day:boMedian([...day.values()]), br:b=>boMedian(byBr.get(b)||[])}; }
+function boPreCheck(names){
+  const T=today(); const rows=[];
+  for(const n of names){ const it=findMatchingLocalItem(n); if(!it) continue; const cf=convFactorOf(n)||1; const H=boHistOf(it.id,21);
+    const lines=[]; let total=0;
+    BO.orders.forEach(o=>{ const l=(o.items||[]).find(x=>x.name===n); if(!l||!(+l.qty>0)) return; const q=n2(+l.qty*cf); total=n2(total+q);
+      const done=n2(S.moves.filter(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.itemId===it.id&&m.party===o.branch&&m.date===T).reduce((t,m)=>t+(+m.qty||0),0));
+      const med=H.br(o.branch); const big = med && q>Math.max(3*med, med+5);
+      const small = med && med>=2 && q<med/4;
+      lines.push({branch:o.branch, bq:+l.qty, q, done, med, big, small}); });
+    const warn=[], stop=[];
+    const dup=lines.filter(x=>x.done>0); if(dup.length) stop.push(`اتصرف قبل كده النهارده لـ${dup.length} فرع (${dup.slice(0,3).map(x=>x.branch+' '+fmt(x.done)).join('، ')}) — السطور دي متشالة، علّم عليها لو عايز تصرفها تاني`);
+    lines.filter(x=>x.big).forEach(x=>warn.push(`${x.branch}: ${fmt(x.q)} ${it.unit} — المعتاد ${fmt(x.med)} (أكبر ×${fmt(n2(x.q/x.med))})`));
+    lines.filter(x=>x.small).forEach(x=>warn.push(`${x.branch}: ${fmt(x.q)} ${it.unit} بس — المعتاد ${fmt(x.med)}`));
+    if(H.day && total>2.5*H.day && total-H.day>5) warn.push(`الإجمالي ${fmt(total)} — المعتاد في اليوم ${fmt(H.day)}`);
+    if(cf!==1 && !boIsWeigh(n)){ const ou=(lines[0]&&BO.orders.find(o=>o.branch===lines[0].branch).items.find(x=>x.name===n)||{}).unit||''; warn.length<4 && warn.push(`تحويل: 1 ${ou||'وحدة فرع'} = ${fmt(cf)} ${it.unit}`); }
+    // الأسعار — لازم تتظبط قبل الصرف: سعر الفاتورة وتكلفة الإنتاج طالعين منها
+    const price=+it.price||0; const rec=activeRecipeOf(it.id); const priceW=[];
+    if(rec){
+      const zeros=[]; const seen=new Set(); const walk=r=>{ (r.lines||[]).forEach(l=>{ if(l.by) return; const li=item(l.itemId); if(!li||isUntracked(li.id)||seen.has(li.id)) return; seen.add(li.id); const sub=activeRecipeOf(li.id); if(sub) walk(sub); else if(!(+li.price>0)) zeros.push(li); }); }; walk(rec);
+      const c=n2(recipeCost(rec)/(rec.outQty||1));
+      const lastBuy=id=>{ for(let i=S.moves.length-1;i>=0;i--){ const m=S.moves[i]; if(m.dir==='in'&&m.itemId===id&&!m.runId&&+m.price>0&&!/تسوية/.test(m.party||'')) return m; } return null; };
+      const ack=((ui.pre&&ui.pre.ack)||{});
+      [...seen].map(id=>item(id)).filter(li=>li && +li.price>0 && !activeRecipeOf(li.id) && !ack[li.id]).forEach(li=>{ const lp=lastBuy(li.id); if(lp && Math.abs(li.price-lp.price)/lp.price>0.2 && priceW.length<3) priceW.push({msg:`خامة «${li.name}» سعرها في الكارت ${fmt(li.price)} وآخر شراء ${fmt(lp.price)} (${lp.date})`, fix:'set', to:+lp.price, id:li.id}); });
+      if(zeros.length) priceW.push({msg:`خامات في الوصفة سعرها صفر: ${zeros.map(z=>z.name).join('، ')} — تكلفة الإنتاج هتطلع غلط`, fix:'input', ids:zeros.map(z=>z.id)});
+      else if(c>0 && Math.abs(price-c)>0.01 && Math.abs(price-c)/c>0.01) priceW.push({msg:`سعر الكارت ${fmt(price)} وتكلفة الوصفة ${fmt(c)}`, fix:'sync', to:c});
+      else if(!(c>0) && !(price>0)) priceW.push({msg:'سعره صفر والوصفة مالهاش تكلفة', fix:'input', ids:[it.id]});
+    } else if(!(price>0)) priceW.push({msg:'سعره في الكارت صفر — الفاتورة هتطلع من غير قيمة', fix:'input', ids:[it.id]});
+    else { const lp=[...S.moves].reverse().find(m=>m.dir==='in'&&m.itemId===it.id&&!m.runId&&+m.price>0&&!/تسوية/.test(m.party||'')); if(lp && Math.abs(price-lp.price)/lp.price>0.2 && !((ui.pre&&ui.pre.ack)||{})[it.id]) priceW.push({msg:`سعر الكارت ${fmt(price)} وآخر شراء ${fmt(lp.price)} (${lp.date} من ${lp.party||'-'})`, fix:'set', to:+lp.price}); }
+    if(!rec){ const bk=calc(it).book; if(bk<total-0.001) warn.push(`الرصيد ${fmt(bk)} ${it.unit} أقل من المطلوب ${fmt(total)}`); }
+    rows.push({name:n, it, cf, total, lines, warn, stop, priceW, n:lines.length}); }
+  return rows.sort((a,b)=>(b.stop.length-a.stop.length)||(b.warn.length+b.priceW.length-a.warn.length-a.priceW.length)||boLabel(a.name).localeCompare(boLabel(b.name),'ar'));
+}
+function boPreModal(){
+  const P=ui.pre; if(!P) return ''; if(!P.sel){ P.sel={}; P.excl={}; P.rows.forEach(r=>{ P.sel[r.name]=!r.lines.some(x=>x.big) && !r.priceW.length; r.lines.forEach(x=>{ if(x.done>0) P.excl[r.name+'|'+x.branch]=1; }); }); }
+  const bad=P.rows.filter(r=>r.stop.length||r.warn.some(w=>!/^تحويل/.test(w))), pw=P.rows.filter(r=>r.priceW.length), ok=P.rows.length-new Set([...bad,...pw]).size;
+  const n=P.rows.filter(r=>P.sel[r.name]).length; const br=new Set(BO.orders.map(o=>o.branch)).size;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:920px">
+    <h3>🛡 فحص قبل الصرف</h3>
+    <div class="pad" style="max-height:72vh;overflow:auto">
+      <div class="cards" style="margin-bottom:10px"><div class="card"><div class="k">أصناف</div><div class="v">${P.rows.length}</div><div class="s">على ${br} فرع</div></div>
+        <div class="card"><div class="k">سليمة</div><div class="v" style="color:var(--green)">${ok}</div></div>
+        <div class="card"><div class="k">كمية محتاجة نظرة</div><div class="v" style="color:#B36B00">${bad.length}</div></div>
+        <div class="card"><div class="k">سعر لازم يتظبط</div><div class="v" style="color:var(--blue)">${pw.length}</div></div></div>
+      <div class="hint" style="margin-bottom:8px;line-height:1.8">البرنامج قارن كل كمية باللي الفرع ده بيطلبه عادةً (آخر 3 أسابيع)، وشاف لو الصنف اتصرف قبل كده النهارده، وراجع الأسعار. <b>الأصناف اللي سعرها مش مظبوط مش هتتصرف</b> لحد ما تظبطه من هنا (زرار واحد). <b>شيل العلامة</b> من أي صنف عايز تراجعه الأول — هيفضل مستني. الأصناف اللي فيها كمية أكبر من المعتاد بكتير <b>متشالة لوحدها</b> — صلّح الرقم من «تعديل سهل» أو علّم عليها لو الكمية صح.</div>
+      <table class="gridcols"><thead><tr><th style="width:34px"></th><th>الصنف</th><th class="n">الإجمالي</th><th>الملاحظات</th></tr></thead><tbody>
+      ${P.rows.map((r,i)=>`<tr${r.stop.length?' style="background:#FDF2F2"':(r.warn.some(w=>!/^تحويل/.test(w))?' style="background:#FFF8EC"':'')}>
+        <td><input type="checkbox" data-presel="${i}"${P.sel[r.name]&&!r.priceW.length?' checked':''}${r.priceW.length?' disabled title="ظبّط السعر الأول"':''}></td>
+        <td><b>${esc(boLabel(r.name))}</b><div class="hint">${r.n} فرع · ${esc(r.it.name)}</div></td>
+        <td class="n"><b>${fmt(r.total)}</b> ${esc(r.it.unit||'')}</td>
+        <td style="font-size:12.5px;line-height:1.7">${r.stop.map(x=>`<div style="color:#A32D2D">⛔ ${esc(x)}</div>`).join('')}
+          ${r.lines.filter(x=>x.done>0).map(x=>`<label style="display:block;font-size:12px"><input type="checkbox" data-preexcl="${i}|${esc(x.branch)}"${P.excl[r.name+'|'+x.branch]?'':' checked'}> اصرف لـ${esc(x.branch)} تاني (${fmt(x.q)})</label>`).join('')}
+          ${r.warn.map(x=>`<div style="color:${/^تحويل/.test(x)?'#5F6B73':'#8A4A0B'}">${/^تحويل/.test(x)?'↔':'⚠'} ${esc(x)}</div>`).join('')}
+          ${r.priceW.map(x=>`<div style="color:#A32D2D;margin-top:3px">💲 <b>${esc(x.msg)}</b> — مش هيتصرف غير لما يتظبط
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${x.fix==='sync'?`<button class="btn sm p" data-act="bo-pre-sync">خلّي السعر = تكلفة الوصفة (${fmt(x.to)})</button>`
+              : x.fix==='set'?`<button class="btn sm p" data-act="bo-pre-set" data-id="${esc(x.id||r.it.id)}" data-to="${x.to}">اعتمد آخر شراء (${fmt(x.to)})</button><button class="btn sm" data-act="bo-pre-ack" data-id="${esc(x.id||r.it.id)}">السعر الحالي صح</button>`
+              : x.ids.map(id=>{ const z=item(id); return `<label style="display:flex;gap:4px;align-items:center;font-size:12px">${esc(z.name)}: <input type="number" step="any" min="0" data-preprice="${esc(id)}" placeholder="السعر" style="width:80px"> د.إ/${esc(z.unit||'')}</label>`; }).join('')}</div></div>`).join('')}
+          ${!r.stop.length&&!r.warn.length&&!r.priceW.length?'<span class="hint">✓ تمام</span>':''}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
+    <div class="foot"><button class="btn p" data-act="bo-pre-go">اصرف المتعلّم عليه (${n} صنف)</button><button class="btn" data-close="1">إلغاء</button></div>
+  </div></div>`;
+}
+function boPreRefresh(){ const P=ui.pre; if(!P) return; const old=new Map(P.rows.map(r=>[r.name,r])); P.rows=boPreCheck(P.names);
+  P.rows.forEach(r=>{ const o=old.get(r.name); if(o && o.priceW.length && !r.priceW.length && !r.lines.some(x=>x.big)) P.sel[r.name]=true; }); ui.modal=boPreModal(); render(); boPreBind(); }
+async function boPrePriced(){ const n=applyRecipePriceSync(); await saveMain(); boPreRefresh(); return n; }
+function boPreBind(){ const P=ui.pre; if(!P) return;
+  document.querySelectorAll('[data-preprice]').forEach(inp=>inp.onchange=async()=>{ const v=+inp.value; if(!(v>0)) return; const z=item(inp.dataset.preprice); if(!z) return; z.price=n2(v); const n=await boPrePriced(); toast(`اتحفظ سعر «${z.name}»${n?` واتحدثت تكلفة ${n} منتج`:''}`); });
+  document.querySelectorAll('[data-presel]').forEach(c=>c.onchange=()=>{ const r=P.rows[+c.dataset.presel]; P.sel[r.name]=c.checked; ui.modal=boPreModal(); render(); boPreBind(); });
+  document.querySelectorAll('[data-preexcl]').forEach(c=>c.onchange=()=>{ const [i,b]=c.dataset.preexcl.split('|'); const r=P.rows[+i]; const k=r.name+'|'+b; if(c.checked) delete P.excl[k]; else P.excl[k]=1; });
+}
 function convFactorOf(faroojName){
   const m = findMatchingLocalItem(faroojName);
   if(!m) return null;
@@ -11331,6 +11409,11 @@ async function act(a,d){
       if(line && +line.qty>0) perBranch.push({branch:o.branch, qty:n2(+line.qty*conv)});
     });
     if(!perBranch.length) return toast('مفيش كميات مطلوبة للصنف ده',1);
+    { const T=today(); const dn=perBranch.filter(b=>S.moves.some(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.itemId===match.id&&m.party===b.branch&&m.date===T));
+      if(dn.length && !confirm(`⚠ «${boLabel(faroojName)}» اتصرف النهارده قبل كده لـ${dn.length} فرع (${dn.slice(0,4).map(b=>b.branch).join('، ')}).\n\nلو صرفت تاني هيتخصم مرتين. تكمل برضه؟`)) return;
+      const H=boHistOf(match.id,21); const big=perBranch.filter(b=>{ const md=H.br(b.branch); return md && b.qty>Math.max(3*md, md+5); });
+      if(big.length && !confirm(`⚠ كميات أكبر من المعتاد:\n\n${big.slice(0,6).map(b=>`• ${b.branch}: ${fmt(b.qty)} ${match.unit} (المعتاد ${fmt(H.br(b.branch))})`).join('\n')}\n\nمتأكد إنها مش غلطة كتابة؟`)) return;
+      const pc=boPreCheck([faroojName]); if(pc[0] && pc[0].priceW.length){ ui.pre={names:[faroojName], rows:pc}; ui.modal=boPreModal(); render(); boPreBind(); return toast('السعر لازم يتظبط الأول',1); } }
 
     let autoAny=false, total=0; let failed=[]; const fails=[];
     for(const b of perBranch){
@@ -11364,9 +11447,15 @@ async function act(a,d){
     const names = Object.keys(BO.totals).filter(n=>boReadyToDispense(n) && !boIsDone(n));
     const blocked = Object.keys(BO.totals).filter(n=>findMatchingLocalItem(n) && convFactorOf(n)===null && !boIsDone(n)).length;
     if(!names.length) return toast(blocked? `مفيش أصناف جاهزة — ${blocked} صنف محتاج معامل تحويل الأول` : 'مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
-    const branchCount = new Set(BO.orders.map(o=>o.branch)).size;
-    if(!confirm(`هيتم صرف ${names.length} صنف على ${branchCount} فرع، كل فرع في حركة منفصلة باسمه. تكمل؟`)) return;
-
+    ui.pre={names, rows:boPreCheck(names)}; ui.modal=boPreModal(); render(); boPreBind(); return;
+  }
+  if(a==='bo-pre-sync'){ const n=await boPrePriced(); return toast(`اتحدث سعر ${n} منتج لتكلفة الوصفة`); }
+  if(a==='bo-pre-set'){ const z=item(d.id); if(!z) return; const from=+z.price||0; z.price=n2(+d.to); const n=await boPrePriced(); return toast(`«${z.name}»: ${fmt(from)} ← ${fmt(z.price)}${n?` · واتحدثت تكلفة ${n} منتج`:''}`); }
+  if(a==='bo-pre-ack'){ const P=ui.pre; if(!P) return; (P.ack=P.ack||{})[d.id]=1; boPreRefresh(); return; }
+  if(a==='bo-pre-go'){
+    const P=ui.pre; if(!P) return; const names=P.rows.filter(r=>P.sel[r.name]).map(r=>r.name);
+    if(!names.length) return toast('مفيش أصناف متعلّم عليها',1);
+    const exclude=P.excl||{}; ui.modal=null; ui.pre=null;
     let moveCount=0, autoCount=0; let failedLines=[]; const stampSet=new Set(); const allFails=[];
     for(const faroojName of names){
       const match = findMatchingLocalItem(faroojName);
@@ -11374,6 +11463,7 @@ async function act(a,d){
       for(const o of BO.orders){
         const line=(o.items||[]).find(x=>x.name===faroojName);
         if(!line || !(+line.qty>0)) continue;
+        if(exclude[faroojName+'|'+o.branch]) continue; // سطر اتشال من الفحص (مثلًا اتصرف قبل كده النهارده)
         const cf = convFactorOf(faroojName) || 1;
         const res = dispenseOut(match.id, n2(+line.qty*cf), today(), o.branch, 'صرف للفروع');
         if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); allFails.push({branch:o.branch, itemId:match.id, itemName:match.name, qty:n2(+line.qty*cf), shortages:res.shortages, o, faroojName, bq:+line.qty}); continue; }
