@@ -1014,7 +1014,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-10 · 20:30';
+const APP_BUILD = '26-10 · 11:00';
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4271,6 +4271,22 @@ function branchUnitOf(faroojName){
 }
 // معامل التحويل: كمية الفرع × المعامل = كمية المصنع. لو الوحدتين متطابقتين (بعد التطبيع) المعامل = 1 تلقائي
 /* ===== 🛡 فحص قبل الصرف: الكميات والأسعار قبل ما يتسجل أي حاجة ===== */
+// آخر شراء = أحدث تاريخ (مش آخر سطر في القايمة — ترتيب الحركات مش بالتاريخ)
+// أصناف (من غير وصفة) سعرها في الكارت بعيد عن آخر شراء — منهم اللي اتظبط على سعر شراء قديم بسبب غلطة «آخر شراء» قبل 26-10
+function priceStalePlan(){ const out=[];
+  for(const it of S.items){ if(activeRecipeOf(it.id) || isUntracked(it.id)) continue; const lb=lastBuy(it.id); if(!lb) continue; const p=+it.price||0;
+    if(Math.abs(p-lb.price)<=0.005 || (p>0 && Math.abs(p-lb.price)/lb.price<=0.2)) continue;
+    const old=S.moves.some(m=>m!==lb && m.dir==='in' && m.itemId===it.id && !m.runId && Math.abs((+m.price||0)-p)<0.005 && String(m.date)<String(lb.date));
+    out.push({it, from:p, to:+lb.price, at:lb.date, old}); }
+  return out.sort((a,b)=>(b.old-a.old)||a.it.name.localeCompare(b.it.name,'ar')); }
+function priceStalePanel(){ const P=priceStalePlan(); if(!P.length) return '';
+  const o=P.filter(x=>x.old).length;
+  return `<div class="panel" style="border:2px solid #2F5E8A"><div class="pad"><b style="color:#2F5E8A">💲 ${P.length} صنف سعره في الكارت بعيد عن آخر شراء</b>${o?` <span class="hint">— منهم ${o} سعره = سعر شراء قديم (غالبًا اتظبط بالغلط من فحص الصرف قبل 26-10)</span>`:''}
+    <div class="tblwrap" style="max-height:260px;overflow:auto;margin:8px 0"><table class="gridcols"><thead><tr><th>الصنف</th><th class="n">في الكارت</th><th class="n">آخر شراء</th><th>تاريخه</th></tr></thead><tbody>
+    ${P.map(x=>`<tr${x.old?' style="background:#EEF4FA"':''}><td>${esc(x.it.name)}${x.old?' <span class="chip b">سعر قديم</span>':''}</td><td class="n">${fmt(x.from)}</td><td class="n"><b>${fmt(x.to)}</b></td><td class="hint">${esc(x.at)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <button class="btn p" data-act="price-stale-fix">رجّع الكل لآخر شراء (${P.length}) وحدّث تكلفة المنتجات</button> <span class="hint">لو صنف منهم سعره الحالي هو الصح، عدّله من كارته بعد كده.</span></div></div>`; }
+function lastBuy(id){ let best=null; for(const m of S.moves){ if(m.dir!=='in'||m.itemId!==id||m.runId||!(+m.price>0)||/تسوية/.test(m.party||'')||isByMove(m)) continue; if(!best || String(m.date)>=String(best.date)) best=m; } return best; }
 function boMedian(a){ if(a.length<3) return null; const v=a.slice().sort((x,y)=>x-y); return v[Math.floor(v.length/2)]; }
 function boHistOf(itemId, days){ const T=today(); const d=new Date(T+'T12:00:00'); d.setDate(d.getDate()-(days||21)); const from=ymdLocal(d);
   const day=new Map(), br=new Map();
@@ -4298,14 +4314,13 @@ function boPreCheck(names){
     if(rec){
       const zeros=[]; const seen=new Set(); const walk=r=>{ (r.lines||[]).forEach(l=>{ if(l.by) return; const li=item(l.itemId); if(!li||isUntracked(li.id)||seen.has(li.id)) return; seen.add(li.id); const sub=activeRecipeOf(li.id); if(sub) walk(sub); else if(!(+li.price>0)) zeros.push(li); }); }; walk(rec);
       const c=n2(recipeCost(rec)/(rec.outQty||1));
-      const lastBuy=id=>{ for(let i=S.moves.length-1;i>=0;i--){ const m=S.moves[i]; if(m.dir==='in'&&m.itemId===id&&!m.runId&&+m.price>0&&!/تسوية/.test(m.party||'')) return m; } return null; };
       const ack=((ui.pre&&ui.pre.ack)||{});
       [...seen].map(id=>item(id)).filter(li=>li && +li.price>0 && !activeRecipeOf(li.id) && !ack[li.id]).forEach(li=>{ const lp=lastBuy(li.id); if(lp && Math.abs(li.price-lp.price)/lp.price>0.2 && priceW.length<3) priceW.push({msg:`خامة «${li.name}» سعرها في الكارت ${fmt(li.price)} وآخر شراء ${fmt(lp.price)} (${lp.date})`, fix:'set', to:+lp.price, id:li.id}); });
       if(zeros.length) priceW.push({msg:`خامات في الوصفة سعرها صفر: ${zeros.map(z=>z.name).join('، ')} — تكلفة الإنتاج هتطلع غلط`, fix:'input', ids:zeros.map(z=>z.id)});
       else if(c>0 && Math.abs(price-c)>0.01 && Math.abs(price-c)/c>0.01) priceW.push({msg:`سعر الكارت ${fmt(price)} وتكلفة الوصفة ${fmt(c)}`, fix:'sync', to:c});
       else if(!(c>0) && !(price>0)) priceW.push({msg:'سعره صفر والوصفة مالهاش تكلفة', fix:'input', ids:[it.id]});
     } else if(!(price>0)) priceW.push({msg:'سعره في الكارت صفر — الفاتورة هتطلع من غير قيمة', fix:'input', ids:[it.id]});
-    else { const lp=[...S.moves].reverse().find(m=>m.dir==='in'&&m.itemId===it.id&&!m.runId&&+m.price>0&&!/تسوية/.test(m.party||'')); if(lp && Math.abs(price-lp.price)/lp.price>0.2 && !((ui.pre&&ui.pre.ack)||{})[it.id]) priceW.push({msg:`سعر الكارت ${fmt(price)} وآخر شراء ${fmt(lp.price)} (${lp.date} من ${lp.party||'-'})`, fix:'set', to:+lp.price}); }
+    else { const lp=lastBuy(it.id); if(lp && Math.abs(price-lp.price)/lp.price>0.2 && !((ui.pre&&ui.pre.ack)||{})[it.id]) priceW.push({msg:`سعر الكارت ${fmt(price)} وآخر شراء ${fmt(lp.price)} (${lp.date} من ${lp.party||'-'})`, fix:'set', to:+lp.price}); }
     if(!rec){ const bk=calc(it).book; if(bk<total-0.001) warn.push(`الرصيد ${fmt(bk)} ${it.unit} أقل من المطلوب ${fmt(total)}`); }
     rows.push({name:n, it, cf, total, lines, warn, stop, priceW, n:lines.length}); }
   return rows.sort((a,b)=>(b.stop.length-a.stop.length)||(b.warn.length+b.priceW.length-a.warn.length-a.priceW.length)||boLabel(a.name).localeCompare(boLabel(b.name),'ar'));
@@ -5320,7 +5335,7 @@ function viewItems(){
 
   const showCatCol = ui.cat==='الكل' && itSort.by!=='cat';
 
-  return `${unitDriftPanel()}
+  return `${priceStalePanel()}${unitDriftPanel()}
   <div class="panel"><div class="pad"><div class="cards">
     <div class="card"><div class="k">إجمالي الأصناف</div><div class="v">${S.items.length}</div><div class="s">${cats().length-1} تصنيف</div></div>
     <div class="card"><div class="k">قيمة المخزون</div><div class="v">${money(totalVal)}</div><div class="s">درهم</div></div>
@@ -11449,6 +11464,12 @@ async function act(a,d){
     if(!names.length) return toast(blocked? `مفيش أصناف جاهزة — ${blocked} صنف محتاج معامل تحويل الأول` : 'مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
     ui.pre={names, rows:boPreCheck(names)}; ui.modal=boPreModal(); render(); boPreBind(); return;
   }
+  if(a==='price-stale-fix'){ const P=priceStalePlan(); if(!P.length) return toast('مفيش حاجة تتصلح');
+    if(!confirm(`هيتغير سعر ${P.length} صنف في الكارت لآخر سعر شراء، وبعدين تكلفة المنتجات اللي هم داخلين فيها تتحدث. تكمل؟`)) return;
+    const g=await guardBulk('أسعار الكارت ← آخر شراء'); if(!g) return;
+    P.forEach(x=>{ x.it.price=n2(x.to); }); const n=applyRecipePriceSync(); await saveMain();
+    await logOp(g, P.map(x=>`${x.it.name} ${fmt(x.from)}←${fmt(x.to)}`).join('، ')+(n?` · ${n} منتج اتحدثت تكلفته`:''));
+    toast(`اتصلح سعر ${P.length} صنف${n?` و${n} منتج`:''}`); return render(); }
   if(a==='bo-pre-sync'){ const n=await boPrePriced(); return toast(`اتحدث سعر ${n} منتج لتكلفة الوصفة`); }
   if(a==='bo-pre-set'){ const z=item(d.id); if(!z) return; const from=+z.price||0; z.price=n2(+d.to); const n=await boPrePriced(); return toast(`«${z.name}»: ${fmt(from)} ← ${fmt(z.price)}${n?` · واتحدثت تكلفة ${n} منتج`:''}`); }
   if(a==='bo-pre-ack'){ const P=ui.pre; if(!P) return; (P.ack=P.ack||{})[d.id]=1; boPreRefresh(); return; }
