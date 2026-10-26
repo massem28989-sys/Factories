@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="google" content="notranslate">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -815,6 +816,31 @@ html[data-ui="pro"][data-skin] .btn[data-act="today-go"]{border-radius:14px!impo
   html[data-ui="pro"][data-skin] .side-top img{width:40px;height:40px}
   html[data-ui="pro"][data-skin] .side-nav button.on{box-shadow:none}
 }
+
+/* ===== بانر العلامة بعرض الشاشة ورا الشريط العلوي، والمحتوى طالع فوقه ===== */
+html[data-ui="pro"][data-skin] .side-hero{display:none}
+html[data-ui="pro"][data-skin] .side-top{margin-top:0;padding-top:20px}
+html[data-ui="pro"][data-skin] header{position:relative!important;z-index:1!important;border:0!important;color:#fff!important;padding:0 0 78px!important;
+  background:linear-gradient(90deg,var(--side) 0%,color-mix(in srgb,var(--side2) 88%,transparent) 48%,color-mix(in srgb,var(--side2) 35%,transparent) 100%),var(--hero) center 40%/cover no-repeat,var(--side)!important}
+html[data-ui="pro"][data-skin] header>.wrap{padding:22px 28px 0!important}
+html[data-ui="pro"][data-skin] .ptitle small{color:color-mix(in srgb,#fff 70%,var(--brand))!important}
+html[data-ui="pro"][data-skin] .ptitle b{color:#fff!important;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+html[data-ui="pro"][data-skin] .hstat>div{border-inline-start-color:rgba(255,255,255,.18)!important}
+html[data-ui="pro"][data-skin] .hstat b{color:#fff!important}
+html[data-ui="pro"][data-skin] .hstat span{color:rgba(255,255,255,.72)!important}
+html[data-ui="pro"][data-skin] header .btn{background:rgba(255,255,255,.14)!important;border-color:rgba(255,255,255,.3)!important;color:#fff!important;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+html[data-ui="pro"][data-skin] header .btn:hover{background:rgba(255,255,255,.24)!important}
+html[data-ui="pro"][data-skin] header .btn.p{background:#fff!important;color:var(--side)!important;border-color:#fff!important}
+html[data-ui="pro"][data-skin] header .warnbar{background:rgba(255,255,255,.92)!important;color:var(--ink)!important}
+html[data-ui="pro"] .pro-main>.wrap{max-width:1500px;margin-top:-62px;position:relative;z-index:2}
+html[data-ui="pro"] .pro-main>.wrap>.panel:first-child,html[data-ui="pro"] .pro-main>.wrap>:first-child{box-shadow:0 14px 34px rgba(20,12,10,.14)!important}
+html[data-ui="pro"][data-skin="kunafa"] header{background:linear-gradient(90deg,var(--side) 0%,rgba(74,44,18,.85) 48%,rgba(212,117,26,.30) 100%),var(--hero) center 55%/cover no-repeat,var(--side)!important}
+html[data-ui="pro"][data-skin="kunafa"] header .btn{border-radius:999px!important}
+@media(max-width:980px){
+  html[data-ui="pro"][data-skin] header{padding-bottom:64px!important}
+  html[data-ui="pro"][data-skin] header>.wrap{padding:14px 14px 0!important}
+  html[data-ui="pro"] .pro-main>.wrap{margin-top:-50px}
+}
 </style>
  
 <script>
@@ -1198,7 +1224,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '26-10 · 18:00';
+const APP_BUILD = '26-10 · 19:30'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12567,4 +12593,37 @@ window.addEventListener('beforeunload', e => {
     e.preventDefault(); e.returnValue = '';
   }
 });
+</script>
+<script>
+window.__canAutoReload=()=>{ try{ const ae=document.activeElement; return !(PENDING_SYNCS>0||DB.busy||(DB.on&&DB.dirty)) && !ui.modal && !(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)); }catch(e){ return false; } };
+/* فحص التحديثات: كل 3 دقايق ولما التطبيق يرجع للشاشة، بيشوف لو فيه نسخة أحدث على السيرفر ويطلّع شريط «حدّث دلوقتي» */
+(function(){
+  const CUR = window.__BUILD__;
+  const RX = /(?:__BUILD__|APP_BUILD)\s*=\s*['"]([^'"]+)['"]/;
+  let shown=false, busy=false;
+  async function check(){
+    if(busy||shown||!CUR) return; busy=true;
+    try{
+      const r = await fetch(location.pathname + '?_v=' + Date.now(), {cache:'no-store'});
+      if(r.ok){ const m = (await r.text()).match(RX); if(m && m[1] && m[1]!==CUR){ let tried=''; try{ tried=sessionStorage.getItem('upd-tried')||''; }catch(e){} if(tried!==m[1] && window.__canAutoReload && window.__canAutoReload()){ try{ sessionStorage.setItem('upd-tried',m[1]); }catch(e){} return go(m[1]); } show(m[1]); } }
+    }catch(e){} busy=false;
+  }
+  function show(v){
+    shown=true; const b=document.createElement('div');
+    b.setAttribute('role','status');
+    b.style.cssText='position:fixed;z-index:99999;left:12px;right:12px;bottom:24px;max-width:520px;margin:0 auto;background:#1F0F10;color:#fff;border-radius:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 12px 30px rgba(0,0,0,.35);font:600 14px/1.4 inherit;direction:rtl';
+    b.innerHTML='<span style="flex:1">🔄 فيه نسخة جديدة من البرنامج</span><button type="button" style="background:#C8222A;color:#fff;border:0;border-radius:10px;padding:8px 14px;font:inherit;cursor:pointer">حدّث دلوقتي</button>';
+    b.querySelector('button').onclick=()=>go(v);
+    document.body.appendChild(b);
+  }
+  async function go(v){ if(go.done) return; go.done=true;
+    {
+      try{ if(navigator.serviceWorker){ const rs=await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(x=>x.update().catch(()=>{}))); } }catch(e){}
+      try{ if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
+      location.replace(location.pathname + '?v=' + encodeURIComponent(v) + location.search.replace(/^\?/,'&').replace(/&v=[^&]*/,'') + location.hash);
+    }
+  }
+  setTimeout(check, 1500); setInterval(check, 3*60*1000);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') check(); });
+})();
 </script>
