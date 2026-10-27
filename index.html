@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-10 · 20:00'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-10 · 21:00'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1277,9 +1277,9 @@ function _mergeNames(kind, serverList, def){
   return l.length?l:[def];
 }
 // الإعدادات اللي بتتحفظ مع الأصناف (عشان النسخة الاحتياطية تبقى كاملة)
-const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons'];
+const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip'];
 function stateSettings(){ const o={}; STATE_KEYS.forEach(k=>{ if(S[k]!==undefined) o[k]=S[k]; }); return o; }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1303,7 +1303,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.unitConv=main.unitConv||{}; S.locs=main.locs||[]; S.itemLoc=main.itemLoc||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.unitConv=main.unitConv||{}; S.catSkip=main.catSkip||{}; S.locs=main.locs||[]; S.itemLoc=main.itemLoc||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1956,7 +1956,7 @@ async function pushAll(quiet){
         ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},locs:S.locs||[],itemLoc:S.itemLoc||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},catSkip:S.catSkip||{},locs:S.locs||[],itemLoc:S.itemLoc||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1987,7 +1987,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.catSkip=(st&&st[0]&&st[0].v&&st[0].v.catSkip)||S.catSkip||{}; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     MOVE_SIG.clear(); S.moves.forEach(m=>MOVE_SIG.set(m.id, moveSig(m))); // دي اللي على السيرفر فعلًا
@@ -8970,6 +8970,9 @@ async function boSaveOrder(order){
   if(!order || !order._key) { toast('تعذر تحديد الطلبية',1); return false; }
   if(BO._badKeys && BO._badKeys.has(order._key)){ toast('الطلبية دي نسخة غلط متخزنة بمفتاح فرع تاني — مش هتتحفظ. افتح «🔎 الطلبيات على السيرفر»',1); return false; }
   const T=boTrackChanges(order);
+  // لو النسخة اللي عندي اتحمّلت قبل الصرف، مانمسحش أسعار الصرف اللي اتكتبت على السيرفر من جهاز تاني
+  try{ const cur=await faroojGet(order._key); const sv=cur?JSON.parse(cur):null; if(sv && Array.isArray(sv.items)){ const byN=new Map(sv.items.map(x=>[x.name,x]));
+    (order.items||[]).forEach(l=>{ const x=byN.get(l.name); if(!x || l.price!=null || x.price==null) return; ['sent','factoryQty','factoryUnit','value','price','pricedAt'].forEach(f=>{ if(x[f]!==undefined && l[f]===undefined) l[f]=x[f]; }); }); } }catch(e){}
   const payload = {...order};
   delete payload._key; delete payload._loaded;
   if(T){ payload.log=[...(order.log||[]), T.entry].slice(-200); if(T.removed.length) payload.removed=[...(order.removed||[]).filter(r=>!T.removed.some(x=>x.name===r.name)), ...T.removed]; }
@@ -10054,12 +10057,40 @@ async function boBackfillPrices(){
   return n;
 }
 async function boFlushOrders(set){ let ok=0; for(const o of set){ if(await boSaveOrder(o)) ok++; } return ok; }
+// ===== تحديث أسعار كتالوج الفروع — بمعاينة: تختار اللي يتحدث، وتفك الربط الغلط =====
+async function catSyncPlan(){
+  let raw; try{ raw=await faroojGet('inv_catalog:items'); }catch(e){ raw=null; } if(!raw) return null;
+  let cat; try{ cat=JSON.parse(raw); }catch(e){ return null; }
+  const norm=t=>String(t||'').trim().toLowerCase(); const byItem=new Map();
+  cat.forEach(c=>{ const m=findMatchingLocalItem(c.name); if(m && !boMatchIsSuggested(c.name)) (byItem.get(m.id)||byItem.set(m.id,[]).get(m.id)).push(c.name); });
+  const rows=[];
+  cat.forEach(c=>{ if(S.catSkip && S.catSkip[c.name]) return; const r=boCatFactor(c.name, c.unit); if(!r) return; const np=Math.round((+r.m.price||0)*r.f*100)/100; if(!(np>0)) return;
+    if(Math.abs((+c.price||0)-np)<=0.004) return;
+    const pinned=!!(S.boMap && S.boMap[c.name]); const warn=[];
+    const same=S.items.find(i=>norm(i.name)===norm(c.name)); if(pinned && same && same.id!==r.m.id) warn.push(`في صنف في المصنع بنفس الاسم بالظبط («${same.name}») بس مربوط بصنف تاني`);
+    const others=(byItem.get(r.m.id)||[]).filter(n=>n!==c.name); if(pinned && others.length) warn.push(`صنف المصنع ده مربوط كمان بـ«${others[0]}» في الكتالوج`);
+    rows.push({name:c.name, unit:c.unit||'', m:r.m, f:r.f, old:+c.price||0, np, pinned, warn}); });
+  return rows.sort((a,b)=>(b.warn.length-a.warn.length)||a.name.localeCompare(b.name,'ar')); }
+function catSyncModal(){ const P=ui.cs; if(!P) return '';
+  const R=P.rows; if(P.sel==null){ P.sel={}; R.forEach(r=>P.sel[r.name]=!r.warn.length); }
+  const n=R.filter(r=>P.sel[r.name]).length;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:900px"><h3>🔄 أسعار كتالوج الفروع من المصنع</h3>
+    <div class="pad" style="max-height:70vh;overflow:auto">
+    <div class="hint" style="margin-bottom:8px">كل سطر: الصنف اللي الفرع بيطلبه ← صنف المصنع المربوط بيه، وسعره هيبقى تكلفة المصنع. لو الربط غلط (الفرع بيطلب حاجة والمصنع مش بيصرفها كده) دوس «فك الربط». السطور اللي عليها ⚠ مش متعلّم عليها لحد ما تراجعها.</div>
+    ${R.length?`<table><thead><tr><th style="width:28px"></th><th>في الكتالوج</th><th>مربوط بصنف المصنع</th><th class="n">السعر</th><th></th></tr></thead><tbody>
+    ${R.map(r=>`<tr${r.warn.length?' style="background:#FFF7E6"':''}><td><input type="checkbox" data-cs="${esc(r.name)}" ${P.sel[r.name]?'checked':''}></td>
+      <td><b>${esc(r.name)}</b><div class="hint">${esc(r.unit)}</div></td>
+      <td>${esc(r.m.name)}<div class="hint">${r.f!==1?`1 ${esc(r.unit)} = ${fmt(r.f)} ${esc(r.m.unit||'')}`:esc(r.m.unit||'')}${r.pinned?' · ربط يدوي':' · نفس الاسم'}</div>${r.warn.map(w=>`<div class="hint" style="color:#8A4A0B">⚠ ${esc(w)}</div>`).join('')}</td>
+      <td class="n">${fmtP(r.old)} ← <b>${fmtP(r.np)}</b></td>
+      <td style="white-space:nowrap">${r.pinned?`<button class="btn sm" data-act="cs-unpin" data-n="${esc(r.name)}">فك الربط</button> `:''}<button class="btn sm" data-act="cs-skip" data-n="${esc(r.name)}" title="المصنع مش بيصرف الصنف ده — سعره يفضل زي ما هو في الكتالوج">مش بنصرفه</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">كل أسعار الكتالوج مطابقة لأسعار المصنع ✓</div>'}
+    </div><div class="foot">${R.length?`<button class="btn p" data-act="cs-apply">حدّث المتعلّم عليه (${n})</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`; }
+function catSyncBind(){ document.querySelectorAll('[data-cs]').forEach(c=>c.onchange=()=>{ ui.cs.sel[c.dataset.cs]=c.checked; ui.modal=catSyncModal(); render(); catSyncBind(); }); }
 async function boSyncCatalogPrices(onlyNames, ask){
   let raw; try{ raw=await faroojGet('inv_catalog:items'); }catch(e){ raw=null; }
   if(!raw){ toast('تعذر قراية كتالوج الفروع',1); return 0; }
   let cat; try{ cat=JSON.parse(raw); }catch(e){ return 0; }
   const only=onlyNames?new Set(onlyNames):null; const ch=[];
-  cat.forEach(c=>{ if(only && !only.has(c.name)) return; const r=boCatFactor(c.name, c.unit); if(!r) return;
+  cat.forEach(c=>{ if(only && !only.has(c.name)) return; if(S.catSkip && S.catSkip[c.name]) return; const r=boCatFactor(c.name, c.unit); if(!r) return;
     const np=Math.round((+r.m.price||0)*r.f*100)/100; if(!(np>0)) return;
     if(Math.abs((+c.price||0)-np)>0.004) ch.push({c, old:+c.price||0, np}); });
   if(!ch.length){ if(ask) toast('كل أسعار كتالوج الفروع مطابقة لأسعار المصنع ✓'); return 0; }
@@ -11994,7 +12025,20 @@ async function _act(a,d){
       else { const k=1-a.factor; a.mv.forEach(m=>{ m.qty=r4(m.qty*k); }); a.run.batches=r4((+a.run.batches||0)*k); a.run.outQty=r4((+a.run.outQty||0)*k); a.run.cost=n2((+a.run.cost||0)*k); } });
     await saveTx(); await saveMain(); await logOp(g, `${P.acts.length} تشغيلة اتلغت أو اتقللت`); ui.modal=null; toast(`اتنظف ✓ — ${P.acts.length} تشغيلة`); return render(); }
   if(a==='bo-audit-copy'){ const t=boAuditText(window.__boAudit||boAudit()); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
-  if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); const n=await boSyncCatalogPrices(null,true); toast(`${b?`اتكتب السعر لـ${b} سطر في طلبيات الفروع · `:''}${n?`اتحدث سعر ${n} صنف في الكتالوج`:'الكتالوج مطابق'} ✓`); return; }
+  if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); if(b) toast(`اتكتب السعر لـ${b} سطر في طلبيات الفروع ✓`);
+    const rows=await catSyncPlan(); if(!rows) return toast('تعذر قراية كتالوج الفروع',1); ui.cs={rows, sel:null}; ui.modal=catSyncModal(); render(); catSyncBind(); return; }
+  if(a==='cs-unpin'){ const n=d.n; if(!confirm(`فك ربط «${n}» من صنف المصنع؟\n\nسعره في الكتالوج مش هيتحدث من المصنع، ولو فرع طلبه في طلبية هيظهر «محتاج مطابقة» لحد ما تربطه صح.`)) return;
+    if(S.boMap) delete S.boMap[n]; if(S.boConv) delete S.boConv[n]; _matchCache=new Map(); await saveMain();
+    const rows=await catSyncPlan(); const sel=ui.cs?ui.cs.sel:null; ui.cs={rows:rows||[], sel}; if(sel) delete sel[n]; (rows||[]).forEach(r=>{ if(sel && sel[r.name]===undefined) sel[r.name]=!r.warn.length; });
+    toast(`اتفك ربط «${n}»`); ui.modal=catSyncModal(); render(); catSyncBind(); return; }
+  if(a==='cs-skip'){ const n=d.n; S.catSkip=S.catSkip||{}; S.catSkip[n]=1; await saveMain(); if(ui.cs){ ui.cs.rows=ui.cs.rows.filter(r=>r.name!==n); }
+    toast(`«${n}» مش هيتحدث سعره من المصنع تاني`); ui.modal=catSyncModal(); render(); catSyncBind(); return; }
+  if(a==='cs-apply'){ const P=ui.cs; if(!P) return; const pick=P.rows.filter(r=>P.sel[r.name]); if(!pick.length) return toast('مفيش سطور متعلّم عليها',1);
+    try{ const fresh=JSON.parse(await faroojGet('inv_catalog:items')||'[]'); const map=new Map(pick.map(x=>[x.name,x.np]));
+      fresh.forEach(c=>{ if(map.has(c.name)){ c.price=map.get(c.name); c.priceFrom='factory'; c.priceAt=today(); } });
+      const ok=await faroojSet('inv_catalog:items', JSON.stringify(fresh)); if(!ok) throw new Error(); }
+    catch(e){ return toast('حصل خطأ أثناء تحديث كتالوج الفروع',1); }
+    ui.cs=null; ui.modal=null; toast(`اتحدث سعر ${pick.length} صنف في كتالوج الفروع ✓`); return render(); }
   if(a==='bo-rev-sort'){ BO.revSort=d.v; return render(); }
   if(a==='bo-weigh-toggle'){ if(!S.boWeigh) S.boWeigh={}; if(S.boWeigh[d.n]) delete S.boWeigh[d.n]; else S.boWeigh[d.n]=1; await saveMain();
     toast(S.boWeigh[d.n]?`"${d.n}" هيتصرف بالوزن الفعلي لكل فرع`:`"${d.n}" رجع يتصرف بمعامل ثابت`); return render(); }
