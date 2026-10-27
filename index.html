@@ -841,6 +841,10 @@ html[data-ui="pro"][data-skin="kunafa"] header .btn{border-radius:999px!importan
   html[data-ui="pro"][data-skin] header>.wrap{padding:14px 14px 0!important}
   html[data-ui="pro"] .pro-main>.wrap{margin-top:-50px}
 }
+
+button.is-busy,[data-act].is-busy{opacity:.65!important;pointer-events:none!important;cursor:progress!important}
+button.is-busy::after,[data-act].is-busy::after{content:"";display:inline-block;width:.9em;height:.9em;margin-inline-start:6px;vertical-align:-2px;border:2px solid currentColor;border-inline-end-color:transparent;border-radius:50%;animation:actspin .7s linear infinite}
+@keyframes actspin{to{transform:rotate(360deg)}}
 </style>
  
 <script>
@@ -1224,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-10 · 13:30'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-10 · 16:00'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2234,7 +2238,7 @@ async function deleteMovesSafe(list, label){
   const byFac=new Map(); list.forEach(m=>{ if(m.notifyId && m.notifyFactory){ if(!byFac.has(m.notifyFactory)) byFac.set(m.notifyFactory,[]); byFac.get(m.notifyFactory).push(m.notifyId); } });
   let retracted=0; const received=[];
   for(const [f,ids] of byFac){ toast('بنلغي الإشعارات عند المصنع التاني…'); const r=await retractMany(f, ids); retracted+=r.retracted||0; (r.received||[]).forEach(x=>received.push(x)); }
-  const drop=new Set(list.map(m=>m.id)); drop.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(m=>!drop.has(m.id)); mvSel.forEach(id=>{ if(drop.has(id)) mvSel.delete(id); });
+  const drop=new Set(list.map(m=>m.id)); drop.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(m=>!drop.has(m.id)); mvSel.forEach(id=>{ if(drop.has(id)) mvSel.delete(id); }); releaseForMoves(list);
   await saveTx(); await logOp(g, `${drop.size} حركة اتمسحت · ${retracted} إشعار اتلغى · ${received.length} كان اتسلم`);
   return {n:drop.size, retracted, received};
 }
@@ -8578,19 +8582,20 @@ function bind(){
     if(m.runId && !confirm('الحركة دي جزء من تشغيلة إنتاج تلقائية (خامة اتخصمت بناءً على وصفة). تعديل الكمية هنا مش هيغيّر باقي خامات نفس التشغيلة ولا كمية المنتج الناتج. متأكد عايز تكمل؟')){
       return render();
     }
-    m.qty = n2(v);
-    await saveTx();
+    const oldQ=+m.qty||0; m.qty = r4(v);
+    let prodMsg='';
+    if(m.dir==='out' && !m.runId && activeRecipeOf(m.itemId)){ const dq=r4(m.qty-oldQ);
+      if(dq<0 && prodRelease(m.itemId, m.date, -dq)>0) prodMsg=' — والإنتاج التلقائي اتقلل والخامات رجعت';
+      if(dq>0 && prodExtend(m.itemId, m.date, dq)>0) prodMsg=' — واتصنّع الزيادة من الوصفة'; }
+    await saveTx(); if(prodMsg) setTimeout(()=>toast('اتحفظت الكمية'+prodMsg),1200);
     if(m.reason==='صرف للفروع' && m.party){ boSyncDispenseToOrder(m.party, m.itemId, m.date).then(x=>{ if(x) toast(`واتعدلت فاتورة «${m.party}» كمان: ${boLabel(x.l.name)} ${x.oldSent!=null?fmt(x.oldSent)+' ← ':''}${fmt(x.newSent)}`); }); }
     // لو الحركة دي "صرف لمصنع تاني" وليها إشعار موصول، لازم نحدّث الكمية في الإشعار نفسه
     // عشان المصنع التاني ميستلمش رقم قديم لو لسه معلّق، أو يعرف إن الرقم اتغيّر لو كان استلم بالفعل
     if(m.reason==='صرف لمصنع تاني' && m.notifyId && m.notifyFactory){
       try{
-        const list = await fetchFactoryInboxStrict(m.notifyFactory);
-        const n = list.find(x=>x.id===m.notifyId);
+        const {out:n} = await updateFactoryInbox(m.notifyFactory, list=>{ const x=list.find(z=>z.id===m.notifyId); if(x && x.status==='pending') x.qty=m.qty; return x; });
         if(n){
           if(n.status==='pending'){
-            n.qty = m.qty;
-            await saveFactoryInbox(m.notifyFactory, list);
             toast('اتحفظت الكمية واتحدّث الإشعار عند المصنع التاني');
           } else {
             toast('اتحفظت الكمية عندك، بس المصنع التاني كان استلم الإشعار بالرقم القديم خلاص — لازم تكلّمه يدوي يعدّل مخزنه',1);
@@ -8698,14 +8703,14 @@ function bind(){
       if(!confirm('الحركة دي اتبعتلها إشعار عند مصنع تاني. حذفها هنا هيلغي الإشعار هناك لو لسه معلّق. متأكد؟')) return;
       const result = await retractFactoryNotification(m.notifyFactory, m.notifyId);
       DELETED_MOVE_IDS.add(b.dataset.del);
-      S.moves=S.moves.filter(x=>x.id!==b.dataset.del); await saveTx();
+      S.moves=S.moves.filter(x=>x.id!==b.dataset.del); releaseForMoves([m]); await saveTx();
       if(result==='received') toast('اتحذفت الحركة، لكن المصنع التاني كان استلم الإشعار خلاص — لازم تكلّمه يدوي عشان يعدّل مخزنه', 1);
       else toast('اتحذفت الحركة والإشعار اتلغى عند المصنع التاني');
       render();
       return;
     }
     DELETED_MOVE_IDS.add(b.dataset.del);
-    S.moves=S.moves.filter(m=>m.id!==b.dataset.del); await saveTx(); toast('اتحذفت الحركة'); render();
+    S.moves=S.moves.filter(m=>m.id!==b.dataset.del); const rel=releaseForMoves([m]); await saveTx(); toast('اتحذفت الحركة'+(rel?' — والإنتاج التلقائي اللي اتعمل عشانها اتلغى والخامات رجعت':'')); render();
     if(m && m.reason==='صرف للفروع' && m.party){ const x=await boSyncDispenseToOrder(m.party, m.itemId, m.date); if(x) toast(`واتعدلت فاتورة «${m.party}» كمان: ${boLabel(x.l.name)} ← ${fmt(x.newSent)}`); } });
   root.querySelectorAll('[data-delr]').forEach(b=>b.onclick=async()=>{
     if(!isOwner()) return toast('مسح الوصفات لصاحب النظام بس',1);
@@ -8802,6 +8807,35 @@ function readBulkInHeader(){
 /* خطة إنتاج متداخلة: لو خامة في الوصفة رصيدها مش كفاية وهي نفسها ليها وصفة (منتج وسيط زي صوص الكوكتيل اللي بيدخل في صوص الساندوتش)،
    بنصنّع الناقص منها تلقائي من خاماتها الأول — بدل ما الصرف يقف. بنحسب كله على رصيد افتراضي قبل ما نسجل أي حركة */
 const r4 = v => Math.round((+v||0)*10000)/10000;
+// الرصيد الدفتري بالظبط (4 أرقام عشرية) — للحسابات، مش للعرض
+function bookExact(it){ if(!it) return 0; if(CALC_IDX){ const e=CALC_IDX.get(it.id); return r4((+it.opening||0)+(e?e.i-e.o:0)); } let q=+it.opening||0; for(const m of S.moves){ if(m.itemId===it.id) q+= m.dir==='in'? +m.qty||0 : -(+m.qty||0); } return r4(q); }
+const isAutoRunIn = m => !!m && m.dir==='in' && /^إنتاج تلقائي/.test(m.party||'');
+// بيقلّل تشغيلات إنتاج منتج في يوم معيّن (الأحدث الأول) بكمية معيّنة، والخامات ترجع بالنسبة — ولو الخامة نفسها منتج وسيط اتصنّع تلقائي نفس اليوم ورصيده بقى زيادة، بيتقلّل هو كمان
+// o.autoOnly: التلقائي بس (ومش اللي اتأكد من «الإنتاج الفعلي»). بيرجّع الكمية اللي اتقللت فعلًا
+function shrinkRuns(itemId, date, qty, o={}){
+  let need=r4(qty); if(!(need>0.00005)) return 0; const depth=o.depth||0;
+  const ids=[...new Set(S.moves.filter(m=>m.date===date&&m.itemId===itemId&&m.dir==='in'&&m.runId&&!isByMove(m)).map(m=>m.runId))].reverse();
+  let done=0; const freed=new Map();
+  for(const id of ids){ if(need<=0.00005) break;
+    const run=(S.runs||[]).find(r=>r.id===id); const mv=S.moves.filter(m=>m.runId===id); const om=mv.find(m=>m.dir==='in'&&m.itemId===itemId&&!isByMove(m)); if(!om||!(om.qty>0)) continue;
+    if(o.autoOnly && (!(isAutoRunIn(om)||(run&&run.auto)) || (run&&run.actual))) continue;
+    const c=Math.min(need, om.qty), k=1-c/om.qty;
+    mv.forEach(m=>{ if(m.dir==='out') freed.set(m.itemId, r4((freed.get(m.itemId)||0)+m.qty*(1-k))); });
+    if(k<=0.0001){ mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const del=new Set(mv.map(m=>m.id)); S.moves=S.moves.filter(m=>!del.has(m.id)); S.runs=(S.runs||[]).filter(r=>r.id!==id); }
+    else { mv.forEach(m=>{ if(m.qx!=null) m.qx*=k; m.qty=r4(m.qty*k); }); if(run){ run.outQty=r4((+run.outQty||0)*k); run.cost=n2((+run.cost||0)*k); run.batches=r4((+run.batches||0)*k); } }
+    need=r4(need-c); done=r4(done+c); }
+  if(o.cascade!==false && depth<4) freed.forEach((q,ing)=>{ if(ing===itemId || !activeRecipeOf(ing)) return; const sur=bookExact(item(ing)); const c=Math.min(q, sur); if(c>0.00005) shrinkRuns(ing, date, c, {autoOnly:true, depth:depth+1}); });
+  return done;
+}
+// صرف منتج ليه وصفة اتقلل أو اتمسح: الإنتاج التلقائي اللي اتعمل عشانه يتقلل (بقد الزيادة اللي بقت في رصيده بس)، والخامات ترجع
+function prodConfirm(itemId, date){ (S.runs||[]).forEach(r=>{ if(r.date===date && S.moves.some(m=>m.runId===r.id && m.dir==='in' && m.itemId===itemId && !isByMove(m))) r.actual=true; }); }
+function prodRelease(itemId, date, qty){ const it=item(itemId); if(!it || !activeRecipeOf(itemId)) return 0; const c=Math.min(r4(qty), bookExact(it)); return c>0.00005 ? shrinkRuns(itemId, date, c, {autoOnly:true}) : 0; }
+// صرف منتج اتزوّد: يتصنّع الناقص بس (زي الصرف العادي)
+function prodExtend(itemId, date, qty){ const it=item(itemId); if(!it || !activeRecipeOf(itemId)) return 0; const make=Math.min(r4(qty), r4(-bookExact(it))); if(!(make>0.00005)) return 0;
+  const bal=new Map(), ops=[], short=[]; planProduction(itemId, make, bal, ops, short, 0, new Set([itemId])); if(ops.length) commitProduction(ops, date); if(short.length) noteShortages(short); return make; }
+// بعد مسح أو تقليل حركات صرف: نرجّع الإنتاج التلقائي الزيادة لكل منتج/يوم
+function releaseForMoves(list){ const g=new Map(); list.forEach(m=>{ if(!m || m.dir!=='out' || m.runId) return; const k=m.itemId+'|'+m.date; g.set(k, r4((g.get(k)||0)+(+m.qty||0))); });
+  let n=0; g.forEach((q,k)=>{ const [id,date]=k.split('|'); if(prodRelease(id,date,q)>0) n++; }); return n; }
 function planProduction(itemId, qty, bal, ops, short, depth, stack){
   const r=S.recipes.find(x=>x.outItemId===itemId); if(!r || !(r.outQty>0)) return false;
   const b=qty/r.outQty; const lines=[];
@@ -8810,17 +8844,17 @@ function planProduction(itemId, qty, bal, ops, short, depth, stack){
     if(isUntracked(l.itemId)) continue; // المياه والتلج وأي حاجة مش بنتتبعها: ما بتتخصمش خالص
     // 4 أرقام عشرية — الخامات الصغيرة (ملح، بيكربونات) كانت بتضيع مع التقريب لرقمين
     const need=r4(l.qty*b); const li=item(l.itemId);
-    if(!bal.has(l.itemId)) bal.set(l.itemId, li?calc(li).book:0);
+    if(!bal.has(l.itemId)) bal.set(l.itemId, li?bookExact(li):0);
     let have=bal.get(l.itemId);
     if(need>have+1e-9 && depth<4 && !stack.has(l.itemId) && S.recipes.some(x=>x.outItemId===l.itemId && x.outQty>0)){
-      stack.add(l.itemId); planProduction(l.itemId, n2(need-Math.max(0,have)), bal, ops, short, depth+1, stack); stack.delete(l.itemId);
+      stack.add(l.itemId); planProduction(l.itemId, r4(need-Math.max(0,have)), bal, ops, short, depth+1, stack); stack.delete(l.itemId);
       have=bal.get(l.itemId);
     }
     if(need>have+1e-9 && !isUntracked(l.itemId)) short.push({name:li?li.name:'غير معروفة', need, bal:Math.max(0,n2(have))});
-    bal.set(l.itemId, n2(have-need)); lines.push({itemId:l.itemId, qty:need});
+    bal.set(l.itemId, r4(have-need)); lines.push({itemId:l.itemId, qty:need, qx:l.qty*b});
   }
-  bal.set(itemId, n2((bal.has(itemId)?bal.get(itemId):(item(itemId)?calc(item(itemId)).book:0)) + n2(r.outQty*b)));
-  byl.forEach(l=>bal.set(l.itemId, n2((bal.has(l.itemId)?bal.get(l.itemId):(item(l.itemId)?calc(item(l.itemId)).book:0))+l.qty)));
+  bal.set(itemId, r4((bal.has(itemId)?bal.get(itemId):(item(itemId)?bookExact(item(itemId)):0)) + r4(r.outQty*b)));
+  byl.forEach(l=>bal.set(l.itemId, r4((bal.has(l.itemId)?bal.get(l.itemId):(item(l.itemId)?bookExact(item(l.itemId)):0))+l.qty)));
   ops.push({r, b, lines, byl, nested: depth>0});
   return true;
 }
@@ -8837,19 +8871,19 @@ function commitProduction(ops, date){
   for(const op of ops){
     const rr=op.r; S.runs=S.runs||[];
     // تشغيلة تلقائية واحدة لكل وصفة في اليوم (بدل تشغيلة لكل فرع)
-    const ex=S.runs.find(x=>x.auto && x.date===date && x.name===rr.name && !!x.nested===!!op.nested);
+    const ex=S.runs.find(x=>x.auto && !x.actual && x.date===date && x.name===rr.name && !!x.nested===!!op.nested);
     const runId=ex?ex.id:uid('run');
     // حركة واحدة لكل خامة في التشغيلة اليومية (بدل حركة لكل فرع) — عشان عدد الحركات ما يبقاش بالآلاف
     for(const l of op.lines){ const em=ex && S.moves.find(m=>m.runId===runId && m.dir==='out' && m.itemId===l.itemId && m.date===date);
-      if(em) em.qty=r4(em.qty+l.qty); else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
-    const cost=n2(recipeCost(rr)*op.b), outQty=n2(rr.outQty*op.b);
+      if(em){ em.qx=(em.qx!=null?em.qx:em.qty)+(l.qx!=null?l.qx:l.qty); em.qty=r4(em.qx); } else S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,qx:l.qx,date,price:0,party:rr.name,reason:op.nested?'صرف للإنتاج (تلقائي — خامة وسيطة)':'صرف للإنتاج (تلقائي)',runId}); }
+    const cost=n2(recipeCost(rr)*op.b), outQty=r4(rr.outQty*op.b);
     { const ei=ex && S.moves.find(m=>m.runId===runId && m.dir==='in' && m.itemId===rr.outItemId && m.date===date);
-      if(ei){ const q=n2(ei.qty+outQty); ei.price=q?n2(((+ei.price||0)*ei.qty+cost)/q):0; ei.qty=q; }
+      if(ei){ const q=r4(ei.qty+outQty); ei.price=q?n2(((+ei.price||0)*ei.qty+cost)/q):0; ei.qty=q; }
       else S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price: outQty? n2(cost/outQty):0,party:'إنتاج تلقائي: '+rr.name,runId}); }
     (op.byl||[]).forEach(l=>{ const eb=ex && S.moves.find(m=>m.runId===runId && isByMove(m) && m.itemId===l.itemId && m.date===date);
       if(eb) eb.qty=r4(eb.qty+l.qty); else S.moves.push({id:uid('m'),dir:'in',itemId:l.itemId,qty:l.qty,date,price:+(item(l.itemId)||{}).price||0,party:BYP_PREFIX+rr.name,reason:'',runId}); });
-    if(ex){ ex.batches=n2((+ex.batches||0)+op.b); ex.outQty=n2((+ex.outQty||0)+outQty); ex.cost=n2((+ex.cost||0)+cost); }
-    else S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
+    if(ex){ ex.batches=r4((+ex.batches||0)+op.b); ex.outQty=r4((+ex.outQty||0)+outQty); ex.cost=n2((+ex.cost||0)+cost); }
+    else S.runs.push({id:runId,date,name:rr.name,batches:r4(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
   }
 }
 function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
@@ -8859,7 +8893,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
   if(r && r.outQty>0){
     const bal=new Map(), ops=[], short=[];
     // بنصرف من الجاهز في المخزن الأول، وبنصنّع الناقص بس — عشان الإنتاج ما يتكررش لو المنتج اتعمل قبل كده
-    const self=item(itemId); const have=self?Math.max(0,calc(self).book):0; const make=n2(qty-have);
+    const self=item(itemId); const have=self?Math.max(0,bookExact(self)):0; const make=r4(qty-have);
     if(make>0.0001) planProduction(itemId, make, bal, ops, short, 0, new Set([itemId]));
     if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
     commitProduction(ops, date);
@@ -8869,8 +8903,8 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
     return {move:m, auto:true, nested:ops.some(o=>o.nested), shortages: short.length?short:undefined};
   }
   const it=item(itemId);
-  const bal = it ? calc(it).book : 0;
-  if(qty > bal){
+  const bal = it ? bookExact(it) : 0;
+  if(qty > bal+1e-9){
     if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`, shortages:[{name:it?it.name:'غير معروف', need:qty, bal}]};
   }
   const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
@@ -10350,7 +10384,7 @@ function prodActualBind(){
 function commitManual(op, date, tag){
   const rr=op.r, runId=uid('run');
   op.lines.forEach(l=>S.moves.push({id:uid('m'),dir:'out',itemId:l.itemId,qty:l.qty,date,price:0,party:rr.name,reason:'صرف للإنتاج',runId}));
-  const cost=n2(recipeCost(rr)*op.b), outQty=n2(rr.outQty*op.b);
+  const cost=n2(recipeCost(rr)*op.b), outQty=r4(rr.outQty*op.b);
   S.moves.push({id:uid('m'),dir:'in',itemId:rr.outItemId,qty:outQty,date,price:outQty?n2(cost/outQty):0,party:'إنتاج: '+rr.name+(tag?' ('+tag+')':''),runId});
   (op.byl||[]).forEach(l=>S.moves.push({id:uid('m'),dir:'in',itemId:l.itemId,qty:l.qty,date,price:+(item(l.itemId)||{}).price||0,party:BYP_PREFIX+rr.name,reason:'',runId}));
   S.runs=S.runs||[]; S.runs.push({id:runId,date,name:rr.name,batches:n2(op.b),outQty,cost});
@@ -10584,6 +10618,22 @@ function healthCheck(){
   { const CP=cntPlan(D); const left=CP.list.filter(x=>!x.done).length; const hr=new Date().getHours();
     if(CP.list.length) add({id:'cnt',lvl:left===0?'ok':(hr>=12?'warn':'info'),title:left===0?`جرد النهارده خلص (${CP.list.length} صنف)`:`جرد النهارده: فاضل ${left} من ${CP.list.length} صنف`,
       desc:left?'الجرد الدوّار بعد خروج العربيات: مجموعة أ كل يوم، ب يوم ويوم، ج قسم كل يوم.':'',act:left?['cnt-open','📋 جرد النهارده']:null}); }
+  // 8ب) صرف متكرر (نفس الدفعة اتسجلت كذا مرة)
+  { const DB_=dupBatchPlan(); const n=DB_.reduce((t,x)=>t+x.moves.length,0);
+    add({id:'dupb',lvl:n?'bad':'ok',title:n?`${n} حركة صرف اتسجلت مرتين (نفس الدفعة)`:'مفيش صرف متسجل مرتين',
+      desc:n?'نفس الدفعة اتسجلت ورا بعض بنفس الأصناف والكميات. اللوحة الحمرا في «المنصرف» بتشيل المكرر وتلغي إشعاراته والإنتاج اللي اتعمل عشانه.':'',
+      rows:DB_.slice(0,20).map(x=>({c:[x.date, (x.reason||'')+' · '+(x.party||''), x.moves.length+' حركة']})), act:n?['hc-go-out','📤 افتح المنصرف']:null}); }
+  // 8ج) صرف لمصنع تاني من غير إشعار — المصنع التاني مش هيعرف يستلمه
+  { const un=S.moves.filter(m=>m.dir==='out' && m.reason==='صرف لمصنع تاني' && !m.notifyId);
+    add({id:'unnot',lvl:un.length?'warn':'ok',title:un.length?`${un.length} صرف لمصنع تاني من غير إشعار`:'كل الصرف للمصانع التانية وصله إشعار',
+      desc:un.length?'المصنع المستلم مش هيلاقيهم في «الوارد من مصانع» — دوس «ابعت» جنب كل حركة في المنصرف، أو امسحها لو غلط.':'',
+      rows:un.slice(0,30).map(m=>({c:[m.date, (item(m.itemId)||{}).name||'?', fmt(m.qty)+' → '+(m.party||'؟')]}))}); }
+  // 8د) وصفات بتلف على نفسها (أ جواها ب وب جواها أ) أو فيها خامة كميتها صفر
+  { const bad=[]; const rec=id=>activeRecipeOf(id);
+    S.recipes.forEach(r=>{ const z=(r.lines||[]).filter(l=>!(+l.qty>0)).length; if(z) bad.push({c:[r.name, `${z} خامة كميتها صفر`]}); });
+    const seenCyc=new Set(); S.recipes.filter(r=>r.outQty>0).forEach(r=>{ const path=[]; const walk=(id,d)=>{ if(d>6) return false; const x=rec(id); if(!x) return false; if(path.includes(id)) return true; path.push(id); const hit=mainLines(x).some(l=>walk(l.itemId,d+1)); path.pop(); return hit; };
+      if(walk(r.outItemId,0) && !seenCyc.has(r.outItemId)){ seenCyc.add(r.outItemId); bad.push({c:[r.name,'الوصفة بتدخل في نفسها من خلال منتج تاني']}); } });
+    if(bad.length) add({id:'rec2',lvl:'bad',title:`${bad.length} وصفة محتاجة تتصلح`,desc:'خامة كميتها صفر مش بتتخصم، والوصفة اللي بتلف على نفسها بتوقف التصنيع التلقائي.',rows:bad}); }
   // 9) تواريخ برا الشهر أو في المستقبل
   const P=S.period||''; const odd=S.moves.filter(m=>m.date && (m.date>D || (P && m.date.slice(0,7)!==P)));
   add({id:'dates',lvl:odd.length?'warn':'ok',title:odd.length?`${odd.length} حركة تاريخها برا ${periodLabel(P)} أو في المستقبل`:'كل الحركات تواريخها جوه الشهر',
@@ -10595,6 +10645,8 @@ function healthCheck(){
   // ترتيب الإصلاح: كل خطوة بتأثر على اللي بعدها
   const isBad=id=>{ const r=R.find(x=>x.id===id); return r && (r.lvl==='bad'||r.lvl==='warn'); };
   const steps=[]; if(isBad('save')) steps.push('الحفظ الأول — استنى أو دوس «احفظ تاني»');
+  if(isBad('dupb')) steps.push('الصرف المتسجل مرتين: من «المنصرف» ← اللوحة الحمرا ← «شيل المكرر»');
+  if(isBad('rec2')) steps.push('الوصفات اللي محتاجة تتصلح — قبل أي صرف جديد');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
   if(isBad('psync')) steps.push('قبل الصرف: «💲 حدّث الأسعار» عشان فواتير الفروع تطلع بالتكلفة الجديدة');
@@ -10689,7 +10741,7 @@ function boAuditText(A){
 function autoRunRepairPlan(fromDate){
   markAutoRuns();
   const bal=new Map(S.items.map(it=>[it.id, calc(it).book]));
-  const runs=(S.runs||[]).filter(r=>r.auto && (!fromDate || r.date>=fromDate));
+  const runs=(S.runs||[]).filter(r=>r.auto && !r.actual && (!fromDate || r.date>=fromDate));
   const byRun=new Map(); S.moves.forEach(m=>{ if(m.runId) (byRun.get(m.runId)||byRun.set(m.runId,[]).get(m.runId)).push(m); });
   const acts=[]; // {run, factor(0..1 = نسبة اللي هيتلغي), outId, outQty}
   const autoIds=new Set((S.runs||[]).filter(r=>r.auto).map(r=>r.id));
@@ -10894,7 +10946,24 @@ function addMoveAction(d){ return act('__add-move-inner', d); }
 const OWNER_ONLY_ACTS = new Set(['archive-delete','del-item','del-run','inv-del','inbox-dismiss','ko-cancel','pr-close','pr-unlink','pr-edit','pr-merge','pre-del',
   'count-reset','users-remove','remove-lock','reset','undo-close','close-month','ai-full-replace','bo-undo','drift-fix','drift-ok','drift-ok-all']);
 const isOwner = () => ROLE==='owner';
+// ===== حماية الزراير: نفس الأمر مايتنفذش مرتين وهو لسه شغال، والزرار بيبان إنه شغال =====
+const ACT_INFLIGHT=new Map(); let ACT_LAST_BTN=null, ACT_LAST_AT=0;
+document.addEventListener('click', e=>{ const b=e.target&&e.target.closest&&e.target.closest('button,[data-act]'); if(b){ ACT_LAST_BTN=b; ACT_LAST_AT=Date.now(); } }, true);
+function actBusyMark(key, on){
+  document.querySelectorAll('[data-act]').forEach(b=>{ const k=b.dataset.act+'|'+(b.dataset.id||''); if(k===key){ b.classList.toggle('is-busy', on); if(on) b.setAttribute('aria-busy','true'); else b.removeAttribute('aria-busy'); } });
+}
 async function act(a,d){
+  if(String(a).startsWith('__')) return _act(a,d);
+  const key=a+'|'+((d&&d.id)||'');
+  if(ACT_INFLIGHT.has(key)){ toast('لسه شغال على الأمر ده… استنى ثواني، ماتدوسش تاني',1); return; }
+  const btn=(ACT_LAST_BTN && Date.now()-ACT_LAST_AT<400)?ACT_LAST_BTN:null;
+  const t0=Date.now(); ACT_INFLIGHT.set(key,t0);
+  const mark=setTimeout(()=>{ if(btn&&btn.isConnected){ btn.classList.add('is-busy'); btn.setAttribute('aria-busy','true'); } actBusyMark(key,true); }, 250);
+  const keep=setInterval(()=>{ if(ACT_INFLIGHT.get(key)===t0) actBusyMark(key,true); }, 400); // الشاشة ممكن تترسم من جديد وهو شغال
+  try{ return await _act(a,d); }
+  finally{ clearTimeout(mark); clearInterval(keep); if(ACT_INFLIGHT.get(key)===t0) ACT_INFLIGHT.delete(key); if(btn) { btn.classList.remove('is-busy'); btn.removeAttribute('aria-busy'); } actBusyMark(key,false); }
+}
+async function _act(a,d){
   if(VIEWER && !viewerAllowed(a)){ toast(VIEWER_MSG,1); return; }
   if(!isOwner() && OWNER_ONLY_ACTS.has(a)){ toast('المسح والإلغاء لصاحب النظام بس',1); return; }
   if(a.startsWith('ko-')) return koAct(a,d);
@@ -10964,6 +11033,7 @@ async function act(a,d){
     if(ids.every(id=>mvSel.has(id))) ids.forEach(id=>mvSel.delete(id)); else ids.forEach(id=>mvSel.add(id));
     return render();
   }
+  if(a==='hc-go-out'){ ui.modal=null; ui.mvReason=''; ui.mvParty=''; goTab('out'); return; }
   if(a==='mv-bulk-del'){
     if(!isOwner()) return toast('مسح الحركات لصاحب النظام بس',1);
     const list=S.moves.filter(m=>mvSel.has(m.id)); if(!list.length) return toast('محددش أي حركة',1);
@@ -11430,7 +11500,7 @@ async function act(a,d){
     const g=await guardBulk('استبدال الصرف من الشيت'); if(!g) return;
 
     // 1) نمسح بس حركات الأيام الموجودة فعليًا في الشيت
-    S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)).forEach(m=>DELETED_MOVE_IDS.add(m.id));
+    const __oldBr=S.moves.filter(m=>m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)); __oldBr.forEach(m=>DELETED_MOVE_IDS.add(m.id));
     S.moves = S.moves.filter(m=>!(m.dir==='out' && m.reason==='صرف للفروع' && datesInSheet.has(m.date)));
 
     // 2) نسجّل من الشيت من الأول، كل يوم بتاريخه الحقيقي — مع احترام الوصفات، بس من غير ما نوقف التسجيل لو خامة رصيدها ناقص
@@ -11441,6 +11511,7 @@ async function act(a,d){
       if(res.shortages) res.shortages.forEach(s=>shortageReport.push(`${s.name}`));
       done++;
     }
+    releaseForMoves(__oldBr); // الإنتاج القديم اللي اتعمل للصرف الممسوح: اللي مااتصرفش تاني منه يتلغي
     await saveTx(); await logOp(g, `اتمسح ${toDelete.length} حركة واتسجل ${done} من الشيت`);
     ACTUAL_PARSED = null; INV_SEL && INV_SEL.clear && INV_SEL.clear();
     toast(`تم الاستبدال: اتمسح ${toDelete.length} حركة، واتسجّل ${done} حركة جديدة من الشيت${blocked.length?` — ${blocked.length} اتخطوا`:''}`);
@@ -11604,7 +11675,8 @@ async function act(a,d){
     const g=await guardBulk('بلاغ فرق '+r.branch+' — '+D); if(!g) return;
     for(const x of plan){
       if(x.diff<0){ let need=-x.diff; const mv=S.moves.filter(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.party===r.branch&&m.itemId===x.m.id&&m.date===D).reverse();
-        for(const m of mv){ if(need<=0.0001) break; if(m.qty<=need+0.0001){ need=n2(need-m.qty); DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(z=>z.id!==m.id); } else { m.qty=n2(m.qty-need); need=0; } } }
+        for(const m of mv){ if(need<=0.0001) break; if(m.qty<=need+0.0001){ need=r4(need-m.qty); DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(z=>z.id!==m.id); } else { m.qty=r4(m.qty-need); need=0; } }
+        prodRelease(x.m.id, D, r4(-x.diff-need)); }
       else { dispenseOut(x.m.id, x.diff, D, r.branch, 'صرف للفروع', true); }
     }
     await saveTx();
@@ -11694,13 +11766,9 @@ async function act(a,d){
     // 1) المنتجات: الزيادة إنتاج فعلي، النقص يقلّل إنتاج اليوم ده (ولو مفيش إنتاج يتقلل، الباقي تسوية)
     for(const r of prod){ const diff=n2(r.actual-pcBook(r.it, P)); if(Math.abs(diff)<0.005) continue;
       if(diff>0){ const bal=new Map(), ops=[], short=[]; planProduction(r.it.id, diff, bal, ops, short, 0, new Set([r.it.id])); const top=ops.pop(); if(ops.length) commitProduction(ops, D); if(top) commitManual(top, D, 'من الجرد'); made++; }
-      else { let need=-diff; const runs=[...new Set(S.moves.filter(m=>m.date===D&&m.itemId===r.it.id&&m.dir==='in'&&m.runId&&!isByMove(m)).map(m=>m.runId))].reverse();
-        for(const id of runs){ if(need<=0.001) break; const mv=S.moves.filter(m=>m.runId===id); const om=mv.find(m=>m.dir==='in'&&m.itemId===r.it.id); if(!om||!(om.qty>0)) continue;
-          const c=Math.min(need, om.qty), k=1-c/om.qty; const run=(S.runs||[]).find(x=>x.id===id);
-          if(k<=0.0001){ mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const ids=new Set(mv.map(m=>m.id)); S.moves=S.moves.filter(m=>!ids.has(m.id)); S.runs=(S.runs||[]).filter(x=>x.id!==id); }
-          else { mv.forEach(m=>{ m.qty=n2(m.qty*k); }); if(run){ run.outQty=n2((+run.outQty||0)*k); run.cost=n2((+run.cost||0)*k); run.batches=n2((+run.batches||0)*k); } }
-          need=n2(need-c); cut++; }
-        if(need>0.005) settle(r.it, -need); } }
+      else { const done=shrinkRuns(r.it.id, D, -diff); if(done>0) cut++; const need=r4(-diff-done);
+        if(need>0.005) settle(r.it, -need); }
+      prodConfirm(r.it.id, D); }
     // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
     for(const r of raw){ settle(r.it, n2(r.actual-pcBook(r.it, P)), true); }
     { S.cntLog=S.cntLog||{}; const ids=new Set([...(S.cntLog[D]||[]), ...L.rows.filter(r=>r.it&&!r.err).map(r=>r.it.id)]); S.cntLog[D]=[...ids];
@@ -11721,14 +11789,9 @@ async function act(a,d){
       if(x.diff>0){ const bal=new Map(), ops=[], short=[];
         planProduction(x.r.id, x.diff, bal, ops, short, 0, new Set([x.r.id]));
         const top=ops.pop(); if(ops.length) commitProduction(ops, D); if(top) commitManual(top, D, 'زيادة فعلية'); if(short.length) noteShortages(short); up++; }
-      else { let need=-x.diff;
-        const runs=[...new Set(S.moves.filter(m=>m.date===D&&m.itemId===x.r.id&&m.dir==='in'&&m.runId&&!isByMove(m)).map(m=>m.runId))].reverse();
-        for(const id of runs){ if(need<=0.001) break; const mv=S.moves.filter(m=>m.runId===id); const om=mv.find(m=>m.dir==='in'&&m.itemId===x.r.id); if(!om||!(om.qty>0)) continue;
-          const cut=Math.min(need, om.qty), k=1-cut/om.qty; const run=(S.runs||[]).find(r=>r.id===id);
-          if(k<=0.0001){ mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); const ids=new Set(mv.map(m=>m.id)); S.moves=S.moves.filter(m=>!ids.has(m.id)); S.runs=(S.runs||[]).filter(r=>r.id!==id); }
-          else { mv.forEach(m=>{ m.qty=n2(m.qty*k); }); if(run){ run.outQty=n2((+run.outQty||0)*k); run.cost=n2((+run.cost||0)*k); run.batches=n2((+run.batches||0)*k); } }
-          need=n2(need-cut); }
+      else { const need=r4(-x.diff-shrinkRuns(x.r.id, D, -x.diff));
         if(need>0.01) cant.push(`${x.r.it.name} (${fmt(need)})`); down++; } }
+    [...document.querySelectorAll('[data-pa]')].filter(i=>i.value!=='').forEach(i=>prodConfirm(i.dataset.pa, D));
     markAutoRuns(); await saveTx(); await logOp(g, ch.map(x=>`${x.r.it.name} ${x.diff>0?'+':''}${fmt(x.diff)}`).join('، ').slice(0,400));
     toast(`اتسجل ✓ — ${up} زيادة · ${down} نقص${cant.length?` · ما قدرتش أقلل: ${cant.join('، ')}`:''}`, cant.length?1:0);
     ui.modal=prodActualModal(D); render(); prodActualBind(); return; }
@@ -11803,14 +11866,15 @@ async function act(a,d){
     const g=await guardBulk('رجّع الزيادة للمطلوب — '+A.D); if(!g) return;
     let del=0, cut=0;
     rows.forEach(r=>{ let extra=n2(r.got-r.qty); const mv=A.moves.filter(m=>m.itemId===r.itemId && m.party===r.branch).slice().reverse();
-      for(const m of mv){ if(extra<=0.0001) break; if(m.qty<=extra+0.0001){ extra=n2(extra-m.qty); DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(x=>x.id!==m.id); del++; } else { m.qty=n2(m.qty-extra); extra=0; cut++; } } });
+      const ex0=extra; for(const m of mv){ if(extra<=0.0001) break; if(m.qty<=extra+0.0001){ extra=r4(extra-m.qty); DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(x=>x.id!==m.id); del++; } else { m.qty=r4(m.qty-extra); extra=0; cut++; } }
+      prodRelease(r.itemId, A.D, r4(ex0-extra)); });
     await saveTx(); await logOp(g, `${rows.length} سطر: ${del} حركة اتمسحت و${cut} اتقللت`); toast(`اتظبط ✓ — ${del} حركة اتمسحت و${cut} اتقللت. افتح «تنظيف الإنتاج المكرر» دلوقتي`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='bo-audit-dedup'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='dup'); if(!rows.length) return;
     const del=[]; rows.forEach(r=>{ const mv=A.moves.filter(m=>m.itemId===r.itemId && m.party===r.branch); const per=r.qty; let kept=0;
       mv.forEach(m=>{ if(kept<per-0.001){ kept=n2(kept+m.qty); } else del.push(m.id); }); });
     if(!del.length) return; if(!confirm(`هيتمسح ${del.length} حركة صرف مكررة. تكمل؟`)) return;
     const g=await guardBulk('مسح صرف مكرر — '+A.D); if(!g) return;
-    const ids=new Set(del); ids.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(m=>!ids.has(m.id));
+    const ids=new Set(del); ids.forEach(id=>DELETED_MOVE_IDS.add(id)); const gone=S.moves.filter(m=>ids.has(m.id)); S.moves=S.moves.filter(m=>!ids.has(m.id)); releaseForMoves(gone);
     await saveTx(); await logOp(g, `${del.length} حركة صرف مكررة اتمسحت`); toast(`اتمسح ${del.length} صرف مكرر ✓ — افتح «تنظيف الإنتاج المكرر» دلوقتي`); ui.modal=boAuditModal(A.D); render(); boAuditBind(); return; }
   if(a==='bo-audit-fill'){ const A=boAudit(($('#aud-date')||{}).value); const rows=A.rows.filter(r=>r.st==='done-no-move'&&!r.unknown&&r.qty>0);
     if(!rows.length) return toast('مفيش سطور ينفع تتسجل تلقائي (أصناف الوزن سجّلها من شاشة الوزن)',1);
@@ -11837,7 +11901,7 @@ async function act(a,d){
     if(!confirm(`هيتلغي الإنتاج الزايد في ${P.acts.length} تشغيلة والخامات ترجع. تكمل؟`)) return;
     const g=await guardBulk('تنظيف الإنتاج المكرر'); if(!g) return;
     P.acts.forEach(a=>{ if(a.factor>=0.9999){ a.mv.forEach(m=>DELETED_MOVE_IDS.add(m.id)); S.moves=S.moves.filter(m=>m.runId!==a.run.id); S.runs=S.runs.filter(r=>r.id!==a.run.id); }
-      else { const k=1-a.factor; a.mv.forEach(m=>{ m.qty=n2(m.qty*k); }); a.run.batches=n2((+a.run.batches||0)*k); a.run.outQty=n2((+a.run.outQty||0)*k); a.run.cost=n2((+a.run.cost||0)*k); } });
+      else { const k=1-a.factor; a.mv.forEach(m=>{ m.qty=r4(m.qty*k); }); a.run.batches=r4((+a.run.batches||0)*k); a.run.outQty=r4((+a.run.outQty||0)*k); a.run.cost=n2((+a.run.cost||0)*k); } });
     await saveTx(); await saveMain(); await logOp(g, `${P.acts.length} تشغيلة اتلغت أو اتقللت`); ui.modal=null; toast(`اتنظف ✓ — ${P.acts.length} تشغيلة`); return render(); }
   if(a==='bo-audit-copy'){ const t=boAuditText(window.__boAudit||boAudit()); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
   if(a==='bo-sync-prices'){ const b=await boBackfillPrices(); const n=await boSyncCatalogPrices(null,true); toast(`${b?`اتكتب السعر لـ${b} سطر في طلبيات الفروع · `:''}${n?`اتحدث سعر ${n} صنف في الكتالوج`:'الكتالوج مطابق'} ✓`); return; }
@@ -12695,17 +12759,22 @@ window.addEventListener('beforeunload', e => {
 });
 </script>
 <script>
-window.__canAutoReload=()=>{ try{ const ae=document.activeElement; return !(PENDING_SYNCS>0||DB.busy||(DB.on&&DB.dirty)) && !ui.modal && !(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)); }catch(e){ return false; } };
+window.__canAutoReload=()=>{ try{ const ae=document.activeElement; return !(PENDING_SYNCS>0||DB.busy||(DB.on&&DB.dirty)||SUBMITTING>0||ACT_INFLIGHT.size>0||PUSH_AGAIN||DELETED_MOVE_IDS.size) && (!ui.modal || !document.querySelector('.modal input:not([type=checkbox]):not([type=radio]),.modal textarea,.modal select')) && !(ae&&/INPUT|TEXTAREA|SELECT/.test(ae.tagName)); }catch(e){ return false; } };
 /* فحص التحديثات: كل 3 دقايق ولما التطبيق يرجع للشاشة، بيشوف لو فيه نسخة أحدث على السيرفر ويطلّع شريط «حدّث دلوقتي» */
 (function(){
   const CUR = window.__BUILD__;
   const RX = /(?:__BUILD__|APP_BUILD)\s*=\s*['"]([^'"]+)['"]/;
-  let shown=false, busy=false;
+  let shown=false, busy=false, pending=null;
+  // أول ما البرنامج يفضى (مفيش حفظ شغال ولا نافذة مفتوحة ولا حد بيكتب) بيحدّث لوحده — زي تطبيق الفروع
+  function tryApply(){ if(!pending) return false; let tried=''; try{ tried=sessionStorage.getItem('upd-tried')||''; }catch(e){}
+    if(tried===pending) return false; if(!(window.__canAutoReload && window.__canAutoReload())) return false;
+    try{ sessionStorage.setItem('upd-tried',pending); }catch(e){} go(pending); return true; }
+  setInterval(()=>{ if(pending) tryApply(); }, 10000);
   async function check(){
     if(busy||shown||!CUR) return; busy=true;
     try{
       const r = await fetch(location.pathname + '?_v=' + Date.now(), {cache:'no-store'});
-      if(r.ok){ const m = (await r.text()).match(RX); if(m && m[1] && m[1]!==CUR){ let tried=''; try{ tried=sessionStorage.getItem('upd-tried')||''; }catch(e){} if(tried!==m[1] && window.__canAutoReload && window.__canAutoReload()){ try{ sessionStorage.setItem('upd-tried',m[1]); }catch(e){} return go(m[1]); } show(m[1]); } }
+      if(r.ok){ const m = (await r.text()).match(RX); if(m && m[1] && m[1]!==CUR){ pending=m[1]; if(tryApply()) return; show(m[1]); } }
     }catch(e){} busy=false;
   }
   function show(v){
@@ -12723,7 +12792,8 @@ window.__canAutoReload=()=>{ try{ const ae=document.activeElement; return !(PEND
       location.replace(location.pathname + '?v=' + encodeURIComponent(v) + location.search.replace(/^\?/,'&').replace(/&v=[^&]*/,'') + location.hash);
     }
   }
-  setTimeout(check, 1500); setInterval(check, 3*60*1000);
-  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') check(); });
+  setTimeout(check, 1500); setInterval(check, 2*60*1000);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') check(); else if(pending) tryApply(); });
+  window.addEventListener('focus', ()=>check()); window.addEventListener('online', ()=>check());
 })();
 </script>
