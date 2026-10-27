@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-10 · 16:00'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-10 · 17:30'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8621,7 +8621,7 @@ function bind(){
     const id=e.target.dataset.mvdate, nd=e.target.value;
     if(!nd) return;
     const m=S.moves.find(x=>x.id===id); if(!m) return;
-    m.date=nd; await saveTx(); toast('تم تعديل تاريخ الحركة'); render();
+    const pm=moveDatesWithProduction([m], nd); await saveTx(); toast('تم تعديل تاريخ الحركة'+(pm?' — والإنتاج بتاعها اتنقل معاها':'')); render();
   });
   root.querySelectorAll('[data-mvsel]').forEach(cb=>cb.onchange=e=>{
     const id=e.target.dataset.mvsel;
@@ -10346,13 +10346,35 @@ function pcBind(){
   document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; ui.modal=pcModal(); render(); pcBind(); });
 }
 /* ================= 📝 الإنتاج الفعلي — آخر اليوم تكتب المصنع عمل كام، والبرنامج يسجّل الفرق ================= */
+// ===== إنتاج تلقائي مالوش صرف: البرنامج بيصنّع وقت الصرف بقد الناقص بس، فلو الإنتاج التلقائي في يوم أكبر من كل اللي خرج من المنتج نفس اليوم
+// (صرف لأي جهة + دخل في منتجات تانية) يبقى الزيادة دي جاية من صرف اتمسح أو اتقلل قبل النسخة دي — ومالهاش أي لازمة =====
+function autoDayStats(P, D){ let auto=0, out=0; S.moves.forEach(m=>{ if(m.itemId!==P || m.date!==D) return;
+    if(m.dir==='in' && m.runId && !isByMove(m)){ const run=(S.runs||[]).find(r=>r.id===m.runId); if((isAutoRunIn(m)||(run&&run.auto)) && !(run&&run.actual)) auto+= +m.qty||0; }
+    else if(m.dir==='out') out+= +m.qty||0; }); return {auto:r4(auto), out:r4(out), excess:r4(Math.max(0, auto-out))}; }
+function orphanAutoApply(dates){ const cut=new Map(); const ds=new Set(dates);
+  for(let pass=0; pass<6; pass++){ let ch=false; const keys=new Set();
+    S.moves.forEach(m=>{ if(m.dir==='in' && m.runId && !isByMove(m) && ds.has(m.date) && isAutoRunIn(m)) keys.add(m.itemId+'|'+m.date); });
+    keys.forEach(k=>{ const [P,D]=k.split('|'); const st=autoDayStats(P,D); if(st.excess>0.0005){ const c=shrinkRuns(P,D,st.excess,{autoOnly:true,cascade:false}); if(c>0){ cut.set(k, r4((cut.get(k)||0)+c)); ch=true; } } });
+    if(!ch) break; }
+  return cut; }
+function orphanAutoPlan(dates){ const keep={m:S.moves, r:S.runs, d:new Set(DELETED_MOVE_IDS)};
+  S.moves=JSON.parse(JSON.stringify(S.moves)); S.runs=JSON.parse(JSON.stringify(S.runs||[]));
+  let cut; try{ cut=orphanAutoApply(dates); } finally{ S.moves=keep.m; S.runs=keep.r; DELETED_MOVE_IDS.clear(); keep.d.forEach(x=>DELETED_MOVE_IDS.add(x)); }
+  return [...cut].map(([k,q])=>{ const [P,D]=k.split('|'); const it=item(P); return {P, D, q, name:it?it.name:'?', unit:it?it.unit||'':''}; }).sort((a,b)=>a.D.localeCompare(b.D)||a.name.localeCompare(b.name,'ar')); }
+function orphanDates(days){ const x=new Date(); x.setDate(x.getDate()-(days||31)); const from=ymdLocal(x); return [...new Set(S.moves.filter(m=>m.runId && m.date>=from).map(m=>m.date))]; }
+// تاريخ صرف منتج ليه وصفة اتغير: الإنتاج التلقائي بتاعه يتنقل معاه (يتلغي من اليوم القديم ويتعمل في الجديد)
+function moveDatesWithProduction(list, nd){ const old=new Set(); const moved=[];
+  list.forEach(m=>{ if(m.date===nd) return; if(m.dir==='out' && !m.runId && activeRecipeOf(m.itemId)){ old.add(m.date); moved.push(m); } m.date=nd; });
+  if(!moved.length) return 0; orphanAutoApply([...old]); moved.forEach(m=>prodExtend(m.itemId, nd, +m.qty||0)); markAutoRuns(); return moved.length; }
 function prodActualRows(D){
   const pids=new Set();
   S.moves.forEach(m=>{ if(m.date!==D) return; if((m.dir==='in'&&m.runId&&!isByMove(m))||(m.dir==='out'&&m.reason==='صرف للفروع')) pids.add(m.itemId); });
   return [...pids].map(id=>{ const it=item(id); const rec=S.recipes.find(r=>r.outItemId===id && r.outQty>0); if(!it||!rec) return null;
     const made=n2(S.moves.filter(m=>m.date===D&&m.itemId===id&&m.dir==='in'&&m.runId&&!isByMove(m)).reduce((t,m)=>t+(+m.qty||0),0));
     const sent=n2(S.moves.filter(m=>m.date===D&&m.itemId===id&&m.dir==='out'&&m.reason==='صرف للفروع').reduce((t,m)=>t+(+m.qty||0),0));
-    return {id, it, rec, made, sent, bal:calc(it).book}; }).filter(Boolean).sort((a,b)=>a.it.name.localeCompare(b.it.name,'ar'));
+    const other=n2(S.moves.filter(m=>m.date===D&&m.itemId===id&&m.dir==='out'&&!m.runId&&m.reason!=='صرف للفروع').reduce((t,m)=>t+(+m.qty||0),0));
+    const used=n2(S.moves.filter(m=>m.date===D&&m.itemId===id&&m.dir==='out'&&m.runId).reduce((t,m)=>t+(+m.qty||0),0));
+    return {id, it, rec, made, sent, other, used, orphan:autoDayStats(id,D).excess, bal:calc(it).book}; }).filter(Boolean).sort((a,b)=>a.it.name.localeCompare(b.it.name,'ar'));
 }
 function prodActualModal(D){
   D=D||today(); const R=prodActualRows(D); ui.paDate=D;
@@ -10362,9 +10384,14 @@ function prodActualModal(D){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><span class="hint">اليوم:</span><input type="date" id="pa-date" value="${esc(D)}"></div>
       <div class="hint" style="line-height:1.9;margin-bottom:10px">وقت الصرف البرنامج بيسجّل إنتاج <b>بقد اللي اتصرف بس</b>. آخر اليوم اكتب المصنع <b>عمل كام فعلًا</b> من كل منتج —
         لو عمل أكتر، الزيادة هتتسجل إنتاج وخاماتها تتخصم، والمنتج يفضل ليه رصيد يتصرف منه بكرة. لو عمل أقل، الإنتاج يتقلل وخاماته ترجع. سيب الخانة فاضية لو الرقم مظبوط.</div>
-      ${R.length?`<table class="gridcols"><thead><tr><th>المنتج</th><th class="n">اتصرف للفروع</th><th class="n">متسجل إنتاج</th><th class="n">اتعمل فعلًا</th><th class="n">الفرق</th><th class="n">الرصيد بعد</th></tr></thead><tbody>
+      ${(()=>{ const O=orphanAutoPlan([D]); if(!O.length) return ''; return `<div style="background:#FDECEC;border:1px solid #F0CACA;border-radius:10px;padding:10px 12px;margin-bottom:10px">
+        <b>⚠ في إنتاج تلقائي متسجل يوم ${esc(D)} ومالوش صرف (${O.length} منتج)</b>
+        <div class="hint" style="margin:4px 0 8px">البرنامج بيصنّع وقت الصرف بس. الإنتاج ده اتعمل لصرف اتمسح أو اتقلل بعد كده (زي الصرف الغلط لمصنع الكنافة)، فخاماته اتخصمت على الفاضي:
+        ${O.slice(0,12).map(x=>`${esc(x.name)} ${fmt(x.q)}`).join('، ')}${O.length>12?' …':''}</div>
+        <button class="btn sm p" data-act="orphan-prod-fix" data-d="${esc(D)}">🧹 الغي الإنتاج ده ورجّع خاماته</button></div>`; })()}
+      ${R.length?`<table class="gridcols"><thead><tr><th>المنتج</th><th class="n">اتصرف</th><th class="n">متسجل إنتاج</th><th class="n">اتعمل فعلًا</th><th class="n">الفرق</th><th class="n">الرصيد بعد</th></tr></thead><tbody>
         ${R.map(r=>`<tr><td><b>${esc(r.it.name)}</b><div class="hint">${esc(r.rec.name)}</div></td>
-          <td class="n">${fmt(r.sent)} ${esc(r.it.unit||'')}</td><td class="n">${fmt(r.made)}</td>
+          <td class="n">${fmt(n2(r.sent+r.other))} ${esc(r.it.unit||'')}${r.other?`<div class="hint">منهم ${fmt(r.other)} مش للفروع</div>`:''}${r.used?`<div class="hint">+ ${fmt(r.used)} دخل في منتجات تانية</div>`:''}</td><td class="n">${fmt(r.made)}${r.orphan>0.005?`<div class="hint" style="color:var(--red)">⚠ ${fmt(r.orphan)} مالوش صرف</div>`:''}</td>
           <td class="n"><input type="number" step="0.01" min="0" data-pa="${esc(r.id)}" data-made="${r.made}" data-bal="${r.bal}" placeholder="${fmt(r.made)}" style="width:96px;text-align:center"></td>
           <td class="n" data-pa-diff="${esc(r.id)}">—</td><td class="n" data-pa-bal="${esc(r.id)}">${fmt(r.bal)}</td></tr>`).join('')}
       </tbody></table>`:`<div class="empty">مفيش منتجات ليها وصفة اتصرفت أو اتصنّعت يوم ${esc(D)}</div>`}
@@ -10587,6 +10614,11 @@ function healthCheck(){
     add({id:'surplus',lvl:RP.acts.length?'bad':'ok',title:RP.acts.length?`${byP.size} منتج اتصنّع زيادة عن اللي اتصرف`:'مفيش إنتاج تلقائي زايد',
       desc:RP.acts.length?'الإنتاج التلقائي بيصنّع الناقص وقت الصرف بس — فرصيد فاضل منه معناه إنه اتسجل مرتين، أو صرف اتمسح بعده. الإنتاج الحقيقي الزيادة (المسجل بزرار «تشغيل») والرصيد اللي في الجرد الفعلي مش محسوبين هنا ومش بيتلمسوا. لو المصنع فعلًا عمل الكمية دي زيادة، ما تنظفش — سجّل الجرد الفعلي للمنتج الأول.':'',
       rows:[...byP.values()].map(e=>({c:[e.n, '+'+fmt(e.q)+' '+e.u]})), act:RP.acts.length?['auto-repair-open','🧹 افتح التنظيف']:null}); }
+  // 5ج) إنتاج تلقائي مالوش صرف في نفس اليوم (من صرف اتمسح)
+  { const O=orphanAutoPlan(orphanDates(31)); const byP=new Map(); O.forEach(x=>{ const e=byP.get(x.P)||{n:x.name,u:x.unit,q:0,d:new Set()}; e.q=r4(e.q+x.q); e.d.add(x.D); byP.set(x.P,e); });
+    add({id:'orph',lvl:O.length?'bad':'ok',title:O.length?`${byP.size} منتج ليه إنتاج تلقائي مالوش صرف`:'كل الإنتاج التلقائي ليه صرف',
+      desc:O.length?'الصرف اللي اتعمل الإنتاج عشانه اتمسح أو اتقلل، فالخامات اتخصمت على الفاضي. الإلغاء بيرجّع الخامات ومش بيلمس الإنتاج اليدوي أو المتأكد.':'',
+      rows:[...byP.values()].map(e=>({c:[e.n, fmt(e.q)+' '+e.u, [...e.d].sort().join('، ')]})), act:O.length?['orphan-prod-fix','🧹 الغي الإنتاج اللي مالوش صرف']:null}); }
   // 6) صرف الفروع النهارده مقارنة بالطلبيات
   if(BO.orders && BO.orders.length && BO.from===D && BO.to===D){
     const A=boAudit(D); const c=st=>A.rows.filter(r=>r.st===st).length;
@@ -10648,6 +10680,7 @@ function healthCheck(){
   if(isBad('dupb')) steps.push('الصرف المتسجل مرتين: من «المنصرف» ← اللوحة الحمرا ← «شيل المكرر»');
   if(isBad('rec2')) steps.push('الوصفات اللي محتاجة تتصلح — قبل أي صرف جديد');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
+  if(isBad('orph')) steps.push('الإنتاج اللي مالوش صرف: «🧹 الغي الإنتاج اللي مالوش صرف»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
   if(isBad('psync')) steps.push('قبل الصرف: «💲 حدّث الأسعار» عشان فواتير الفروع تطلع بالتكلفة الجديدة');
   if(isBad('stale')) steps.push('الوصفات اللي اتعدلت: «🔁 طبّق» لو التعديل هو اللي كان بيتعمل فعلًا');
@@ -11054,7 +11087,7 @@ async function _act(a,d){
     if(!nd) return toast('اختار التاريخ الأول',1);
     if(!mvSel.size) return toast('محددش أي حركة',1);
     let n=0;
-    S.moves.forEach(m=>{ if(mvSel.has(m.id)){ m.date=nd; n++; } });
+    const sel=S.moves.filter(m=>mvSel.has(m.id)); n=sel.length; moveDatesWithProduction(sel, nd);
     mvSel.clear();
     await saveTx();
     toast(`تم تغيير تاريخ ${n} حركة إلى ${nd}`);
@@ -11777,6 +11810,15 @@ async function _act(a,d){
     await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
     toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
     const back=P.fromCnt; ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=back?cntModal():null; render(); if(back) cntBind(); return; }
+  if(a==='orphan-prod-fix'){
+    const dates=d.d?[d.d]:orphanDates(31); const O=orphanAutoPlan(dates); if(!O.length) return toast('مفيش إنتاج من غير صرف');
+    if(!confirm(`هيتلغي إنتاج تلقائي مالوش صرف:\n\n${O.slice(0,25).map(x=>`• ${x.D} — ${x.name}: ${fmt(x.q)} ${x.unit}`).join('\n')}${O.length>25?`\n… و${O.length-25} كمان`:''}\n\nالخامات هترجع للمخزن. الإنتاج اليدوي واللي اتأكد في «الإنتاج الفعلي» مش هيتلمس. هناخد نسخة احتياطية الأول. تكمل؟`)) return;
+    const g=await guardBulk('إلغاء إنتاج مالوش صرف'); if(!g) return;
+    const cut=orphanAutoApply(dates); markAutoRuns(); await saveTx(); await logOp(g, `${cut.size} منتج/يوم: `+[...cut].map(([k,q])=>{ const [P,D]=k.split('|'); return (item(P)||{}).name+' '+D+' '+fmt(q); }).join('، ').slice(0,400));
+    toast(`اتلغى إنتاج ${cut.size} منتج مالوش صرف والخامات رجعت ✓`);
+    if(ui.modal && /الإنتاج الفعلي/.test(ui.modal)){ ui.modal=prodActualModal(ui.paDate||today()); render(); prodActualBind(); return; }
+    if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{});
+    return render(); }
   if(a==='pa-open'){ ui.modal=prodActualModal(ui.paDate||today()); render(); prodActualBind(); return; }
   if(a==='pa-save'){
     const D=ui.paDate||today(); const rows=prodActualRows(D); const byId=new Map(rows.map(r=>[r.id,r]));
