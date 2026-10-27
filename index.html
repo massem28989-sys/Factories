@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-10 · 19:00'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-10 · 20:00'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4713,9 +4713,22 @@ function boHistOf(itemId, days){ const T=today(); const d=new Date(T+'T12:00:00'
 // صرف الطلبيات بيتسجل بتاريخ الطلبيات اللي فاتحها (مش بتاريخ الساعة) — عشان صرف طلبيات امبارح بعد نص الليل ما يتسجلش على النهارده
 function boDispDate(){ const T=today(); return (BO.from && BO.from===BO.to && BO.from<=T) ? BO.from : T; }
 // ===== صرف اتعمل بعد نص الليل واتسجل على اليوم الجديد =====
-function midnightPlan(){ const out=[]; const byD=new Map();
-  S.moves.forEach(m=>{ if(m.dir!=='out' || m.runId || m.reason!=='صرف للفروع') return; const t=mvTs(m); if(!t) return; const dt=new Date(t);
-    if(ymdLocal(dt)!==m.date || dt.getHours()>=5) return; (byD.get(m.date)||byD.set(m.date,[]).get(m.date)).push(m); });
+function midnightPlan(){ const out=[]; const byD=new Map(); const seen=new Set();
+  // (أ) من علامات «اتصرف» في طلبيات الفروع: الصنف اللي اتعلّم إنه اتصرف لطلبيات يوم معيّن — حركاته اللي اتعملت في نفس اللحظة لازم تبقى بتاريخ اليوم ده
+  const marks=[]; Object.entries(S.boDone||{}).forEach(([k,v])=>{ const D=k.split('~')[0]; if(!v || !v.itemId || !v.at || k.split('~')[1]!==D) return; const t=Date.parse(v.at); if(isFinite(t)) marks.push({D, id:v.itemId, t}); });
+  if(marks.length){ const byItem=new Map(); marks.forEach(x=>{ (byItem.get(x.id)||byItem.set(x.id,[]).get(x.id)).push(x); });
+    S.moves.forEach(m=>{ if(m.dir!=='out' || m.runId || m.reason!=='صرف للفروع') return; const L=byItem.get(m.itemId); if(!L) return; const t=mvTs(m); if(!t) return;
+      const x=L.find(z=>Math.abs(z.t-t)<5*60000); if(!x || x.D===m.date) return; if(S.period && x.D.slice(0,7)!==S.period) return;
+      const k=m.date+'>'+x.D; (byD.get(k)||byD.set(k,[]).get(k)).push(m); seen.add(m.id); }); }
+  // (ب) صرف اتعمل بين 12 و5 الفجر واتسجل على اليوم الجديد (لو مفيش علامة طلبيات)
+  S.moves.forEach(m=>{ if(seen.has(m.id) || m.dir!=='out' || m.runId || m.reason!=='صرف للفروع') return; const t=mvTs(m); if(!t) return; const dt=new Date(t);
+    if(ymdLocal(dt)!==m.date || dt.getHours()>=5) return; const x=new Date(m.date+'T12:00:00'); x.setDate(x.getDate()-1); const k=m.date+'>'+ymdLocal(x); (byD.get(k)||byD.set(k,[]).get(k)).push(m); });
+  byD.forEach((ms,k)=>{ const [D,prev]=k.split('>'); if(ms.length<(ms.some(m=>seen.has(m.id))?1:5)) return;
+    if(S.period && prev.slice(0,7)!==S.period) return;
+    const prevN=S.moves.filter(m=>m.date===prev && m.dir==='out' && m.reason==='صرف للفروع' && !m.runId).length;
+    out.push({D, prev, moves:ms, prevN, branches:new Set(ms.map(m=>m.party)).size}); });
+  return out; }
+function __oldMidnight(){ const out=[]; const byD=new Map();
   byD.forEach((ms,D)=>{ if(ms.length<5) return; const x=new Date(D+'T12:00:00'); x.setDate(x.getDate()-1); const prev=ymdLocal(x);
     if(S.period && prev.slice(0,7)!==S.period) return;
     const prevN=S.moves.filter(m=>m.date===prev && m.dir==='out' && m.reason==='صرف للفروع' && !m.runId).length;
@@ -4759,7 +4772,7 @@ function boPreModal(){
   return `<div class="modal" data-close="1"><div class="box" style="max-width:920px">
     <h3>🛡 فحص قبل الصرف</h3>
     <div class="pad" style="max-height:72vh;overflow:auto">
-      ${(()=>{ const MP=midnightPlan().filter(x=>x.D===boDispDate()); if(!MP.length) return ''; const x=MP[0]; return `<div style="background:#FDECEC;border:1px solid #F0CACA;border-radius:10px;padding:10px 12px;margin-bottom:10px"><b>⚠ ${x.moves.length} حركة صرف متسجلة يوم ${esc(x.D)} بس اتعملت بعد نص الليل</b><div class="hint" style="margin:4px 0 8px">غالبًا دي طلبيات يوم ${esc(x.prev)}. عشان كده الأصناف تحت ظاهرة «اتصرف قبل كده». انقلها ليومها الأول، وبعدين افتح الفحص تاني.</div><button class="btn sm p" data-act="midnight-fix">📅 انقلهم ليوم ${esc(x.prev)}</button></div>`; })()}
+      ${(()=>{ const MP=midnightPlan().filter(x=>x.D===boDispDate()); if(!MP.length) return ''; const x=MP[0]; return `<div style="background:#FDECEC;border:1px solid #F0CACA;border-radius:10px;padding:10px 12px;margin-bottom:10px"><b>⚠ ${x.moves.length} حركة صرف متسجلة يوم ${esc(x.D)} وهي من طلبيات يوم ${esc(x.prev)}</b><div class="hint" style="margin:4px 0 8px">اتصرفت متأخر فاتسجلت بتاريخ الساعة. عشان كده الأصناف تحت ظاهرة «اتصرف قبل كده». انقلها ليومها الأول، وبعدين افتح الفحص تاني.</div><button class="btn sm p" data-act="midnight-fix">📅 انقلهم ليوم ${esc(x.prev)}</button></div>`; })()}
       <div class="cards" style="margin-bottom:10px"><div class="card"><div class="k">أصناف</div><div class="v">${P.rows.length}</div><div class="s">على ${br} فرع</div></div>
         <div class="card"><div class="k">سليمة</div><div class="v" style="color:var(--green)">${ok}</div></div>
         <div class="card"><div class="k">كمية محتاجة نظرة</div><div class="v" style="color:#B36B00">${bad.length}</div></div>
@@ -5487,7 +5500,7 @@ function viewMove(dir){
         ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${ui.mvEdit
                 ? `<input type="text" list="dl-mv-sup" value="${esc(m.party||'')}" data-mvparty="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:120px">`
                 : esc(m.party||'—')}</td>`
-              :`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:(m.price>0?money(m.price):'<span class="hint">—</span>')}</td>
+              :`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:(m.price>0?money(m.price):(!m.runId && +(item(m.itemId)||{}).price>0?`<span class="hint" title="سعر التكلفة الحالي في الكارت — الحركة دي اتسجلت قبل ما سعر الصرف يتثبت عليها">${money(+item(m.itemId).price)}</span>`:'<span class="hint">—</span>'))}</td>
                 <td>${ui.mvEdit?`<select data-mvreason="${m.id}" style="padding:4px 6px;font-size:12px;min-width:130px">
                     ${[...new Set([...outReasons(), m.reason].filter(Boolean))].map(r=>`<option value="${esc(r)}" ${m.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}
                   </select>`:`<span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span>`}${
@@ -8913,7 +8926,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
     if(make>0.0001) planProduction(itemId, make, bal, ops, short, 0, new Set([itemId]));
     if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
     commitProduction(ops, date);
-    const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
+    const m={id:uid('m'),dir:'out',itemId,qty,date,price:n2(+(item(itemId)||{}).price||0),party,reason};
     if(short.length){ m.forced=true; noteShortages(short); }
     S.moves.push(m);
     return {move:m, auto:true, nested:ops.some(o=>o.nested), shortages: short.length?short:undefined};
@@ -8923,7 +8936,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
   if(qty > bal+1e-9){
     if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`, shortages:[{name:it?it.name:'غير معروف', need:qty, bal}]};
   }
-  const m={id:uid('m'),dir:'out',itemId,qty,date,price:0,party,reason};
+  const m={id:uid('m'),dir:'out',itemId,qty,date,price:n2(+(it||{}).price||0),party,reason};
   if(qty>bal+1e-9){ m.forced=true; noteShortages([{name:it?it.name:'غير معروف', need:qty, bal:Math.max(0,bal)}]); }
   S.moves.push(m);
   return {move:m, auto:false, shortages: (qty>bal && force)?[{name:it?it.name:'غير معروف', need:qty, bal}]:undefined};
@@ -10635,9 +10648,9 @@ function healthCheck(){
       rows:[...byP.values()].map(e=>({c:[e.n, '+'+fmt(e.q)+' '+e.u]})), act:RP.acts.length?['auto-repair-open','🧹 افتح التنظيف']:null}); }
   // 5ب2) صرف طلبيات امبارح اتعمل بعد نص الليل
   { const MP=midnightPlan(); const n=MP.reduce((t,x)=>t+x.moves.length,0);
-    if(n) add({id:'midn',lvl:'bad',title:`${n} حركة صرف اتعملت بعد نص الليل واتسجلت على اليوم الجديد`,
-      desc:'غالبًا دي طلبيات اليوم اللي قبله اتصرفت متأخر. طول ما هي على اليوم الجديد، الفحص قبل الصرف هيفتكر إن طلبيات النهارده اتصرفت. النقل بياخد الإنتاج بتاعها معاه.',
-      rows:MP.map(x=>({c:[`${x.D} ← ${x.prev}`, `${x.moves.length} حركة · ${x.branches} فرع`, x.prevN?`⚠ يوم ${x.prev} فيه ${x.prevN} صرف تاني`:`يوم ${x.prev} مفيهوش صرف`]})), act:['midnight-fix','📅 انقلهم لليوم اللي قبله']}); }
+    if(n) add({id:'midn',lvl:'bad',title:`${n} حركة صرف متسجلة بتاريخ غير يوم طلبيتها`,
+      desc:'طلبيات يوم اتصرفت في يوم تاني (بعد نص الليل مثلًا) فاتسجلت بتاريخ الساعة. طول ما هي على اليوم الجديد، الفحص قبل الصرف هيفتكر إن طلبيات النهارده اتصرفت. النقل بياخد الإنتاج بتاعها معاه.',
+      rows:MP.map(x=>({c:[`${x.D} ← ${x.prev}`, `${x.moves.length} حركة · ${x.branches} فرع`, x.prevN?`⚠ يوم ${x.prev} فيه ${x.prevN} صرف تاني`:`يوم ${x.prev} مفيهوش صرف`]})), act:['midnight-fix','📅 انقلهم ليوم طلبيتهم']}); }
   // 5ج) إنتاج تلقائي مالوش صرف في نفس اليوم (من صرف اتمسح)
   { const O=orphanAutoPlan(orphanDates(31)); const byP=new Map(); O.forEach(x=>{ const e=byP.get(x.P)||{n:x.name,u:x.unit,q:0,d:new Set()}; e.q=r4(e.q+x.q); e.d.add(x.D); byP.set(x.P,e); });
     add({id:'orph',lvl:O.length?'bad':'ok',title:O.length?`${byP.size} منتج ليه إنتاج تلقائي مالوش صرف`:'كل الإنتاج التلقائي ليه صرف',
@@ -10704,7 +10717,7 @@ function healthCheck(){
   if(isBad('dupb')) steps.push('الصرف المتسجل مرتين: من «المنصرف» ← اللوحة الحمرا ← «شيل المكرر»');
   if(isBad('rec2')) steps.push('الوصفات اللي محتاجة تتصلح — قبل أي صرف جديد');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
-  if(isBad('midn')) steps.push('الأول: صرف بعد نص الليل ← «📅 انقلهم لليوم اللي قبله»');
+  if(isBad('midn')) steps.push('الأول: صرف متسجل بتاريخ غلط ← «📅 انقلهم ليوم طلبيتهم»');
   if(isBad('orph')) steps.push('الإنتاج اللي مالوش صرف: «🧹 الغي الإنتاج اللي مالوش صرف»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
   if(isBad('psync')) steps.push('قبل الصرف: «💲 حدّث الأسعار» عشان فواتير الفروع تطلع بالتكلفة الجديدة');
@@ -11837,7 +11850,7 @@ async function _act(a,d){
     const back=P.fromCnt; ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=back?cntModal():null; render(); if(back) cntBind(); return; }
   if(a==='midnight-fix'){
     const MP=midnightPlan(); if(!MP.length) return toast('مفيش صرف بعد نص الليل');
-    if(!confirm(MP.map(x=>`• ${x.moves.length} حركة صرف (${x.branches} فرع) اتعملت بعد نص الليل يوم ${x.D} ← هتتنقل ليوم ${x.prev}${x.prevN?` (⚠ اليوم ده فيه ${x.prevN} صرف تاني — اتأكد إنه مش تكرار)`:''}`).join('\n')+'\n\nالإنتاج التلقائي بتاعها هيتنقل معاها، وفواتير الفروع مش هتتغير. هناخد نسخة احتياطية الأول. تكمل؟')) return;
+    if(!confirm(MP.map(x=>`• ${x.moves.length} حركة صرف (${x.branches} فرع) متسجلة يوم ${x.D} وهي من طلبيات يوم ${x.prev} ← هتتنقل ليوم ${x.prev}`).join('\n')+'\n\nالإنتاج التلقائي بتاعها هيتنقل معاها، وفواتير الفروع مش هتتغير. هناخد نسخة احتياطية الأول. تكمل؟')) return;
     const g=await guardBulk('نقل صرف بعد نص الليل'); if(!g) return;
     let n=0; MP.forEach(x=>{ n+=x.moves.length; moveDatesWithProduction(x.moves, x.prev); });
     await saveTx(); await logOp(g, MP.map(x=>`${x.moves.length} حركة ${x.D}→${x.prev}`).join('، '));
