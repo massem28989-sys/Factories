@@ -1224,7 +1224,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '26-10 · 19:30'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-10 · 13:30'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2173,6 +2173,75 @@ async function notifyFactory(toFactoryId, payload){
   }
   return null;
 }
+// إشعارات كتير مرة واحدة: كتابة واحدة + تأكيد واحد (بدل طلبين على السيرفر لكل صنف — ده اللي كان بيعلّق الصرف بالجملة)
+async function notifyFactoryMany(toFactoryId, payloads){
+  const ids=payloads.map(()=>uid('nt')); const at=new Date().toISOString();
+  for(let attempt=0; attempt<3; attempt++){
+    try{
+      const have=new Set((await fetchFactoryInboxStrict(toFactoryId)).map(n=>n.id));
+      const miss=ids.map((id,i)=>[id,payloads[i]]).filter(([id])=>!have.has(id));
+      if(miss.length) await updateFactoryInbox(toFactoryId, list=>{ const h=new Set(list.map(n=>n.id)); miss.slice().reverse().forEach(([id,p])=>{ if(!h.has(id)) list.unshift({id, ...p, status:'pending', createdAt:at}); }); });
+      const chk=new Set((await fetchFactoryInboxStrict(toFactoryId)).map(n=>n.id));
+      if(ids.every(id=>chk.has(id))) return ids;
+      if(attempt===2) return ids.map(id=>chk.has(id)?id:null);
+    }catch(e){}
+    await new Promise(r=>setTimeout(r, 800*(attempt+1)));
+  }
+  return ids.map(()=>null);
+}
+// إلغاء إشعارات كتير عند مصنع واحد في كتابة واحدة — بيرجّع اللي اتلغى واللي كان اتسلم خلاص
+async function retractMany(toFactoryId, notifIds){
+  const want=new Set(notifIds.filter(Boolean)); if(!want.size) return {retracted:0, received:[]};
+  try{
+    const {out}=await updateFactoryInbox(toFactoryId, list=>{ let r=0; const rec=[];
+      for(let i=list.length-1;i>=0;i--){ const n=list[i]; if(!want.has(n.id)) continue; if(n.status==='pending'){ list.splice(i,1); r++; } else rec.push(n); }
+      return {retracted:r, received:rec}; });
+    return out;
+  }catch(e){ return {retracted:0, received:[], err:e.message||String(e)}; }
+}
+// ===== صرف متكرر: لما البرنامج يعلّق والزرار يتداس كذا مرة، نفس الدفعة بتتسجل كذا مرة =====
+const mvTs=m=>{ const n=parseInt(String(m.id||'').slice(1,9),36); return isFinite(n)?n:0; };
+function dupBatchPlan(){
+  const groups=new Map();
+  S.moves.forEach(m=>{ if(m.dir!=='out' || m.runId || /الإنتاج/.test(m.reason||'')) return; const k=m.date+'|'+(m.reason||'')+'|'+(m.party||''); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(m); });
+  const out=[];
+  groups.forEach((ms,k)=>{ if(ms.length<6) return;
+    const cl=[]; let cur=null, last=0;
+    ms.forEach(m=>{ const ts=mvTs(m); if(!cur || cur.items.has(m.itemId) || Math.abs(ts-last)>1500){ cur={moves:[],items:new Set()}; cl.push(cur); } cur.moves.push(m); cur.items.add(m.itemId); last=ts; });
+    const big=cl.filter(c=>c.moves.length>=3); const kept=[];
+    big.forEach(c=>{ const sig=new Map(c.moves.map(m=>[m.itemId, n2(+m.qty)]));
+      const of=kept.find(o=>[...sig].every(([id,q])=>o.sig.get(id)===q));
+      if(of){ out.push({key:k, date:c.moves[0].date, reason:c.moves[0].reason||'', party:c.moves[0].party||'', moves:c.moves, first:of.moves}); }
+      else kept.push({sig, moves:c.moves}); });
+  });
+  return out;
+}
+function dupBatchPanel(){ if(ROLE!=='owner') return ''; const D=dupBatchPlan(); if(!D.length) return '';
+  const n=D.reduce((s,x)=>s+x.moves.length,0); const g=new Map();
+  D.forEach(x=>{ const k=x.key; const e=g.get(k)||{date:x.date,reason:x.reason,party:x.party,copies:0,moves:0,first:x.first.length}; e.copies++; e.moves+=x.moves.length; g.set(k,e); });
+  const pn=p=>{ const f=FACTORIES.find(f=>f.id===p); return f?f.name:p; };
+  return `<div class="panel" style="border:2px solid var(--red)"><h2>🧯 صرف اتسجل أكتر من مرة <em>${n} حركة زيادة</em></h2><div class="pad">
+    <div class="hint" style="margin-bottom:8px">نفس الدفعة اتسجلت كذا مرة ورا بعض (غالبًا الزرار اتداس تاني والبرنامج معلّق). الدفعة الأولى هتفضل، والنسخ المكررة هتتشال، وإشعاراتها عند المصنع التاني هتتلغي لو لسه ما اتسلمتش. بناخد نسخة احتياطية قبلها.</div>
+    <table><thead><tr><th>التاريخ</th><th>الجهة</th><th>الدفعة الأصلية</th><th>اتكررت</th><th>حركات زيادة</th></tr></thead><tbody>
+    ${[...g.values()].map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.reason)} · ${esc(pn(e.party))}</td><td>${e.first} صنف</td><td><b>${e.copies}</b> مرة زيادة</td><td><b style="color:var(--red)">${e.moves}</b></td></tr>`).join('')}
+    </tbody></table>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn p" data-act="dup-batch-fix">شيل المكرر (${n}) وسيب الدفعة الأولى</button>
+    <button class="btn danger" data-act="dup-batch-fix" data-all="1">لأ، الدفعة الأولى كمان غلط — شيل الكل (${n+[...new Set(D.map(x=>x.first))].reduce((s,f)=>s+f.length,0)})</button></div>
+  </div></div>`; }
+// بيمسح حركات صرف ويلغي إشعاراتها عند المصنع التاني (كتابة واحدة لكل مصنع)
+async function deleteMovesSafe(list, label){
+  const g=await guardBulk(label); if(!g) return null;
+  const byFac=new Map(); list.forEach(m=>{ if(m.notifyId && m.notifyFactory){ if(!byFac.has(m.notifyFactory)) byFac.set(m.notifyFactory,[]); byFac.get(m.notifyFactory).push(m.notifyId); } });
+  let retracted=0; const received=[];
+  for(const [f,ids] of byFac){ toast('بنلغي الإشعارات عند المصنع التاني…'); const r=await retractMany(f, ids); retracted+=r.retracted||0; (r.received||[]).forEach(x=>received.push(x)); }
+  const drop=new Set(list.map(m=>m.id)); drop.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(m=>!drop.has(m.id)); mvSel.forEach(id=>{ if(drop.has(id)) mvSel.delete(id); });
+  await saveTx(); await logOp(g, `${drop.size} حركة اتمسحت · ${retracted} إشعار اتلغى · ${received.length} كان اتسلم`);
+  return {n:drop.size, retracted, received};
+}
+function deleteMovesReport(r){ if(!r) return;
+  if(r.received.length){ const s=new Map(); r.received.forEach(x=>{ const k=x.itemName+' ('+(x.unit||'')+')'; s.set(k, n2((s.get(k)||0)+(+x.qty||0))); });
+    setTimeout(()=>alert(`اتمسح ${r.n} حركة، واتلغى ${r.retracted} إشعار عند المصنع التاني.\n\n⚠️ ${r.received.length} إشعار كان المصنع التاني استلمه خلاص — يعني اتضاف عنده وارد. لازم يمسحه من الوارد عنده:\n\n`+[...s].slice(0,40).map(([k,q])=>`• ${k}: ${fmt(q)}`).join('\n')+(s.size>40?`\n… و${s.size-40} صنف كمان`:'')),150); }
+  else toast(`اتمسح ${r.n} حركة واتلغى ${r.retracted} إشعار عند المصنع التاني ✅`); }
 // بيلغي إشعار عند مصنع تاني (بس لو لسه معلّق ومحدش استلمه)، وبيرجّع حالته عشان المستخدم يعرف حصل إيه بالظبط
 async function retractFactoryNotification(toFactoryId, notifId){
   if(!toFactoryId || !notifId) return 'none';
@@ -2680,6 +2749,7 @@ async function shrinkInvoiceImage(file){
     return new File([blob], (file.name||'invoice').replace(/\.[^.]+$/,'')+'.jpg', {type:'image/jpeg'});
   }catch(e){ return file; }
 }
+let ADD_BUSY = false, BULK_BUSY = false; // ماينفعش الزرار يتسجل مرتين وهو لسه شغال
 let SUBMITTING = 0; // طول ما فيه حفظ/رفع شغال، التحديث التلقائي بيستنى — عشان ما يستبدلش الحركة وهي بتترفع صورتها
 function storageSlug(id){
   const known = {'مصنع-الفروج':'farooj'};
@@ -5346,6 +5416,7 @@ function viewMove(dir){
     <div class="card"><div class="k">${t('diff_items')}</div><div class="v">${new Set(rows.map(m=>m.itemId)).size}</div><div class="s">${t('item_moved')}</div></div>
   </div></div></div>
 
+  ${!isIn?dupBatchPanel():''}
   <div class="panel">
     <h2>${isIn?t('of_in'):t('of_out')} <em>${shownMoves.length} / ${rows.length}</em>
       ${!isIn?`<button class="btn sm" data-act="print-consolidated-open" style="margin-inline-start:auto">طباعة فاتورة مجمّعة لفرع</button>`:`<button class="btn sm p" data-act="print-in-open" style="margin-inline-start:auto">🖨️ طباعة فاتورة استلام (كذا صنف)</button>`}
@@ -5370,6 +5441,7 @@ function viewMove(dir){
         <b style="font-size:13px">${mvSel.size} ${t('selected_moves')}</b>
         <input type="date" id="mv-bulk-date" value="${today()}">
         <button class="btn sm p" data-act="mv-bulk-date">${t('change_their_date')}</button>
+        ${ROLE==='owner'?`<button class="btn sm danger" data-act="mv-bulk-del">🗑 امسحهم</button>`:''}
         <button class="btn sm" data-act="mv-clear-sel">${t('clear_selection')}</button>
       </div>`:''}
     </div>
@@ -7151,6 +7223,8 @@ function supBookModal(){
         <label class="f">📧 إيميل مدير المشتريات (بيتحط في الـ CC في كل أمر شراء بيتبعت بالإيميل)</label>
         <input type="text" id="sb-cc" dir="ltr" value="${esc(MAIL_CFG.cc||'')}" placeholder="purchasing@company.com, manager@company.com" style="width:100%">
         <div class="hint" style="margin-top:4px">ممكن تكتب أكتر من إيميل وتفصل بينهم بفاصلة.</div>
+        <label class="f" style="margin-top:10px">📤 ابعت من إيميل <span class="hint">(لـ Gmail: لو فاتح أكتر من حساب على المتصفح، الإيميل ده هو اللي هيبعت)</span></label>
+        <input type="text" id="sb-from" dir="ltr" value="${esc(MAIL_CFG.from||'')}" placeholder="purchasing@gmail.com" style="width:100%;max-width:340px">
         <label class="f" style="margin-top:10px">الإيميل يفتح على</label>
         <select id="sb-app" style="width:100%;max-width:340px">
           <option value="mailto" ${app==='mailto'?'selected':''}>برنامج الإيميل اللي على الجهاز (Outlook / Mail)</option>
@@ -7175,7 +7249,8 @@ async function supBookSave(){
   const cc=($('#sb-cc')||{}).value||'';
   const bad=String(cc).split(/[\s,;،]+/).filter(x=>x && !_emails(x).length);
   if(bad.length) return toast('إيميل مش صحيح: '+bad.join(', '),1);
-  MAIL_CFG={...MAIL_CFG, cc:_emails(cc).join(', '), app:($('#sb-app')||{}).value||'mailto'};
+  const from=(($('#sb-from')||{}).value||'').trim(); if(from && !_emails(from).length) return toast('إيميل «ابعت من» مش صحيح',1);
+  MAIL_CFG={...MAIL_CFG, cc:_emails(cc).join(', '), from:_emails(from)[0]||'', app:($('#sb-app')||{}).value||'mailto'};
   let err='';
   document.querySelectorAll('[data-sbrow]').forEach(tr=>{
     const sp=tr.dataset.sbrow, g=k=>((tr.querySelector(`[data-sb="${k}"]`)||{}).value||'').trim();
@@ -7214,7 +7289,8 @@ async function prMail(key){
   let copied=false;
   try{ await navigator.clipboard.write([new ClipboardItem({'image/png':poImage(rs,lang)})]); copied=true; }catch(e){}
   const E=encodeURIComponent, app=MAIL_CFG.app||'mailto';
-  const url = app==='gmail' ? `https://mail.google.com/mail/?view=cm&fs=1&to=${E(to.join(','))}${cc.length?'&cc='+E(cc.join(',')):''}&su=${E(subject)}&body=${E(body)}`
+  const fromQ = MAIL_CFG.from ? `u/${encodeURIComponent(MAIL_CFG.from)}/` : '';
+  const url = app==='gmail' ? `https://mail.google.com/mail/${fromQ}?view=cm&fs=1&to=${E(to.join(','))}${cc.length?'&cc='+E(cc.join(',')):''}&su=${E(subject)}&body=${E(body)}`
             : app==='outlook' ? `https://outlook.office.com/mail/deeplink/compose?to=${E(to.join(';'))}${cc.length?'&cc='+E(cc.join(';')):''}&subject=${E(subject)}&body=${E(body)}`
             : `mailto:${to.map(E).join(',')}?${cc.length?'cc='+cc.map(E).join(',')+'&':''}subject=${E(subject)}&body=${E(body)}`;
   if(app==='mailto'){ const l=document.createElement('a'); l.href=url; document.body.appendChild(l); l.click(); l.remove(); }
@@ -10888,6 +10964,21 @@ async function act(a,d){
     if(ids.every(id=>mvSel.has(id))) ids.forEach(id=>mvSel.delete(id)); else ids.forEach(id=>mvSel.add(id));
     return render();
   }
+  if(a==='mv-bulk-del'){
+    if(!isOwner()) return toast('مسح الحركات لصاحب النظام بس',1);
+    const list=S.moves.filter(m=>mvSel.has(m.id)); if(!list.length) return toast('محددش أي حركة',1);
+    const nn=list.filter(m=>m.notifyId).length;
+    if(!confirm(`هيتمسح ${list.length} حركة${nn?`، وهيتلغي ${nn} إشعار عند المصنع التاني لو لسه ما اتسلمش`:''}.\n\nهناخد نسخة احتياطية الأول. تكمل؟`)) return;
+    const r=await deleteMovesSafe(list, `مسح ${list.length} حركة محددة`); mvSel.clear(); deleteMovesReport(r); return render();
+  }
+  if(a==='dup-batch-fix'){
+    if(!isOwner()) return toast('للمالك بس',1);
+    const D=dupBatchPlan(); if(!D.length) return toast('مفيش مكرر');
+    const all=d.all==='1'; const set=new Map(); D.forEach(x=>{ x.moves.forEach(m=>set.set(m.id,m)); if(all) x.first.forEach(m=>set.set(m.id,m)); });
+    const list=[...set.values()];
+    if(!confirm(all?`هيتمسح ${list.length} حركة (الدفعة الأولى + كل المكرر).\n\nمتأكد إن الدفعة الأولى كمان غلط؟`:`هيتمسح ${list.length} حركة مكررة والدفعة الأولى تفضل زي ما هي. تكمل؟`)) return;
+    const r=await deleteMovesSafe(list, all?'مسح صرف متكرر (الكل)':'مسح صرف متكرر'); deleteMovesReport(r); return render();
+  }
   if(a==='mv-bulk-date'){
     const el=$('#mv-bulk-date'); const nd=el?el.value:'';
     if(!nd) return toast('اختار التاريخ الأول',1);
@@ -12053,8 +12144,9 @@ async function act(a,d){
     const pp=$('#m-party'); if(pp) pp.value=name.trim(); return;
   }
   if(a==='add-move'){
-    SUBMITTING++;
-    try{ return await addMoveAction(d); } finally { SUBMITTING--; }
+    if(ADD_BUSY) return toast('لسه بيسجّل الحركة اللي فاتت… استنى ثانية',1);
+    ADD_BUSY=true; SUBMITTING++;
+    try{ return await addMoveAction(d); } finally { SUBMITTING--; ADD_BUSY=false; }
   }
   if(a==='__add-move-inner'){
     const id=$('#m-item').value, qty=+$('#m-qty').value;
@@ -12162,6 +12254,11 @@ async function act(a,d){
     return render();
   }
   if(a==='bulk-submit'){
+    if(BULK_BUSY) return toast('لسه بيسجّل الدفعة اللي فاتت وبيبلّغ المصنع… استنى، ماتدوسش تاني',1);
+    BULK_BUSY=true; SUBMITTING++;
+    try{ return await act('__bulk-submit-inner', d); } finally { SUBMITTING--; BULK_BUSY=false; }
+  }
+  if(a==='__bulk-submit-inner'){
     readBulkHeader();
     const b=ui.bulk;
     const entries = Object.entries(b.qty).filter(([id,v])=>item(id)&&+v>0);
@@ -12171,6 +12268,12 @@ async function act(a,d){
     const party = lockedMode ? S.restrictDispatchTo : (b.party||'').trim();
     const reason = lockedMode ? 'صرف لمصنع تاني' : b.reason;
     if(reason==='صرف لمصنع تاني' && !party) return toast('اختار المصنع المستلم',1);
+    { // نفس الدفعة بالظبط اتسجلت من شوية؟
+      const now=Date.now(); const want=new Map(entries.map(([id,v])=>[id,n2(+v)]));
+      const recent=S.moves.filter(m=>m.dir==='out' && m.date===date && (m.reason||'')===reason && (m.party||'')===party && now-mvTs(m)<30*60000 && want.get(m.itemId)===n2(+m.qty));
+      if(entries.length>=2 && recent.length>=Math.ceil(entries.length*0.8) && !confirm(`⚠️ الدفعة دي شكلها اتسجلت خلاص من شوية (${new Set(recent.map(m=>m.itemId)).size} صنف من ${entries.length} بنفس الكمية والجهة والتاريخ).\n\nلو بتسجلها تاني بالغلط دوس «إلغاء». تسجلها تاني فعلًا؟`)) return;
+    }
+    ui.bulk.qty={}; // بنفضي الكميات فورًا — لو حد داس تاني ميتسجلش نفس الدفعة
     const moves=[]; let autoCount=0; const skipped=[];
     for(const [id,v] of entries){
       const it=item(id), qty=+v;
@@ -12185,12 +12288,9 @@ async function act(a,d){
     if(reason==='صرف لمصنع تاني' && party){
       const toFac = FACTORIES.find(f=>f.id===party);
       const fromName = FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY;
-      let sentCount=0;
-      for(const m of moves){
-        const it=item(m.itemId);
-        const notifId = await notifyFactory(party, {type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName, fromFactoryId:FACTORY});
-        if(notifId){ m.notifyId=notifId; m.notifyFactory=party; sentCount++; }
-      }
+      let sentCount=0; toast(`بيبلّغ "${toFac?toFac.name:party}" بـ${moves.length} صنف…`);
+      const ids=await notifyFactoryMany(party, moves.map(m=>{ const it=item(m.itemId); return {type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date, fromFactory:fromName, fromFactoryId:FACTORY}; }));
+      moves.forEach((m,i)=>{ if(ids[i]){ m.notifyId=ids[i]; m.notifyFactory=party; sentCount++; } });
       await saveTx();
       notifyMsg = sentCount===moves.length ? ` — وتم إبلاغ "${toFac?toFac.name:party}" بكل الأصناف` : ` — بس ${moves.length-sentCount} صنف حصل خطأ في إبلاغه، كلّم المصنع يدوي`;
     }
