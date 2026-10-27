@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-10 · 17:30'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-10 · 19:00'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1276,6 +1276,9 @@ function _mergeNames(kind, serverList, def){
   l=l.filter(n=>!NAME_DEL[kind].has(n));
   return l.length?l:[def];
 }
+// الإعدادات اللي بتتحفظ مع الأصناف (عشان النسخة الاحتياطية تبقى كاملة)
+const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons'];
+function stateSettings(){ const o={}; STATE_KEYS.forEach(k=>{ if(S[k]!==undefined) o[k]=S[k]; }); return o; }
 async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
@@ -4707,8 +4710,19 @@ function boHistOf(itemId, days){ const T=today(); const d=new Date(T+'T12:00:00'
     day.set(m.date,(day.get(m.date)||0)+(+m.qty||0)); const k=m.party+'|'+m.date; br.set(k,(br.get(k)||0)+(+m.qty||0)); }
   const byBr=new Map(); br.forEach((q,k)=>{ const b=k.split('|')[0]; (byBr.get(b)||byBr.set(b,[]).get(b)).push(q); });
   return {day:boMedian([...day.values()]), br:b=>boMedian(byBr.get(b)||[])}; }
+// صرف الطلبيات بيتسجل بتاريخ الطلبيات اللي فاتحها (مش بتاريخ الساعة) — عشان صرف طلبيات امبارح بعد نص الليل ما يتسجلش على النهارده
+function boDispDate(){ const T=today(); return (BO.from && BO.from===BO.to && BO.from<=T) ? BO.from : T; }
+// ===== صرف اتعمل بعد نص الليل واتسجل على اليوم الجديد =====
+function midnightPlan(){ const out=[]; const byD=new Map();
+  S.moves.forEach(m=>{ if(m.dir!=='out' || m.runId || m.reason!=='صرف للفروع') return; const t=mvTs(m); if(!t) return; const dt=new Date(t);
+    if(ymdLocal(dt)!==m.date || dt.getHours()>=5) return; (byD.get(m.date)||byD.set(m.date,[]).get(m.date)).push(m); });
+  byD.forEach((ms,D)=>{ if(ms.length<5) return; const x=new Date(D+'T12:00:00'); x.setDate(x.getDate()-1); const prev=ymdLocal(x);
+    if(S.period && prev.slice(0,7)!==S.period) return;
+    const prevN=S.moves.filter(m=>m.date===prev && m.dir==='out' && m.reason==='صرف للفروع' && !m.runId).length;
+    out.push({D, prev, moves:ms, prevN, branches:new Set(ms.map(m=>m.party)).size}); });
+  return out; }
 function boPreCheck(names){
-  const T=today(); const rows=[];
+  const T=boDispDate(); const rows=[];
   for(const n of names){ const it=findMatchingLocalItem(n); if(!it) continue; const cf=convFactorOf(n)||1; const H=boHistOf(it.id,21);
     const lines=[]; let total=0;
     BO.orders.forEach(o=>{ const l=(o.items||[]).find(x=>x.name===n); if(!l||!(+l.qty>0)) return; const q=n2(+l.qty*cf); total=n2(total+q);
@@ -4745,6 +4759,7 @@ function boPreModal(){
   return `<div class="modal" data-close="1"><div class="box" style="max-width:920px">
     <h3>🛡 فحص قبل الصرف</h3>
     <div class="pad" style="max-height:72vh;overflow:auto">
+      ${(()=>{ const MP=midnightPlan().filter(x=>x.D===boDispDate()); if(!MP.length) return ''; const x=MP[0]; return `<div style="background:#FDECEC;border:1px solid #F0CACA;border-radius:10px;padding:10px 12px;margin-bottom:10px"><b>⚠ ${x.moves.length} حركة صرف متسجلة يوم ${esc(x.D)} بس اتعملت بعد نص الليل</b><div class="hint" style="margin:4px 0 8px">غالبًا دي طلبيات يوم ${esc(x.prev)}. عشان كده الأصناف تحت ظاهرة «اتصرف قبل كده». انقلها ليومها الأول، وبعدين افتح الفحص تاني.</div><button class="btn sm p" data-act="midnight-fix">📅 انقلهم ليوم ${esc(x.prev)}</button></div>`; })()}
       <div class="cards" style="margin-bottom:10px"><div class="card"><div class="k">أصناف</div><div class="v">${P.rows.length}</div><div class="s">على ${br} فرع</div></div>
         <div class="card"><div class="k">سليمة</div><div class="v" style="color:var(--green)">${ok}</div></div>
         <div class="card"><div class="k">كمية محتاجة نظرة</div><div class="v" style="color:#B36B00">${bad.length}</div></div>
@@ -8766,6 +8781,7 @@ function bind(){
         if(!confirm('هيتم استبدال كل البيانات الحالية بالنسخة دي. متأكد؟')) return;
         S.items=d.items; S.recipes=d.recipes||[]; S.locks=d.locks||{}; S.period=d.period||S.period;
         S.moves=d.moves||[]; S.counts=d.counts||{}; S.runs=d.runs||[]; S.closed=d.closed||[];
+        if(d.settings && typeof d.settings==='object') Object.keys(d.settings).forEach(k=>{ if(STATE_KEYS.includes(k)) S[k]=d.settings[k]; });
         SESS={}; await saveMain(); await saveTx(); await sset(KEY_HIST,{periods:S.closed});
         BK.dirty=0; toast('النسخة اترجّعت'); render();
       }catch(err){ toast('الملف مش سليم: '+err.message,1); }
@@ -8922,7 +8938,7 @@ async function boOfferForce(fails, onDone){
   if(!fails.length) return 0;
   const ok=confirm(`${fails.length} صرف ما اتسجلش عشان الرصيد مش كفاية:\n\n${boShortSummary(fails)}\n\nالحل الصح: سجّل الوارد أو الإنتاج الناقص الأول وبعدين اصرف تاني.\n\nلو البضاعة طلعت فعلًا للفروع ودوست «OK»، الصرف هيتسجل برضه والرصيد هيبقى بالسالب لحد ما تسجل الوارد/الإنتاج.`);
   if(!ok) return 0;
-  let n=0; for(const f of fails){ const res=dispenseOut(f.itemId, f.qty, today(), f.branch, 'صرف للفروع', true); if(res.move){ if(res.move) res.move.forced=true; n++; if(onDone) onDone(f,res); } }
+  let n=0; for(const f of fails){ const res=dispenseOut(f.itemId, f.qty, boDispDate(), f.branch, 'صرف للفروع', true); if(res.move){ if(res.move) res.move.forced=true; n++; if(onDone) onDone(f,res); } }
   return n;
 }
 function boSnapItems(items){ return JSON.stringify((items||[]).map(x=>({name:x.name, unit:x.unit||'', qty:+x.qty||0, orig:x.orig}))); }
@@ -10091,7 +10107,7 @@ async function boWeighSave(n){
   const go=rows.filter(r=>r.kg>0); const total=n2(go.reduce((t,r)=>t+r.kg,0)), pcs=go.reduce((t,r)=>t+r.qty,0);
   if(!confirm(`هيتصرف "${m.name}" ${fmt(total)} ${m.unit} على ${go.length} فرع (${fmtP(pcs)} حبة · متوسط ${fmtP(Math.round(total/pcs*1000)/1000)} ${m.unit}/حبة). تأكيد؟`)) return;
   const failed=[]; const weights={};
-  for(const r of go){ const res=dispenseOut(m.id, n2(r.kg), today(), r.branch, 'صرف للفروع'); if(res.error){ failed.push(`${r.branch}: ${res.error}`); continue; } if(res.move){ res.move.boPcs=r.qty; } weights[r.branch]={kg:n2(r.kg),pcs:r.qty}; }
+  for(const r of go){ const res=dispenseOut(m.id, n2(r.kg), boDispDate(), r.branch, 'صرف للفروع'); if(res.error){ failed.push(`${r.branch}: ${res.error}`); continue; } if(res.move){ res.move.boPcs=r.qty; } weights[r.branch]={kg:n2(r.kg),pcs:r.qty}; }
   const okKg=n2(Object.values(weights).reduce((t,w)=>t+w.kg,0));
   if(!okKg){ alert('ما اتصرفش ولا فرع:\n'+failed.join('\n')); return; }
   S.boDone[boKey(n)]={ at:new Date().toISOString(), qty:okKg, itemId:m.id, branches:Object.keys(weights).length, weights };
@@ -10514,7 +10530,7 @@ function balanceExplain(id){
     if(m.dir==='in'){ if(m.runId) d.made=n2(d.made+q); else d.inO=n2(d.inO+q); } else { if(m.runId) d.used=n2(d.used+q); else d.out=n2(d.out+q); } days.set(m.date,d); });
   let run=+it.opening||0; const dayRows=[...days.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date))).map(d=>{ const start=run; run=n2(run+d.made+d.inO-d.out-d.used); return {...d,start,end:run, gap:own?n2(Math.max(0,-(run))-Math.max(0,-(start))):0}; });
   const firstNeg=dayRows.find(d=>d.end<-0.001);
-  const short = own && c.book<-0.001 ? {qty:n2(-c.book), date:(dayRows.slice().reverse().find(d=>d.out>0)||firstNeg||{}).date||today(), recipe:own} : null;
+  const __sd = own && c.book<-0.001 ? shortDays(id) : []; const short = own && c.book<-0.001 ? {qty:n2(-c.book), date:(__sd[0]||{}).D||(firstNeg||{}).date||today(), days:__sd, recipe:own} : null;
   if(short){ const per=(own.lines||[]).map(l=>{ const x=item(l.itemId); return `${x?x.name:'?'} ${fmt(n2(l.qty*short.qty/own.outQty))}`; }).join('، ');
     why.unshift({lvl:'tip',t:`لو الكمية دي اتصرفت فعلًا للفروع، يبقى المفروض كانت اتصنّعت. دوس «⚙ صنّع الناقص» وهتتسجل تشغيلة «${own.name}» بـ ${fmt(short.qty)} ${it.unit||''} يوم ${short.date} وتتخصم خاماتها حسب الوصفة: ${per}.`}); }
   if(firstNeg && own) why.push({lvl:'warn',t:`أول يوم الرصيد نزل فيه تحت الصفر: ${firstNeg.date} — اتصرف ${fmt(firstNeg.out)} واتصنّع ${fmt(firstNeg.made)}.`});
@@ -10531,6 +10547,9 @@ async function untrackItem(id){
     await saveTx(); await logOp(g, `${old.length} حركة خصم من «${it.name}» اتمسحت`); }
   toast(`«${it.name}» مش متتبع ✓ — رصيده دلوقتي ${fmt(calc(it).book)}`);
 }
+// العجز يوم بيوم: الرصيد بيمشي من أول المدة قدّام، وأي يوم الرصيد ينزل فيه تحت الصفر يبقى ده اليوم اللي الإنتاج نقص فيه (والكمية بالظبط)
+function shortDays(id){ const it=item(id); if(!it) return []; const g=new Map(); S.moves.forEach(m=>{ if(m.itemId!==id) return; g.set(m.date, (g.get(m.date)||0)+(m.dir==='in'?1:-1)*(+m.qty||0)); });
+  let bal=+it.opening||0; const out=[]; [...g.keys()].sort().forEach(D=>{ bal=r4(bal+g.get(D)); if(bal<-0.001){ out.push({D, qty:r4(-bal)}); bal=0; } }); return out; }
 function shortMakeList(){ return S.items.filter(it=>!isUntracked(it.id) && S.recipes.some(r=>r.outItemId===it.id && r.outQty>0)).map(it=>({it,b:calc(it).book})).filter(x=>x.b<-0.001); }
 function balanceModal(id){
   const E=balanceExplain(id); if(!E) return '';
@@ -10614,6 +10633,11 @@ function healthCheck(){
     add({id:'surplus',lvl:RP.acts.length?'bad':'ok',title:RP.acts.length?`${byP.size} منتج اتصنّع زيادة عن اللي اتصرف`:'مفيش إنتاج تلقائي زايد',
       desc:RP.acts.length?'الإنتاج التلقائي بيصنّع الناقص وقت الصرف بس — فرصيد فاضل منه معناه إنه اتسجل مرتين، أو صرف اتمسح بعده. الإنتاج الحقيقي الزيادة (المسجل بزرار «تشغيل») والرصيد اللي في الجرد الفعلي مش محسوبين هنا ومش بيتلمسوا. لو المصنع فعلًا عمل الكمية دي زيادة، ما تنظفش — سجّل الجرد الفعلي للمنتج الأول.':'',
       rows:[...byP.values()].map(e=>({c:[e.n, '+'+fmt(e.q)+' '+e.u]})), act:RP.acts.length?['auto-repair-open','🧹 افتح التنظيف']:null}); }
+  // 5ب2) صرف طلبيات امبارح اتعمل بعد نص الليل
+  { const MP=midnightPlan(); const n=MP.reduce((t,x)=>t+x.moves.length,0);
+    if(n) add({id:'midn',lvl:'bad',title:`${n} حركة صرف اتعملت بعد نص الليل واتسجلت على اليوم الجديد`,
+      desc:'غالبًا دي طلبيات اليوم اللي قبله اتصرفت متأخر. طول ما هي على اليوم الجديد، الفحص قبل الصرف هيفتكر إن طلبيات النهارده اتصرفت. النقل بياخد الإنتاج بتاعها معاه.',
+      rows:MP.map(x=>({c:[`${x.D} ← ${x.prev}`, `${x.moves.length} حركة · ${x.branches} فرع`, x.prevN?`⚠ يوم ${x.prev} فيه ${x.prevN} صرف تاني`:`يوم ${x.prev} مفيهوش صرف`]})), act:['midnight-fix','📅 انقلهم لليوم اللي قبله']}); }
   // 5ج) إنتاج تلقائي مالوش صرف في نفس اليوم (من صرف اتمسح)
   { const O=orphanAutoPlan(orphanDates(31)); const byP=new Map(); O.forEach(x=>{ const e=byP.get(x.P)||{n:x.name,u:x.unit,q:0,d:new Set()}; e.q=r4(e.q+x.q); e.d.add(x.D); byP.set(x.P,e); });
     add({id:'orph',lvl:O.length?'bad':'ok',title:O.length?`${byP.size} منتج ليه إنتاج تلقائي مالوش صرف`:'كل الإنتاج التلقائي ليه صرف',
@@ -10680,6 +10704,7 @@ function healthCheck(){
   if(isBad('dupb')) steps.push('الصرف المتسجل مرتين: من «المنصرف» ← اللوحة الحمرا ← «شيل المكرر»');
   if(isBad('rec2')) steps.push('الوصفات اللي محتاجة تتصلح — قبل أي صرف جديد');
   if(isBad('bo')) steps.push('صرف الفروع: لو الزيادة ما طلعتش فعلًا، رجّعها من «افتح المراجعة» ← «رجّعهم للمطلوب»');
+  if(isBad('midn')) steps.push('الأول: صرف بعد نص الليل ← «📅 انقلهم لليوم اللي قبله»');
   if(isBad('orph')) steps.push('الإنتاج اللي مالوش صرف: «🧹 الغي الإنتاج اللي مالوش صرف»');
   if(isBad('surplus')) steps.push('الإنتاج الزايد: «افتح التنظيف» ← «نظّف دلوقتي»');
   if(isBad('psync')) steps.push('قبل الصرف: «💲 حدّث الأسعار» عشان فواتير الفروع تطلع بالتكلفة الجديدة');
@@ -11810,6 +11835,14 @@ async function _act(a,d){
     await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
     toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
     const back=P.fromCnt; ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=back?cntModal():null; render(); if(back) cntBind(); return; }
+  if(a==='midnight-fix'){
+    const MP=midnightPlan(); if(!MP.length) return toast('مفيش صرف بعد نص الليل');
+    if(!confirm(MP.map(x=>`• ${x.moves.length} حركة صرف (${x.branches} فرع) اتعملت بعد نص الليل يوم ${x.D} ← هتتنقل ليوم ${x.prev}${x.prevN?` (⚠ اليوم ده فيه ${x.prevN} صرف تاني — اتأكد إنه مش تكرار)`:''}`).join('\n')+'\n\nالإنتاج التلقائي بتاعها هيتنقل معاها، وفواتير الفروع مش هتتغير. هناخد نسخة احتياطية الأول. تكمل؟')) return;
+    const g=await guardBulk('نقل صرف بعد نص الليل'); if(!g) return;
+    let n=0; MP.forEach(x=>{ n+=x.moves.length; moveDatesWithProduction(x.moves, x.prev); });
+    await saveTx(); await logOp(g, MP.map(x=>`${x.moves.length} حركة ${x.D}→${x.prev}`).join('، '));
+    toast(`اتنقلت ${n} حركة صرف لليوم الصح والإنتاج معاها ✓`);
+    if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{}); ui.modal=null; ui.pre=null; return render(); }
   if(a==='orphan-prod-fix'){
     const dates=d.d?[d.d]:orphanDates(31); const O=orphanAutoPlan(dates); if(!O.length) return toast('مفيش إنتاج من غير صرف');
     if(!confirm(`هيتلغي إنتاج تلقائي مالوش صرف:\n\n${O.slice(0,25).map(x=>`• ${x.D} — ${x.name}: ${fmt(x.q)} ${x.unit}`).join('\n')}${O.length>25?`\n… و${O.length-25} كمان`:''}\n\nالخامات هترجع للمخزن. الإنتاج اليدوي واللي اتأكد في «الإنتاج الفعلي» مش هيتلمس. هناخد نسخة احتياطية الأول. تكمل؟`)) return;
@@ -11844,7 +11877,9 @@ async function _act(a,d){
     if(!confirm(`هيتسجل إنتاج للكمية الناقصة بس:\n\n${list.slice(0,12).map(E=>`• ${E.it.name}: ${fmt(E.short.qty)} ${E.it.unit||''} (يوم ${E.short.date})`).join('\n')}${list.length>12?`\n… و${list.length-12} كمان`:''}\n\nالخامات هتتخصم حسب الوصفات (ولو خامة وسيطة رصيدها ناقص هتتصنّع هي كمان). تكمل؟`)) return;
     const g=await guardBulk(a==='make-short'?'تصنيع الناقص — '+list[0].it.name:'تصنيع الناقص لـ'+list.length+' منتج'); if(!g) return;
     let n=0;
-    for(const E of list){ const bal=new Map(), ops=[], short=[]; if(planProduction(E.it.id, E.short.qty, bal, ops, short, 0, new Set([E.it.id])) !== false && ops.length){ commitProduction(ops, E.short.date); n++; if(short.length) noteShortages(short); } }
+    for(let pass=0; pass<4; pass++){ const ids=pass===0?list.map(E=>E.it.id):shortMakeList().map(x=>x.it.id); if(!ids.length) break; let any=false;
+      for(const id of ids){ for(const x of shortDays(id)){ const bal=new Map(), ops=[], short=[]; if(planProduction(id, x.qty, bal, ops, short, 0, new Set([id])) !== false && ops.length){ commitProduction(ops, x.D); any=true; if(pass===0) n++; if(short.length) noteShortages(short); } } }
+      if(!any) break; }
     markAutoRuns(); await saveTx(); await logOp(g, `${n} منتج اتصنّع الناقص منه: `+list.map(E=>`${E.it.name} ${fmt(E.short.qty)}`).join('، ').slice(0,400));
     toast(`اتسجل إنتاج ${n} منتج ✓`); ui.modal=a==='make-short'?balanceModal(d.id):healthModal(); return render(); }
   if(a==='hc-copy'){ const t=healthText(); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
@@ -11989,7 +12024,7 @@ async function _act(a,d){
 
     let autoAny=false, total=0; let failed=[]; const fails=[];
     for(const b of perBranch){
-      const res = dispenseOut(match.id, b.qty, today(), b.branch, 'صرف للفروع');
+      const res = dispenseOut(match.id, b.qty, boDispDate(), b.branch, 'صرف للفروع');
       if(res.error){ failed.push(`${b.branch}: ${res.error}`); fails.push({branch:b.branch, itemId:match.id, itemName:match.name, qty:b.qty, shortages:res.shortages}); continue; }
       if(res.auto) autoAny=true;
       total = n2(total + b.qty);
@@ -12043,7 +12078,7 @@ async function _act(a,d){
         if(!line || !(+line.qty>0)) continue;
         if(exclude[faroojName+'|'+o.branch]) continue; // سطر اتشال من الفحص (مثلًا اتصرف قبل كده النهارده)
         const cf = convFactorOf(faroojName) || 1;
-        const res = dispenseOut(match.id, n2(+line.qty*cf), today(), o.branch, 'صرف للفروع');
+        const res = dispenseOut(match.id, n2(+line.qty*cf), boDispDate(), o.branch, 'صرف للفروع');
         if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); allFails.push({branch:o.branch, itemId:match.id, itemName:match.name, qty:n2(+line.qty*cf), shortages:res.shortages, o, faroojName, bq:+line.qty}); continue; }
         if(boStampLine(o, faroojName, +line.qty, n2(+line.qty*cf), match)) stampSet.add(o);
         if(res.auto) autoAny=true;
@@ -12734,8 +12769,8 @@ async function _act(a,d){
   }
   if(a==='db-pull'){ if(!confirm('هيتم استبدال البيانات اللي على الجهاز ده باللي في القاعدة. متأكد؟')) return; return void pullAll(); }
   if(a==='backup'){
-    const data={v:1,savedAt:new Date().toISOString(),period:S.period,items:S.items,recipes:S.recipes,
-      locks:S.locks,moves:S.moves,counts:S.counts,runs:S.runs||[],closed:S.closed};
+    const data={v:1,savedAt:new Date().toISOString(),factory:FACTORY,period:S.period,items:S.items,recipes:S.recipes,
+      locks:S.locks,moves:S.moves,counts:S.counts,runs:S.runs||[],closed:S.closed, settings:stateSettings()};
     const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
     const a3=document.createElement('a'); a3.href=url; a3.download=`نسخة-احتياطية-مخزن-${S.period}.json`; a3.click(); URL.revokeObjectURL(url);
     BK.dirty=0; BK.lastAt=new Date().toLocaleString('en-GB');
