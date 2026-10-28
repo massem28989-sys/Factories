@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '28-10 · 17:30'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '28-10 · 17:45'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1329,7 +1329,7 @@ let AUTH=(()=>{ try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'null'); 
 let PROFILE=null, AUTH_REQUIRED=false, AUTH_TABLE_READY=false;
 // حساب «متابع»: بيشوف كل حاجة في كل المصانع من غير أي تعديل. القفل الحقيقي في القاعدة (سياسات RLS) — ده بس عشان الشاشة ماتسمحش بالتعديل
 var VIEWER=false;
-const VIEW_OK=new Set(['tab','mv-more','ui-look','switch-fac','jump','today-go','cnt-loc','cnt-by','cat','switch-fac','toggle-lang','logout','login','login-screen','reload','cancel','copy-link','why-bal','db-pull','db-pull-quiet','bo-fetch','bo-day','bo-range-toggle','bo-edit-mode','bo-edit-br','bo-raw','bo-log','bo-odd','bo-audit','bo-rev-sort','hc-open','archive-size','check-db-size','inv-view','sup-open','edit-recipe','po-lang','po-img','po-download','po-share','do-print','print-move','settlement-print-one','cnt-print','ko-bview','ko-cat','ko-refresh','pc-parse','bo-recv','bo-recv-refresh','users-refresh','backups-refresh','inbox-refresh','dashboard-refresh','rr-close','pk-close','bkp-close']);
+const VIEW_OK=new Set(['tab','mv-more','ui-look','switch-fac','jump','today-go','cnt-loc','cnt-by','closed-xlsx','export','cat','switch-fac','toggle-lang','logout','login','login-screen','reload','cancel','copy-link','why-bal','db-pull','db-pull-quiet','bo-fetch','bo-day','bo-range-toggle','bo-edit-mode','bo-edit-br','bo-raw','bo-log','bo-odd','bo-audit','bo-rev-sort','hc-open','archive-size','check-db-size','inv-view','sup-open','edit-recipe','po-lang','po-img','po-download','po-share','do-print','print-move','settlement-print-one','cnt-print','ko-bview','ko-cat','ko-refresh','pc-parse','bo-recv','bo-recv-refresh','users-refresh','backups-refresh','inbox-refresh','dashboard-refresh','rr-close','pk-close','bkp-close']);
 const viewerAllowed = a => VIEW_OK.has(a) || (/-(export|copy|print|open|refresh)$/.test(a) || /^(print-|count-print-|settlement-history-open)/.test(a));
 const VIEWER_MSG='👁 حسابك للعرض بس — مينفعش تعدّل أو تسجّل حاجة';
 function viewerGuard(){ if(VIEWER) throw new Error(VIEWER_MSG); }
@@ -5913,7 +5913,7 @@ function viewRep(){
       <button class="btn danger" data-act="reset">إعادة ضبط كل البيانات</button>
     </div>
     ${S.closed.length?`<div style="margin-top:14px"><div class="hint" style="margin-bottom:6px">الشهور المقفولة</div>
-      ${S.closed.slice().reverse().map(p=>`<span class="chip b" style="margin-inline-end:6px">${periodLabel(p.period)} · ${money(p.value)} د.إ</span>`).join('')}</div>`:''}
+      ${S.closed.slice().reverse().map(p=>`<span class="chip b" style="margin-inline-end:6px">${periodLabel(p.period)} · ${money(p.value)} د.إ <button class="btn sm" data-act="closed-xlsx" data-period="${esc(p.period)}" title="ملف Excel بجرد آخر الشهر ده" style="padding:1px 7px;margin-inline-start:4px">⭳ Excel</button></span>`).join('')}</div>`:''}
   </div></div>
 
   ${S.closed.length?`<div class="panel"><h2>أرشفة الحركات التفصيلية القديمة</h2><div class="pad">
@@ -12842,6 +12842,15 @@ async function _act(a,d){
     BK.dirty=0; BK.lastAt=new Date().toLocaleString('en-GB');
     toast('النسخة الاحتياطية اتنزّلت — احفظها في مكان ثابت'); return render();
   }
+  if(a==='closed-xlsx'){ const c=(S.closed||[]).find(x=>x.period===d.period); if(!c) return; if(!window.XLSX) return toast('مكتبة Excel لسه ما اتحمّلتش — جرّب تاني بعد ثواني',1);
+    const [y,mo]=c.period.split('-').map(Number); const last=new Date(y,mo,0).getDate();
+    const rows=[['الصنف','القسم','الوحدة',`أول المدة (1/${mo})`,`الجرد الفعلي (${last}/${mo})`,'سعر الوحدة','القيمة']];
+    const L=(c.items||[]).map(x=>{ const it=item(x.id)||{}; const q=+x.closing||0, pr=+x.price||0; return [x.name, it.cat||'', x.unit||'', +x.openingBefore||0, q, pr, n2(q*pr)]; }).sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'ar')||String(a[0]).localeCompare(String(b[0]),'ar'));
+    rows.push(...L, [], ['الإجمالي','','','','','',n2(L.reduce((t,r)=>t+r[6],0))]);
+    const ws=XLSX.utils.aoa_to_sheet(rows); ws['!cols']=[{wch:44},{wch:14},{wch:9},{wch:15},{wch:17},{wch:11},{wch:13}];
+    const wb=XLSX.utils.book_new(); wb.Workbook={Views:[{RTL:true}]}; XLSX.utils.book_append_sheet(wb, ws, 'جرد '+c.period);
+    const u=URL.createObjectURL(new Blob([XLSX.write(wb,{type:'array',bookType:'xlsx'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    const ax=document.createElement('a'); ax.href=u; ax.download=`جرد-${c.period}.xlsx`; document.body.appendChild(ax); ax.click(); ax.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); return toast('اتنزّل جرد '+periodLabel(c.period)); }
   if(a==='export'){
     // لو الحركات لسه ما اتحملتش (الوارد والمنصرف هيطلعوا أصفار) — نحمّلها الأول
     if(DB.on && !S.moves.length){ toast('بنحمّل الحركات الأول…'); try{ await pullAll(true); }catch(e){} if(!S.moves.length && !confirm('مفيش ولا حركة متحمّلة على الجهاز ده — عمود الوارد والمنصرف هيطلع أصفار.\n\nالأفضل تعمل ريفريش وتستنى الأرقام تظهر. تنزّل الملف برضه؟')) return; }
