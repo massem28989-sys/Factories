@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '28-10 · 11:00'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '28-10 · 17:30'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5906,7 +5906,7 @@ function viewRep(){
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn p" data-act="close-month">إقفال ${periodLabel(S.period)}</button>
       ${S.closed.length?`<button class="btn danger" data-act="undo-close">تراجع عن آخر إقفال (${periodLabel(S.closed[S.closed.length-1].period)})</button>`:''}
-      <button class="btn" data-act="export">تنزيل الجرد CSV</button>
+      <button class="btn" data-act="export">تنزيل الجرد Excel</button>
       <button class="btn g" data-act="backup">تنزيل نسخة احتياطية${BK.dirty>0?` (${BK.dirty} تعديل من غير حفظ)`:''}</button>
       <label class="btn" style="display:inline-flex;align-items:center">استرجاع نسخة
         <input type="file" id="restore" accept=".json,application/json" style="display:none"></label>
@@ -12843,9 +12843,17 @@ async function _act(a,d){
     toast('النسخة الاحتياطية اتنزّلت — احفظها في مكان ثابت'); return render();
   }
   if(a==='export'){
+    // لو الحركات لسه ما اتحملتش (الوارد والمنصرف هيطلعوا أصفار) — نحمّلها الأول
+    if(DB.on && !S.moves.length){ toast('بنحمّل الحركات الأول…'); try{ await pullAll(true); }catch(e){} if(!S.moves.length && !confirm('مفيش ولا حركة متحمّلة على الجهاز ده — عمود الوارد والمنصرف هيطلع أصفار.\n\nالأفضل تعمل ريفريش وتستنى الأرقام تظهر. تنزّل الملف برضه؟')) return; }
     const rows=[['الصنف','الوصف','القسم','الوحدة','أول المدة','وارد','منصرف','دفتري','فعلي','الفرق','سعر الوحدة','القيمة']];
     for(const it of S.items){const c=calc(it);
-      rows.push([it.name,it.desc,it.cat,it.unit,it.opening,c.inQ,c.outQ,c.book,c.has?c.real:'',c.has?c.diff:'',it.price||0,c.value]);}
+      rows.push([it.name,it.desc||'',it.cat||'',it.unit||'',+it.opening||0,c.inQ,c.outQ,c.book,c.has?c.real:'',c.has?c.diff:'',+it.price||0,c.value]);}
+    // ملف Excel حقيقي: العربي بيفضل سليم على أي جهاز، والأرقام أرقام (CSV كان بيبوظ لما يتفتح ويتحفظ تاني)
+    if(window.XLSX){ try{ const ws=XLSX.utils.aoa_to_sheet(rows); ws['!cols']=[{wch:38},{wch:22},{wch:14},{wch:9},{wch:11},{wch:10},{wch:10},{wch:11},{wch:10},{wch:10},{wch:11},{wch:13}];
+        ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows.length-1,c:rows[0].length-1}})};
+        const wb=XLSX.utils.book_new(); wb.Workbook={Views:[{RTL:true}]}; XLSX.utils.book_append_sheet(wb, ws, 'الجرد');
+        const buf=XLSX.write(wb,{type:'array',bookType:'xlsx'}); const u=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+        const ax=document.createElement('a'); ax.href=u; ax.download=`جرد-${S.period}.xlsx`; document.body.appendChild(ax); ax.click(); ax.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000); return toast('اتنزّل ملف Excel'); }catch(e){ console.warn(e); } }
     const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
     const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
     const a2=document.createElement('a'); a2.href=url; a2.download=`جرد-${S.period}.csv`; a2.click(); URL.revokeObjectURL(url);
