@@ -1230,7 +1230,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '29-10 · 19:15'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '29-10 · 23:30'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4888,7 +4888,7 @@ function viewBranchOrders(){
         <div class="hint" style="margin-bottom:6px">بعد ما تخلص التعديل</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           <button class="btn sm p" data-act="bo-print" data-v="sheet">🖨️ شيت التحضير (كل الفروع)</button>
-          <button class="btn sm p" data-act="bo-print" data-v="branches">🖨️ إذن تسليم لكل فرع</button>
+          <button class="btn sm p" data-act="bo-print" data-v="branches">🖨️ إذن تسليم لكل فرع</button><button class="btn sm" data-act="bo-print" data-v="branches" data-lang="en" title="Delivery notes in English">🖨️ Delivery notes (EN)</button>
         </div>
       </div>
       <div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">
@@ -10968,19 +10968,26 @@ function boBranchesModal(){
   </div></div>`;
 }
 /* طباعة طلبية الفروج: شيت تحضير (كل الفروع × الأصناف) أو إذن تسليم لكل فرع في صفحة */
-function boPrint(kind){
+// اسم الصنف بالإنجليزي للطباعة: الجزء اللاتيني من الاسم ("kabab chicken - كباب دجاج")، وإلا الاسم زي ما هو
+function enName(n){ const parts=String(n||'').split(/\s+-\s+|\s*–\s*/).map(x=>x.trim()).filter(Boolean); const lat=parts.filter(p=>/[A-Za-z]/.test(p) && !/[\u0600-\u06FF]/.test(p));
+  if(lat.length) return lat.join(' - '); const mixed=parts.find(p=>/[A-Za-z]{3,}/.test(p)); return mixed||n; }
+function enUnit(u){ const s=String(u||'').trim(); const M=[[/^(كيلو|كجم|كغ|ك)$/,'kg'],[/^(حبه|حبة|حبات|قطعة|قطعه)$/,'pcs'],[/^(باكت|باكيت|باكو|باك)$/,'pkt'],[/^(علبة|علبه)$/,'box'],[/^(لتر)$/,'L'],[/^(كرتون|كرتونة|كرتونه)$/,'ctn'],[/^(جالون)$/,'gal'],[/^(سطل)$/,'bucket'],[/^(صحن)$/,'plate'],[/^(كيس)$/,'bag'],[/^(صينية|صينيه|صاج)$/,'tray'],[/^(رول)$/,'roll'],[/^(شوال)$/,'sack']];
+  for(const [r,v] of M) if(r.test(s)) return v; return s; }
+function boPrint(kind, lang){
+  const EN = lang==='en' && kind==='branches';
   if(!BO.orders.length) return toast('مفيش طلبيات تتطبع — اختار اليوم الأول',1);
   const w=window.open('','_blank'); if(!w){ toast('المتصفح منع فتح نافذة الطباعة — اسمح بالـ popups',1); return; }
-  const fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:''}).name||'';
+  let fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:''}).name||'';
+  if(EN) fac=({'مصنع-الفروج':'Farooj Abu Alabd — Factory','kunafa':'Baba Kunafa — Factory'})[FACTORY]||(/[A-Za-z]/.test(fac)?fac:'Factory');
   const logo=FACTORY_LOGOS[FACTORY]||'';
-  const dayTxt = BO.from===BO.to ? (()=>{ try{ return new Date(BO.from+'T12:00:00').toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }catch(e){ return BO.from; } })() : `من ${BO.from} لـ ${BO.to}`;
+  const dayTxt = BO.from===BO.to ? (()=>{ try{ return new Date(BO.from+'T12:00:00').toLocaleDateString(EN?'en-GB':'ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }catch(e){ return BO.from; } })() : `من ${BO.from} لـ ${BO.to}`;
   // أحدث طلبية لكل فرع (نفس اللي بيظهر في جداول التعديل) + لو فيه أكتر من طلبية بنجمعهم في الطباعة
   const byBranch=new Map();
   BO.orders.forEach(o=>{ const m=byBranch.get(o.branch)||new Map(); (o.items||[]).forEach(it=>{ if(!(+it.qty>0)) return; const k=it.name; const cur=m.get(k)||{name:it.name,unit:it.unit,qty:0}; cur.qty=n2(cur.qty+(+it.qty||0)); m.set(k,cur); }); byBranch.set(o.branch,m); });
   const branches=[...byBranch.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
   const lbl = n => { const all=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES]; const f=all.find(x=>x.name===n); return f?f.label:n; };
   const groups=[['الأصناف الأساسية',CORE_ITEMS],['المقبلات والصوصات',APPETIZER_ITEMS],...(NADER_SAUCES.length?[['صوصات نادر',NADER_SAUCES]]:[]),['أصناف إضافية',extraItemsList()]];
-  const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">اتطبعت ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
+  const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">${EN?'Printed':'اتطبعت'} ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
   let body='';
   if(kind!=='branches'){
     const P = kind==='sheet'?{tot:1,nader:1,meat:1,appet:1,veg:1,dist:1} : kind==='all'?{tot:1,dist:1} : {[kind]:1};
@@ -11023,16 +11030,19 @@ function boPrint(kind){
       const items=[...byBranch.get(b).values()];
       const order=g=>{ const i=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES].findIndex(x=>x.name===g.name); return i<0?999:i; };
       items.sort((x,y)=>order(x)-order(y)||x.name.localeCompare(y.name,'ar'));
-      body+=`<section class="${bi?'pb':''}">${head('إذن تسليم طلبية',b)}
-        <div class="meta"><div><b>الفرع</b>${esc(b)}</div><div><b>عدد الأصناف</b>${items.length}</div><div><b>السواق</b></div></div>
-        <table class="ls"><thead><tr><th style="width:30px">#</th><th>الصنف</th><th style="width:16%">المطلوب</th><th style="width:12%">الوحدة</th><th style="width:16%">اتبعت فعلًا</th><th style="width:18%">ملاحظات</th></tr></thead>
+      const L=EN?{t:'Delivery Note',br:'Branch',n:'Items',drv:'Driver',item:'Item',req:'Ordered',unit:'Unit',sent:'Actually sent',notes:'Notes',w:'⚖️ by weight',kg:'kg',s1:'Delivered by (Factory)',s2:'Driver',s3:'Received by (Branch)'}
+        :{t:'إذن تسليم طلبية',br:'الفرع',n:'عدد الأصناف',drv:'السواق',item:'الصنف',req:'المطلوب',unit:'الوحدة',sent:'اتبعت فعلًا',notes:'ملاحظات',w:'⚖️ بالوزن',kg:'كجم',s1:'المسلّم (المصنع)',s2:'السواق',s3:'المستلم (الفرع)'};
+      body+=`<section class="${bi?'pb':''}">${head(L.t,b)}
+        <div class="meta"><div><b>${L.br}</b>${esc(b)}</div><div><b>${L.n}</b>${items.length}</div><div><b>${L.drv}</b></div></div>
+        <table class="ls"><thead><tr><th style="width:30px">#</th><th>${L.item}</th><th style="width:16%">${L.req}</th><th style="width:12%">${L.unit}</th><th style="width:16%">${L.sent}</th><th style="width:18%">${L.notes}</th></tr></thead>
         <tbody>${items.map((it,i)=>{ const wz=boIsWeigh(it.name); const w=wz&&((S.boDone[boKey(it.name)]||{}).weights||{})[b];
           const isN=naderBatched(it.name)&&NADER_BATCHES.length; const kk=isN?boKgPerUnit(it.name):null; const np=kk?naderPlan(n2(it.qty*kk)):null;
-          return `<tr><td class="c">${i+1}</td><td>${esc(lbl(it.name))}${wz?' <small style="color:#8E1A20">⚖️ بالوزن</small>':''}${np?` <small style="color:#8E1A20">🥣 ${esc(naderShort(np,NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg)))}</small>`:''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(((NADER_SAUCES.find(x=>x.name===it.name)||{}).unitLabel)||it.unit||'')}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> كجم`:'______ كجم'):''}</td><td></td></tr>`; }).join('')}</tbody></table>
-        <div class="sig"><div>المسلّم (المصنع)</div><div>السواق</div><div>المستلم (الفرع)</div></div></section>`;
+          const un=((NADER_SAUCES.find(x=>x.name===it.name)||{}).unitLabel)||it.unit||''; const ns=np?naderShort(np,NADER_BATCHES.slice().sort((a,b)=>b.kg-a.kg)):'';
+          return `<tr><td class="c">${i+1}</td><td>${esc(EN?enName(it.name):lbl(it.name))}${wz?` <small style="color:#8E1A20">${L.w}</small>`:''}${np?` <small style="color:#8E1A20">🥣 ${esc(EN?ns.replace(/كبيرة/g,'L').replace(/وسط/g,'M').replace(/صغيرة/g,'S'):ns)}</small>`:''}</td><td class="c"><b>${fmtP(it.qty)}</b></td><td class="c">${esc(EN?enUnit(un):un)}</td><td class="c">${wz?(w?`<b>${fmtP(w.kg)}</b> ${L.kg}`:`______ ${L.kg}`):''}</td><td></td></tr>`; }).join('')}</tbody></table>
+        <div class="sig"><div>${L.s1}</div><div>${L.s2}</div><div>${L.s3}</div></div></section>`;
     });
   }
-  w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${kind!=='branches'?'شيت التحضير':'أذونات التسليم'} — ${esc(BO.from)}</title>
+  w.document.write(`<!doctype html><html lang="${EN?'en':'ar'}" dir="${EN?'ltr':'rtl'}"><head><meta charset="utf-8"><title>${kind!=='branches'?'شيت التحضير':(EN?'Delivery notes':'أذونات التسليم')} — ${esc(BO.from)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;600;700&display=swap" rel="stylesheet">
   <style>@page{size:A4 ${(kind==='branches'||kind==='meat'||kind==='appet'||kind==='veg'||kind==='nader')?'portrait':'landscape'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
   .hd{display:flex;align-items:center;gap:12px;border-bottom:4px solid #8E1A20;padding-bottom:8px;margin-bottom:10px}.hd img{width:52px;height:52px;object-fit:contain}.hd h1{margin:0;font-size:20px;color:#8E1A20}.hd .s{color:#555;font-size:12px}.hd .r{margin-inline-start:auto;color:#777;font-size:11px}
@@ -12140,7 +12150,7 @@ async function _act(a,d){
   if(a==='bo-br-toggle'){ if(!S.boHidden) S.boHidden={}; if(S.boHidden[d.b]) delete S.boHidden[d.b]; else S.boHidden[d.b]=1; await saveMain(); ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-br-add'){ const n=prompt('اسم الفرع زي ما بيظهر في طلبيات الفروج بالظبط:'); if(!n||!n.trim()) return; if(!S.boSeen) S.boSeen={}; S.boSeen[n.trim()]=S.boSeen[n.trim()]||''; if(S.boHidden) delete S.boHidden[n.trim()]; await saveMain(); ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-range-toggle'){ BO.showRange=!BO.showRange; return render(); }
-  if(a==='bo-print'){ return boPrint(d.v); }
+  if(a==='bo-print'){ return boPrint(d.v, d.lang); }
   if(a==='bo-recv'){ ui.modal=boRecvModal(); return render(); }
   if(a==='bo-recv-refresh'){ await fetchReceiptMarks(); await fetchFactoryShortageReports(); ui.modal=boRecvModal(); return render(); }
   if(a==='bo-fetch'){
