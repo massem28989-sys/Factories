@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '28-10 · 17:45'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '28-10 · 18:15'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12836,7 +12836,7 @@ async function _act(a,d){
   if(a==='db-pull'){ if(!confirm('هيتم استبدال البيانات اللي على الجهاز ده باللي في القاعدة. متأكد؟')) return; return void pullAll(); }
   if(a==='backup'){
     const data={v:1,savedAt:new Date().toISOString(),factory:FACTORY,period:S.period,items:S.items,recipes:S.recipes,
-      locks:S.locks,moves:S.moves,counts:S.counts,runs:S.runs||[],closed:S.closed, settings:stateSettings()};
+      locks:S.locks,moves:S.moves,counts:S.counts,runs:S.runs||[],closed:S.closed, settings:stateSettings(), inbox:(typeof MY_INBOX!=='undefined'?MY_INBOX:[]), factories:FACTORIES};
     const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
     const a3=document.createElement('a'); a3.href=url; a3.download=`نسخة-احتياطية-مخزن-${S.period}.json`; a3.click(); URL.revokeObjectURL(url);
     BK.dirty=0; BK.lastAt=new Date().toLocaleString('en-GB');
