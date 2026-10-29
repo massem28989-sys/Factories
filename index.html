@@ -1230,7 +1230,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '29-10 · 18:30'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '29-10 · 19:15'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1279,9 +1279,9 @@ function _mergeNames(kind, serverList, def){
   return l.length?l:[def];
 }
 // الإعدادات اللي بتتحفظ مع الأصناف (عشان النسخة الاحتياطية تبقى كاملة)
-const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip','blockNegative'];
+const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip','blockNegative','recipeSince'];
 function stateSettings(){ const o={}; STATE_KEYS.forEach(k=>{ if(S[k]!==undefined) o[k]=S[k]; }); return o; }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,blockNegative:!!S.blockNegative,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,blockNegative:!!S.blockNegative,recipeSince:S.recipeSince,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1305,7 +1305,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.unitConv=main.unitConv||{}; S.catSkip=main.catSkip||{}; S.blockNegative=!!main.blockNegative; S.locs=main.locs||[]; S.itemLoc=main.itemLoc||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.unitConv=main.unitConv||{}; S.catSkip=main.catSkip||{}; S.blockNegative=!!main.blockNegative; S.recipeSince=main.recipeSince||{}; S.locs=main.locs||[]; S.itemLoc=main.itemLoc||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1958,7 +1958,7 @@ async function pushAll(quiet){
         ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},catSkip:S.catSkip||{},blockNegative:!!S.blockNegative,locs:S.locs||[],itemLoc:S.itemLoc||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},catSkip:S.catSkip||{},blockNegative:!!S.blockNegative,recipeSince:S.recipeSince||{},locs:S.locs||[],itemLoc:S.itemLoc||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1989,7 +1989,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.catSkip=(st&&st[0]&&st[0].v&&st[0].v.catSkip)||S.catSkip||{}; if(st&&st[0]&&st[0].v&&st[0].v.blockNegative!==undefined) S.blockNegative=!!st[0].v.blockNegative; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.catSkip=(st&&st[0]&&st[0].v&&st[0].v.catSkip)||S.catSkip||{}; if(st&&st[0]&&st[0].v&&st[0].v.blockNegative!==undefined) S.blockNegative=!!st[0].v.blockNegative; S.recipeSince=(st&&st[0]&&st[0].v&&st[0].v.recipeSince)||S.recipeSince||{}; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     MOVE_SIG.clear(); S.moves.forEach(m=>MOVE_SIG.set(m.id, moveSig(m))); // دي اللي على السيرفر فعلًا
@@ -5483,6 +5483,7 @@ function viewMove(dir){
         <input type="date" id="mv-bulk-date" value="${today()}">
         <button class="btn sm p" data-act="mv-bulk-date">${t('change_their_date')}</button>
         ${ROLE==='owner'?`<button class="btn sm danger" data-act="mv-bulk-del">🗑 امسحهم</button>`:''}
+        ${ROLE==='owner'&&!isIn?`<span style="display:inline-flex;gap:4px;align-items:center;margin-inline-start:8px"><select id="mv-bulk-reason">${OUT_REASONS.filter(r=>r!=='صرف للفروع'&&r!=='صرف لمصنع تاني').map(r=>`<option>${esc(r)}</option>`).join('')}</select><button class="btn sm" data-act="mv-bulk-reason">غيّر السبب</button></span>`:''}
         <button class="btn sm" data-act="mv-clear-sel">${t('clear_selection')}</button>
       </div>`:''}
     </div>
@@ -5644,8 +5645,8 @@ function viewProd(){
   <div class="panel">
     <h2>وصفات الإنتاج <em>الوصفة بتخصم الخامات وتضيف المنتج بضغطة واحدة</em>
       ${(()=>{ const n=recipeSyncState().stale.length;
-        return n?`<button class="btn sm" data-act="sync-prices" style="margin-inline-start:auto">مزامنة أسعار ${n} منتج</button><button class="btn sm" data-act="import-recipes">استيراد من إكسل</button><button class="btn sm" data-act="rx-export" title="ملف تقدر ترجّع منه الوصفات زي ما هي">⬇️ تصدير الوصفات</button><label class="btn sm" style="cursor:pointer" title="رجّع الوصفات من ملف اتصدّر قبل كده">⬆️ استرجاع من ملف<input type="file" id="rx-file" accept=".json,application/json" style="display:none"></label><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`
-                :`<button class="btn sm" data-act="import-recipes" style="margin-inline-start:auto">استيراد من إكسل</button><button class="btn sm" data-act="rx-export" title="ملف تقدر ترجّع منه الوصفات زي ما هي">⬇️ تصدير الوصفات</button><label class="btn sm" style="cursor:pointer" title="رجّع الوصفات من ملف اتصدّر قبل كده">⬆️ استرجاع من ملف<input type="file" id="rx-file" accept=".json,application/json" style="display:none"></label><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`; })()}</h2>
+        return n?`<button class="btn sm" data-act="sync-prices" style="margin-inline-start:auto">مزامنة أسعار ${n} منتج</button><button class="btn sm" data-act="swap-open" title="خامة مابقتش بتيجي واتجاب بديلها — بدّلها في كل الوصفات مرة واحدة">🔁 بدّل خامة</button><button class="btn sm" data-act="import-recipes">استيراد من إكسل</button><button class="btn sm" data-act="rx-export" title="ملف تقدر ترجّع منه الوصفات زي ما هي">⬇️ تصدير الوصفات</button><label class="btn sm" style="cursor:pointer" title="رجّع الوصفات من ملف اتصدّر قبل كده">⬆️ استرجاع من ملف<input type="file" id="rx-file" accept=".json,application/json" style="display:none"></label><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`
+                :`<button class="btn sm" data-act="swap-open" style="margin-inline-start:auto" title="خامة مابقتش بتيجي واتجاب بديلها — بدّلها في كل الوصفات مرة واحدة">🔁 بدّل خامة</button><button class="btn sm" data-act="import-recipes">استيراد من إكسل</button><button class="btn sm" data-act="rx-export" title="ملف تقدر ترجّع منه الوصفات زي ما هي">⬇️ تصدير الوصفات</button><label class="btn sm" style="cursor:pointer" title="رجّع الوصفات من ملف اتصدّر قبل كده">⬆️ استرجاع من ملف<input type="file" id="rx-file" accept=".json,application/json" style="display:none"></label><button class="btn sm p" data-act="new-recipe">وصفة جديدة</button>`; })()}</h2>
     ${S.recipes.length?(()=>{
       // نجهّز بيانات كل وصفة مرة واحدة (تصنيف المنتج، التكلفة، إلخ) عشان الفلترة والترتيب والتجميع
       const enriched = S.recipes.map(r=>{
@@ -8586,7 +8587,7 @@ function bind(){
     // ولو اتشالت من "صرف لمصنع تاني"، نلغي الإشعار المرتبط لو لسه معلّق
     else if(oldReason==='صرف لمصنع تاني' && m.reason!=='صرف لمصنع تاني' && m.notifyId && m.notifyFactory){
       const res=await retractFactoryNotification(m.notifyFactory, m.notifyId);
-      delete m.notifyId; delete m.notifyFactory; await saveTx();
+      delete m.notifyId; delete m.notifyFactory; if((FACTORIES||[]).some(f=>f.id===m.party)) m.party=''; await saveTx();
       toast(res==='received'?'اتعدلت الجهة، بس المصنع التاني كان استلم الإشعار خلاص':'اتعدلت الجهة واتلغى الإشعار');
     }
     else toast('اتعدلت جهة الصرف');
@@ -10462,6 +10463,31 @@ function moveDatesWithProduction(list, nd){ const old=new Set(); const moved=[];
   list.forEach(m=>{ if(m.date===nd) return; if(m.dir==='out' && !m.runId && activeRecipeOf(m.itemId)){ old.add(m.date); moved.push(m); } m.date=nd; });
   if(!moved.length) return 0; orphanAutoApply([...old]); moved.forEach(m=>prodExtend(m.itemId, nd, +m.qty||0)); markAutoRuns(); return moved.length; }
 function wrongFactoryParty(){ const ids=new Set((FACTORIES||[]).map(f=>f.id)); return S.moves.filter(m=>m.dir==='out' && !m.runId && m.reason && m.reason!=='صرف لمصنع تاني' && ids.has(m.party) && !m.notifyId); }
+// ===== 🔁 بدّل خامة في الوصفات (المورد مابقاش بيجيب الصنف واتجاب بديله) =====
+function swapModal(){ const P=ui.sw||(ui.sw={from:'',to:'',f:1,date:today(),sel:null});
+  const used=[...new Set(S.recipes.flatMap(r=>(r.lines||[]).map(l=>l.itemId)))].map(id=>item(id)).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const from=item(P.from), to=item(P.to); const R=from?S.recipes.filter(r=>(r.lines||[]).some(l=>l.itemId===from.id)):[];
+  if(from && P.sel===null){ P.sel={}; R.forEach(r=>P.sel[r.id]=true); }
+  const f=+P.f>0?+P.f:1;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:820px"><h3>🔁 بدّل خامة في الوصفات</h3><div class="pad" style="max-height:70vh;overflow:auto">
+    <div class="hint" style="margin-bottom:10px">الخامة القديمة بتتشال من الوصفات اللي تختارها، والجديدة بتاخد مكانها. التشغيلات اللي قبل التاريخ ده بتفضل زي ما هي (اتعملت بالقديمة فعلًا)، ومن التاريخ ده الصرف بيخصم الجديدة.</div>
+    <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label class="f">الخامة القديمة</label><select id="sw-from" style="width:100%"><option value="">— اختار —</option>${used.map(i=>`<option value="${esc(i.id)}" ${i.id===P.from?'selected':''}>${esc(i.name)} (${esc(i.unit||'')})</option>`).join('')}</select></div>
+      <div><label class="f">الخامة الجديدة (لازم تكون في كارت الأصناف)</label><input type="text" id="sw-to" list="sw-items" style="width:100%" value="${to?esc(to.name):''}" placeholder="اكتب اسم الصنف…"><datalist id="sw-items">${S.items.filter(i=>i.id!==P.from).map(i=>`<option value="${esc(i.name)}">`).join('')}</datalist></div>
+      <div><label class="f">كمية الجديدة = كمية القديمة ×</label><input type="number" step="any" min="0" id="sw-f" value="${f}" style="width:120px"> <span class="hint">1 لو نفس الكمية — غيّرها لو التركيز أو الوحدة مختلفة</span></div>
+      <div><label class="f">من تاريخ</label><input type="date" id="sw-date" value="${esc(P.date)}"></div>
+    </div>
+    ${from&&to&&from.unit!==to.unit?`<div class="hint" style="color:#8A4A0B;margin-top:8px">⚠ الوحدة مختلفة: القديمة «${esc(from.unit)}» والجديدة «${esc(to.unit)}» — اتأكد من المعامل.</div>`:''}
+    ${from?(R.length?`<table style="margin-top:12px"><thead><tr><th style="width:28px"></th><th>الوصفة</th><th class="n">${esc(from.name)}</th><th class="n">${to?esc(to.name):'الجديدة'}</th></tr></thead><tbody>
+      ${R.map(r=>{ const q=(r.lines||[]).filter(l=>l.itemId===from.id).reduce((t,l)=>t+(+l.qty||0),0); const has=to&&(r.lines||[]).some(l=>l.itemId===to.id);
+        return `<tr><td><input type="checkbox" data-sw="${esc(r.id)}" ${P.sel&&P.sel[r.id]?'checked':''}></td><td>${esc(r.name)}${has?'<div class="hint">الجديدة موجودة في الوصفة أصلًا — الكميتين هيتجمعوا</div>':''}</td><td class="n">${fmtP(q)} ${esc(from.unit||'')}</td><td class="n"><b>${fmtP(r4(q*f))}</b> ${to?esc(to.unit||''):''}</td></tr>`; }).join('')}</tbody></table>`:'<div class="empty">الخامة دي مش داخلة في أي وصفة</div>'):''}
+    </div><div class="foot">${from&&to&&R.length?`<button class="btn p" data-act="swap-apply">بدّل في ${R.filter(r=>P.sel&&P.sel[r.id]).length} وصفة</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`; }
+function swapBind(){ const P=ui.sw; const re=()=>{ ui.modal=swapModal(); render(); swapBind(); };
+  const a=$('#sw-from'); if(a) a.onchange=()=>{ P.from=a.value; P.sel=null; re(); };
+  const b=$('#sw-to'); if(b) b.onchange=()=>{ const it=S.items.find(i=>i.name.trim()===b.value.trim()); if(!it){ toast('الصنف ده مش في كارت الأصناف — ضيفه الأول',1); return; } P.to=it.id; re(); };
+  const c=$('#sw-f'); if(c) c.onchange=()=>{ P.f=+c.value||1; re(); };
+  const d=$('#sw-date'); if(d) d.onchange=()=>{ P.date=d.value||today(); };
+  document.querySelectorAll('[data-sw]').forEach(x=>x.onchange=()=>{ P.sel[x.dataset.sw]=x.checked; re(); }); }
 function prodActualRows(D){
   const pids=new Set();
   S.moves.forEach(m=>{ if(m.date!==D) return; if((m.dir==='in'&&m.runId&&!isByMove(m))||(m.dir==='out'&&m.reason==='صرف للفروع')) pids.add(m.itemId); });
@@ -10520,7 +10546,7 @@ function recipeStaleRuns(r){
   if(!r || !(r.outQty>0) || isDupRecipe(r)) return []; // الوصفة المكررة مش بتتقارن — التشغيلات اتعملت بالوصفة المستخدمة
   const by=new Map(); S.moves.forEach(m=>{ if(m.runId){ const e=by.get(m.runId)||{ins:[],outs:[]}; (isByMove(m)?(e.byp=e.byp||[]):(m.dir==='in'?e.ins:e.outs)).push(m); by.set(m.runId,e); } });
   const res=[];
-  by.forEach((e,id)=>{ const om=e.ins.find(m=>m.itemId===r.outItemId); if(!om) return;
+  by.forEach((e,id)=>{ const om=e.ins.find(m=>m.itemId===r.outItemId); if(!om) return; { const sc=(S.recipeSince||{})[r.id]; if(sc && String(om.date)<sc) return; } // قبل تاريخ تبديل خامة: التشغيلة اتعملت بالخامة القديمة فعلًا
     const run=(S.runs||[]).find(x=>x.id===id); if(run && run.name && run.name!==r.name) return;
     const b=(+om.qty||0)/r.outQty; const exp=new Map(mainLines(r).filter(l=>!isUntracked(l.itemId)).map(l=>[l.itemId,n2(l.qty*b)])); const got=new Map();
     e.outs.forEach(m=>{ if(!isUntracked(m.itemId)) got.set(m.itemId,n2((got.get(m.itemId)||0)+(+m.qty||0))); });
@@ -11178,6 +11204,30 @@ async function _act(a,d){
     S.dispatchOnlyMode=false; await saveMain(); toast('اتلغى القيد — اختيارات الصرف رجعت'); return render(); }
   if(a==='fix-factory-party'){ const L=wrongFactoryParty(); if(!L.length) return; if(!confirm(`${L.length} حركة منصرف سببها «${[...new Set(L.map(m=>m.reason))].join('، ')}» بس متسجلة لمصنع تاني كجهة. هتتشال الجهة منها (السبب والكمية زي ما هم). تكمل؟`)) return;
     const g=await guardBulk('تصحيح جهة حركات اتسجلت لمصنع'); if(!g) return; L.forEach(m=>{ m.party=''; }); await saveTx(); await logOp(g, L.length+' حركة'); toast(`اتصلحت ${L.length} حركة ✓`); if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{}); return render(); }
+  if(a==='swap-open'){ ui.sw=null; ui.modal=swapModal(); render(); swapBind(); return; }
+  if(a==='swap-apply'){ const P=ui.sw; if(!P) return; const from=item(P.from), to=item(P.to); if(!from||!to) return; const f=+P.f>0?+P.f:1;
+    const R=S.recipes.filter(r=>P.sel&&P.sel[r.id]&&(r.lines||[]).some(l=>l.itemId===from.id)); if(!R.length) return toast('مفيش وصفات متعلّم عليها',1);
+    if(!confirm(`هيتشال «${from.name}» من ${R.length} وصفة ويتحط مكانه «${to.name}» (الكمية × ${fmtP(f)}) من يوم ${P.date}.\n\nالتشغيلات اللي قبل اليوم ده مش هتتغير. تكمل؟`)) return;
+    const g=await guardBulk('تبديل خامة: '+from.name+' ← '+to.name); if(!g) return;
+    R.forEach(r=>{ const lines=[]; (r.lines||[]).forEach(l=>{ if(l.itemId===from.id){ const ex=lines.find(x=>x.itemId===to.id && !!x.by===!!l.by); const q=r4((+l.qty||0)*f); if(ex) ex.qty=r4(+ex.qty+q); else lines.push({...l, itemId:to.id, qty:q}); }
+        else { const ex=lines.find(x=>x.itemId===l.itemId && !!x.by===!!l.by && l.itemId===to.id); if(ex) ex.qty=r4(+ex.qty+(+l.qty||0)); else lines.push({...l}); } });
+      r.lines=lines; S.recipeSince=S.recipeSince||{}; S.recipeSince[r.id]=P.date; });
+    await saveMain(); await logOp(g, R.map(r=>r.name).join('، ').slice(0,400)); ui.modal=null; ui.sw=null;
+    const st=recipeSyncState().stale.length; toast(`اتبدّلت الخامة في ${R.length} وصفة ✓${st?` — ${st} منتج تكلفته اتغيرت، دوس «مزامنة الأسعار»`:''}`); return render(); }
+  if(a==='mv-bulk-reason'){
+    if(!isOwner()) return; const nr=($('#mv-bulk-reason')||{}).value; if(!nr) return;
+    const list=S.moves.filter(m=>mvSel.has(m.id) && m.dir==='out' && !m.runId); if(!list.length) return toast('محددش حركات منصرف',1);
+    const nn=list.filter(m=>m.notifyId).length;
+    if(!confirm(`${list.length} حركة هيبقى سببها «${nr}»${nn?`، وهيتلغي ${nn} إشعار عند المصنع التاني لو لسه ما اتسلمش`:''}، والجهة لو كانت مصنع هتتشال. الكميات زي ما هي. تكمل؟`)) return;
+    const g=await guardBulk(`تغيير سبب ${list.length} حركة لـ${nr}`); if(!g) return;
+    const byFac=new Map(); list.forEach(m=>{ if(m.notifyId && m.notifyFactory){ (byFac.get(m.notifyFactory)||byFac.set(m.notifyFactory,[]).get(m.notifyFactory)).push(m.notifyId); } });
+    let retracted=0; const received=[]; for(const [f,ids] of byFac){ const r=await retractMany(f, ids); retracted+=r.retracted||0; (r.received||[]).forEach(x=>received.push(x)); }
+    const facIds=new Set((FACTORIES||[]).map(f=>f.id));
+    list.forEach(m=>{ m.reason=nr; if(facIds.has(m.party)) m.party=''; delete m.notifyId; delete m.notifyFactory; });
+    mvSel.clear(); await saveTx(); await logOp(g, `${list.length} حركة ← ${nr} · ${retracted} إشعار اتلغى`);
+    if(received.length) alert(`اتغير السبب لـ${list.length} حركة واتلغى ${retracted} إشعار.\n\n⚠ ${received.length} إشعار كان المصنع التاني استلمه خلاص — لازم يمسحه من الوارد عنده:\n\n`+received.slice(0,30).map(x=>`• ${x.itemName}: ${fmt(x.qty)} ${x.unit||''}`).join('\n'));
+    else toast(`اتغير السبب لـ${list.length} حركة${retracted?` واتلغى ${retracted} إشعار`:''} ✓`);
+    return render(); }
   if(a==='mv-bulk-del'){
     if(!isOwner()) return toast('مسح الحركات لصاحب النظام بس',1);
     const list=S.moves.filter(m=>mvSel.has(m.id)); if(!list.length) return toast('محددش أي حركة',1);
