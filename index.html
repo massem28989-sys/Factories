@@ -1225,10 +1225,12 @@ const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 const n2 = v => (Math.round((+v||0)*100)/100);
 const fmt = (v,d=2) => {const x=n2(v); return x.toLocaleString('en-US',{minimumFractionDigits:Number.isInteger(x)?0:d,maximumFractionDigits:d});};
 const money = v => fmt(v,2);
+// سعر الوحدة: لحد 4 أرقام عشرية (0.229 تفضل 0.229 مش 0.23)
+const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocaleString('en-US',{minimumFractionDigits:Number.isInteger(x)?0:2,maximumFractionDigits:4}); };
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '29-10 · 11:45'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '29-10 · 18:30'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1277,9 +1279,9 @@ function _mergeNames(kind, serverList, def){
   return l.length?l:[def];
 }
 // الإعدادات اللي بتتحفظ مع الأصناف (عشان النسخة الاحتياطية تبقى كاملة)
-const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip'];
+const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip','blockNegative'];
 function stateSettings(){ const o={}; STATE_KEYS.forEach(k=>{ if(S[k]!==undefined) o[k]=S[k]; }); return o; }
-async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
+async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,blockNegative:!!S.blockNegative,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
 async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
@@ -1303,7 +1305,7 @@ async function load(){
   const main = await sget(KEY_MAIN);
   const tx   = await sget(KEY_TX);
   const hist = await sget(KEY_HIST);
-  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.unitConv=main.unitConv||{}; S.catSkip=main.catSkip||{}; S.locs=main.locs||[]; S.itemLoc=main.itemLoc||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
+  if(main){ S.items=main.items; S.recipes=main.recipes||[]; S.period=main.period; S.locks=main.locks||{}; S.suppliers=(main.suppliers&&main.suppliers.length)?main.suppliers:['المخزن الرئيسي']; S.branches=(main.branches&&main.branches.length)?main.branches:['الفرع الرئيسي']; S.boMap=main.boMap||{}; S.boConv=main.boConv||{}; S.boSeen=main.boSeen||{}; S.boHidden=main.boHidden||{}; S.boWeigh=main.boWeigh||{}; S.boKgPer=main.boKgPer||{}; S.untracked=main.untracked||{}; S.cntGrp=main.cntGrp||{}; S.cntLog=main.cntLog||{}; S.unitConv=main.unitConv||{}; S.catSkip=main.catSkip||{}; S.blockNegative=!!main.blockNegative; S.locs=main.locs||[]; S.itemLoc=main.itemLoc||{}; S.boTblAdd=main.boTblAdd||{}; S.boTblDel=main.boTblDel||{}; S.boDone=main.boDone||{}; S.inboxMap=main.inboxMap||{}; S.restrictDispatchTo=main.restrictDispatchTo||''; S.dispatchOnlyMode=!!main.dispatchOnlyMode; S.allowedReasons=main.allowedReasons||null; }
   else{
     S.items = SEED.map(x=>({...x, opening:x.qty, price:x.price||0, min:0}));
     S.recipes = []; S.locks = {};
@@ -1956,7 +1958,7 @@ async function pushAll(quiet){
         ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
       }
     }catch(e){}
-    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},catSkip:S.catSkip||{},locs:S.locs||[],itemLoc:S.itemLoc||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
+    await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},catSkip:S.catSkip||{},blockNegative:!!S.blockNegative,locs:S.locs||[],itemLoc:S.itemLoc||{},boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
     NAME_ADD.branches.clear(); NAME_ADD.suppliers.clear(); NAME_DEL.branches.clear(); NAME_DEL.suppliers.clear(); _saveNamePending();
   }catch(e){ errors.push('الإعدادات: '+e.message); }
 
@@ -1987,7 +1989,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
-    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.catSkip=(st&&st[0]&&st[0].v&&st[0].v.catSkip)||S.catSkip||{}; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
+    S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.catSkip=(st&&st[0]&&st[0].v&&st[0].v.catSkip)||S.catSkip||{}; if(st&&st[0]&&st[0].v&&st[0].v.blockNegative!==undefined) S.blockNegative=!!st[0].v.blockNegative; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
     MOVE_SIG.clear(); S.moves.forEach(m=>MOVE_SIG.set(m.id, moveSig(m))); // دي اللي على السيرفر فعلًا
@@ -2539,7 +2541,7 @@ function viewSuppliers(){
             <td>${isBuy?'<span class="chip b">شراء</span>':'<span class="chip r">مرتجع</span>'}</td>
             <td>${esc(m.itemName)}</td>
             <td class="n">${fmt(m.qty)} <span class="chip">${esc(m.unit)}</span></td>
-            <td class="n">${money(m.price||0)}</td>
+            <td class="n">${priceF(m.price||0)}</td>
             <td class="n">${isBuy?money(m.val):'—'}</td>
             <td class="n" style="color:var(--red)">${isBuy?'—':'−'+money(m.val)}</td>
             <td class="n hl">${money(run)}</td>
@@ -3384,7 +3386,7 @@ function invoiceViewModal(moveId){
     <h3>صورة الفاتورة — ${esc(it.name)} <span style="color:var(--muted);font-weight:400">${esc(m.date)}</span></h3>
     <div class="pad" style="text-align:center">
       <img src="${invoiceImageUrl(m.invoice)}" alt="فاتورة" style="max-width:100%;border-radius:8px;border:1px solid var(--line)">
-      <div class="hint" style="margin-top:8px">${esc(m.party||'')} · ${fmt(m.qty)} ${esc(it.unit)} · ${money(m.price||0)} للوحدة</div>
+      <div class="hint" style="margin-top:8px">${esc(m.party||'')} · ${fmt(m.qty)} ${esc(it.unit)} · ${priceF(m.price||0)} للوحدة</div>
     </div>
     <div class="foot">
       <a class="btn p" href="${invoiceImageUrl(m.invoice)}" target="_blank" rel="noopener">فتح بالحجم الكامل</a>
@@ -4008,7 +4010,7 @@ async function afterPriceChange(changes){
 }
 function recipeSyncState(){
   const byOut=new Map();
-  for(const r of S.recipes){ const o=item(r.outItemId); if(!o||!(+r.outQty>0)) continue; const uc=n2(recipeCost(r)/r.outQty); if(!(uc>0)) continue;
+  for(const r of S.recipes){ const o=item(r.outItemId); if(!o||!(+r.outQty>0)) continue; const uc=r4(recipeCost(r)/r.outQty); if(!(uc>0)) continue;
     if(!byOut.has(o.id)) byOut.set(o.id,{item:o, list:[]}); byOut.get(o.id).list.push({r, uc}); }
   const stale=[], multi=[];
   for(const {item:o,list} of byOut.values()){
@@ -5504,10 +5506,10 @@ function viewMove(dir){
         <td>${ui.mvEdit?`<input type="date" value="${m.prodDate||''}" data-mvprod="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.prodDate?`<span class="n">${m.prodDate}</span>`:'<span class="hint">—</span>')}</td>
         <td class="n">${ui.mvEdit?`<input type="number" step="any" value="${m.temp!=null&&m.temp!==''?m.temp:''}" data-mvtemp="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:58px;text-align:center">`:(m.temp!=null&&m.temp!==''?`${m.temp}\u00B0`:'<span class="hint">—</span>')}</td>
         ${isIn?`<td>${ui.mvEdit?`<input type="date" value="${m.expDate||''}" data-mvexp="${m.id}" style="padding:4px 6px;font-size:12px">`:(m.expDate?`<span class="n">${m.expDate}</span>`:'<span class="hint">—</span>')}</td>`:''}
-        ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:money(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${ui.mvEdit
+        ${isIn?`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:priceF(m.price||0)}</td><td class="n hl">${money(m.qty*(m.price||0))}</td><td>${ui.mvEdit
                 ? `<input type="text" list="dl-mv-sup" value="${esc(m.party||'')}" data-mvparty="${m.id}" placeholder="—" style="padding:4px 6px;font-size:12px;width:120px">`
                 : esc(m.party||'—')}</td>`
-              :`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:(m.price>0?money(m.price):(!m.runId && +(item(m.itemId)||{}).price>0?`<span class="hint" title="سعر التكلفة الحالي في الكارت — الحركة دي اتسجلت قبل ما سعر الصرف يتثبت عليها">${money(+item(m.itemId).price)}</span>`:'<span class="hint">—</span>'))}</td>
+              :`<td class="n">${ui.mvEdit && ROLE==='owner'?`<input type="number" step="any" min="0" value="${m.price||0}" data-mvprice="${m.id}" style="padding:4px 6px;font-size:12px;width:70px;text-align:center">`:(m.price>0?priceF(m.price):(!m.runId && +(item(m.itemId)||{}).price>0?`<span class="hint" title="سعر التكلفة الحالي في الكارت — الحركة دي اتسجلت قبل ما سعر الصرف يتثبت عليها">${priceF(+item(m.itemId).price)}</span>`:'<span class="hint">—</span>'))}</td>
                 <td>${ui.mvEdit?`<select data-mvreason="${m.id}" style="padding:4px 6px;font-size:12px;min-width:130px">
                     ${[...new Set([...outReasons(), m.reason].filter(Boolean))].map(r=>`<option value="${esc(r)}" ${m.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}
                   </select>`:`<span class="chip ${m.reason==='هالك / تالف'?'r':'b'}">${esc(reasonLabel(m.reason)||'—')}</span>`}${
@@ -6021,6 +6023,17 @@ const SUPABASE_KEY  = 'eyJhbGciOi...';</pre>
         }).join('')}
       </div>
       <div class="hint" style="margin-top:8px">المتاح حاليًا: <b>${outReasons().join(' · ')}</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>الصرف بالسالب</h2>
+    <div class="pad">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="block-negative" ${S.blockNegative?'checked':''}>
+        <span><b>امنع الصرف بالسالب في المصنع ده</b> — أي صرف (يدوي، بالجملة، للفروع، لمصنع تاني) بيترفض لو الرصيد مش كفاية، أو لو خامة من خامات الوصفة رصيدها مش كفاية للتصنيع</span>
+      </label>
+      <div class="hint" style="margin-top:6px">لو مش متعلّم: الصرف بيكمل حتى لو الرصيد هينزل تحت الصفر، وبيظهر تنبيه بس.</div>
     </div>
   </div>
 
@@ -7944,7 +7957,7 @@ function receiptModal(m){
         <tr><td style="padding:5px 0;color:var(--muted)">${t('r_item')}</td><td style="padding:5px 0;text-align:start;font-weight:600">${esc(it.name)}</td></tr>
         <tr><td style="padding:5px 0;color:var(--muted)">${t('r_qty')}</td><td style="padding:5px 0" class="n">${fmt(m.qty)} ${esc(it.unit)}</td></tr>
         ${isIn?`<tr><td style="padding:5px 0;color:var(--muted)">${t('r_supplier')}</td><td style="padding:5px 0">${esc(m.party||'—')}</td></tr>
-        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_unitprice')}</td><td style="padding:5px 0" class="n">${money(m.price||0)}</td></tr>
+        <tr><td style="padding:5px 0;color:var(--muted)">${t('r_unitprice')}</td><td style="padding:5px 0" class="n">${priceF(m.price||0)}</td></tr>
         <tr><td style="padding:5px 0;color:var(--muted)">${t('r_total')}</td><td style="padding:5px 0" class="n"><b>${money((m.qty||0)*(m.price||0))}</b></td></tr>`
         :`<tr><td style="padding:5px 0;color:var(--muted)">${t('r_dispense_to')}</td><td style="padding:5px 0">${esc(reasonLabel(m.reason)||'—')}</td></tr>
         <tr><td style="padding:5px 0;color:var(--muted)">${t('r_note')}</td><td style="padding:5px 0">${esc(m.party||'—')}</td></tr>`}
@@ -8257,6 +8270,8 @@ function bind(){
   };
   const iciText=$('#ici-text'); if(iciText) iciText.onblur=()=>renderItemCatalogImportPreview();
   const langSel=$('#lang-select'); if(langSel) langSel.onchange=e=>{ setLang(e.target.value); };
+  const bng=$('#block-negative'); if(bng) bng.onchange=async e=>{ if(!isOwner()){ e.target.checked=!!S.blockNegative; return toast('للمالك بس',1); }
+    S.blockNegative=e.target.checked; await saveMain(); toast(S.blockNegative?'الصرف بالسالب بقى ممنوع في المصنع ده':'الصرف بالسالب مسموح (بتنبيه)'); render(); };
   const dom=$('#dispatch-only-mode'); if(dom) dom.onchange=async e=>{
     S.dispatchOnlyMode=e.target.checked;
     await saveMain();
@@ -8645,7 +8660,7 @@ function bind(){
     const m=S.moves.find(x=>x.id===e.target.dataset.mvprice); if(!m) return;
     const v=parseFloat(e.target.value);
     if(isNaN(v)||v<0){ toast('اكتب سعر صحيح',1); return render(); }
-    m.price = n2(v);
+    m.price = r4(v);
     await saveTx();
     toast('اتحفظ السعر');
     render();
@@ -8894,6 +8909,8 @@ function planProduction(itemId, qty, bal, ops, short, depth, stack){
 }
 // الصرف بيكمل دايمًا: الوصفات (والخامات الوسيطة) بتتصنّع تلقائي، ولو خامة رصيدها ناقص بتتسجل بالسالب وبيظهر تنبيه — من غير ما يوقف الصرف
 const DISPENSE_ALWAYS = true;
+// «امنع الصرف بالسالب» (إعداد لكل مصنع): الصرف بيترفض لو الرصيد — أو رصيد أي خامة في الوصفة — مش كفاية
+const dispenseForceDefault = () => !(S && S.blockNegative);
 // خامات مش بنتتبع رصيدها (زي الثلج والمياه): بتتخصم عادي بس ما بتطلعش في النواقص ولا الأرصدة السالبة ولا قايمة الشراء
 const isUntracked = id => !!(S.untracked && S.untracked[id]);
 let __shortNote=null;
@@ -8920,7 +8937,8 @@ function commitProduction(ops, date){
     else S.runs.push({id:runId,date,name:rr.name,batches:r4(op.b),outQty,cost,auto:true,nested:op.nested||undefined});
   }
 }
-function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
+function dispenseOut(itemId, qty, date, party, reason, force=dispenseForceDefault()){
+  if(S.blockNegative) force=false;
   // بيسجل حركة منصرف لصنف واحد، وبيشغّل وصفته تلقائيًا لو موجودة (ووصفات الخامات الوسيطة لو رصيدها ناقص). لو الرصيد مش كفاية بيرفض ومايسجّلش أي حاجة —
   // إلا لو force=true (الصرف حصل فعلاً حتى لو الخامات عندنا رصيدها ناقص)
   const r=S.recipes.find(x=>x.outItemId===itemId);
@@ -8931,7 +8949,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
     if(make>0.0001) planProduction(itemId, make, bal, ops, short, 0, new Set([itemId]));
     if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
     commitProduction(ops, date);
-    const m={id:uid('m'),dir:'out',itemId,qty,date,price:n2(+(item(itemId)||{}).price||0),party,reason};
+    const m={id:uid('m'),dir:'out',itemId,qty,date,price:r4(+(item(itemId)||{}).price||0),party,reason};
     if(short.length){ m.forced=true; noteShortages(short); }
     S.moves.push(m);
     return {move:m, auto:true, nested:ops.some(o=>o.nested), shortages: short.length?short:undefined};
@@ -8941,7 +8959,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=DISPENSE_ALWAYS){
   if(qty > bal+1e-9){
     if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`, shortages:[{name:it?it.name:'غير معروف', need:qty, bal}]};
   }
-  const m={id:uid('m'),dir:'out',itemId,qty,date,price:n2(+(it||{}).price||0),party,reason};
+  const m={id:uid('m'),dir:'out',itemId,qty,date,price:r4(+(it||{}).price||0),party,reason};
   if(qty>bal+1e-9){ m.forced=true; noteShortages([{name:it?it.name:'غير معروف', need:qty, bal:Math.max(0,bal)}]); }
   S.moves.push(m);
   return {move:m, auto:false, shortages: (qty>bal && force)?[{name:it?it.name:'غير معروف', need:qty, bal}]:undefined};
@@ -8954,6 +8972,7 @@ function boShortSummary(fails){
 }
 async function boOfferForce(fails, onDone){
   if(!fails.length) return 0;
+  if(S.blockNegative){ alert(`${fails.length} صرف ما اتسجلش عشان الرصيد مش كفاية (الصرف بالسالب ممنوع في المصنع ده):\n\n${boShortSummary(fails)}\n\nسجّل الوارد أو الإنتاج الناقص الأول وبعدين اصرفهم.`); return 0; }
   const ok=confirm(`${fails.length} صرف ما اتسجلش عشان الرصيد مش كفاية:\n\n${boShortSummary(fails)}\n\nالحل الصح: سجّل الوارد أو الإنتاج الناقص الأول وبعدين اصرف تاني.\n\nلو البضاعة طلعت فعلًا للفروع ودوست «OK»، الصرف هيتسجل برضه والرصيد هيبقى بالسالب لحد ما تسجل الوارد/الإنتاج.`);
   if(!ok) return 0;
   let n=0; for(const f of fails){ const res=dispenseOut(f.itemId, f.qty, boDispDate(), f.branch, 'صرف للفروع', true); if(res.move){ if(res.move) res.move.forced=true; n++; if(onDone) onDone(f,res); } }
@@ -11259,8 +11278,8 @@ async function _act(a,d){
     if(!confirm(`هيتم تسجيل ${rows.length} حركة وارد بتواريخها الحقيقية. تكمل؟`)) return;
     rows.forEach(r=>{
       S.moves.push({ id:uid('m'), dir:'in', itemId:r.match.id, qty:n2(r.qty), date:r.date,
-        price:n2(r.price), party:r.party||'', reason:'' });
-      if(r.price>0) r.match.price = n2(r.price);
+        price:r4(r.price), party:r.party||'', reason:'' });
+      if(r.price>0) r.match.price = r4(r.price);
     });
     await saveMain(); await saveTx();
     ui.modal=null; IRI_PARSED=[];
@@ -12139,11 +12158,11 @@ async function _act(a,d){
   if(a==='price-stale-fix'){ const P=priceStalePlan(); if(!P.length) return toast('مفيش حاجة تتصلح');
     if(!confirm(`هيتغير سعر ${P.length} صنف في الكارت لآخر سعر شراء، وبعدين تكلفة المنتجات اللي هم داخلين فيها تتحدث. تكمل؟`)) return;
     const g=await guardBulk('أسعار الكارت ← آخر شراء'); if(!g) return;
-    P.forEach(x=>{ x.it.price=n2(x.to); }); const n=applyRecipePriceSync(); await saveMain();
+    P.forEach(x=>{ x.it.price=r4(x.to); }); const n=applyRecipePriceSync(); await saveMain();
     await logOp(g, P.map(x=>`${x.it.name} ${fmt(x.from)}←${fmt(x.to)}`).join('، ')+(n?` · ${n} منتج اتحدثت تكلفته`:''));
     toast(`اتصلح سعر ${P.length} صنف${n?` و${n} منتج`:''}`); return render(); }
   if(a==='bo-pre-sync'){ const n=await boPrePriced(); return toast(`اتحدث سعر ${n} منتج لتكلفة الوصفة`); }
-  if(a==='bo-pre-set'){ const z=item(d.id); if(!z) return; const from=+z.price||0; z.price=n2(+d.to); const n=await boPrePriced(); return toast(`«${z.name}»: ${fmt(from)} ← ${fmt(z.price)}${n?` · واتحدثت تكلفة ${n} منتج`:''}`); }
+  if(a==='bo-pre-set'){ const z=item(d.id); if(!z) return; const from=+z.price||0; z.price=r4(+d.to); const n=await boPrePriced(); return toast(`«${z.name}»: ${fmt(from)} ← ${fmt(z.price)}${n?` · واتحدثت تكلفة ${n} منتج`:''}`); }
   if(a==='bo-pre-ack'){ const P=ui.pre; if(!P) return; (P.ack=P.ack||{})[d.id]=1; boPreRefresh(); return; }
   if(a==='bo-pre-go'){
     const P=ui.pre; if(!P) return; const names=P.rows.filter(r=>P.sel[r.name]).map(r=>r.name);
@@ -12384,7 +12403,7 @@ async function _act(a,d){
       // لازم نقسمه على معامل التحويل عشان نخزّن سعر الوحدة الأساسية زي ما النظام بيتوقع في كل مكان تاني
       const unitMul = +($('#m-unitmode')?.value||1);
       const enteredPrice = +($('#m-price').value||0);
-      const unitPrice = unitMul>1 ? n2(enteredPrice/unitMul) : enteredPrice;
+      const unitPrice = unitMul>1 ? r4(enteredPrice/unitMul) : r4(enteredPrice);
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:unitPrice,party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
       if(m.price>0){ const old=+it.price||0; it.price=m.price; await saveMain(); setTimeout(()=>afterPriceChange([{it, from:old, to:m.price}]), 400); }
@@ -12454,9 +12473,9 @@ async function _act(a,d){
       // لو المستخدم ساب السعر المعبّى تلقائي زي ما هو من غير ما يلمسه، ناخد سعر الكارت بدل ما نسجّل صفر
       const typed = b.price[id];
       const price = (typed!==undefined && typed!=='') ? +typed : (+it.price>0 ? +it.price : 0);
-      const m={id:uid('m'),dir:'in',itemId:id,qty:n2(qty),date,price:n2(price),party,reason:''};
+      const m={id:uid('m'),dir:'in',itemId:id,qty:r4(qty),date,price:r4(price),party,reason:''};
       S.moves.push(m); moves.push(m);
-      if(price>0) it.price=n2(price);
+      if(price>0) it.price=r4(price);
     }
     let invMsg='';
     if(BULKIN_FILE){
