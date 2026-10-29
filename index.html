@@ -1228,7 +1228,7 @@ const money = v => fmt(v,2);
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '28-10 · 18:15'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '29-10 · 11:45'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5326,7 +5326,7 @@ function bulkOutPanel(){
       <button class="btn sm" data-act="toggle-bulk" style="margin-inline-start:auto">${t('back_normal')}</button></h2>
     <div class="pad">
       <div class="grid" style="margin-bottom:0">
-        <div><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${outReasons().map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        ${(S.dispatchOnlyMode && S.restrictDispatchTo)?lockedReasonHtml():''}<div style="${(S.dispatchOnlyMode && S.restrictDispatchTo)?'display:none':''}"><label class="f">${t('dispense_to')}</label><select id="b-reason" style="width:100%">${outReasons().map(r=>`<option value="${esc(r)}" ${b.reason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
         <div>${b.reason==='\u0635\u0631\u0641 \u0644\u0644\u0641\u0631\u0648\u0639'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="b-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option ${b.party===br?'selected':''}>${br}</option>`).join('')}</select>
@@ -5359,6 +5359,13 @@ function bulkOutPanel(){
   </div>`;
 }
  
+// المصنع مضبوط «مخصص للتوريد لمصنع واحد بس»: أي منصرف بيتسجل صرف للمصنع ده. لازم يبان قدام المستخدم — قبل كده الاختيارات كانت ظاهرة والصرف بيروح للمصنع التاني من غير ما يعرف
+function dispatchLockBanner(){ if(!(S.dispatchOnlyMode && S.restrictDispatchTo)) return ''; const f=FACTORIES.find(x=>x.id===S.restrictDispatchTo); const fn=f?f.name:S.restrictDispatchTo;
+  return `<div class="panel" style="border:2px solid var(--red)"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <b style="color:var(--red)">🔒 أي منصرف من هنا بيتسجل «صرف لـ${esc(fn)}» وبيوصلهم إشعار</b>
+    <span class="hint">الإعداد «المصنع ده مخصص للتوريد لـ${esc(fn)} بس» شغال. العينات والهالك والإنتاج مش هتتسجل صح طول ما هو شغال.</span>
+    ${isOwner()?`<button class="btn sm p" data-act="dispatch-lock-off" style="margin-inline-start:auto">إلغاء القيد ده</button>`:''}</div></div>`; }
+const lockedReasonHtml = () => { const f=FACTORIES.find(x=>x.id===S.restrictDispatchTo); return `<div><label class="f">${t('dispense_to')}</label><div style="padding:8px 10px;border:1px solid var(--red);border-radius:8px;color:var(--red);font-weight:600">🔒 صرف لـ${esc(f?f.name:S.restrictDispatchTo)} (إجباري)</div></div>`; };
 function viewMove(dir){
 
   const isIn=dir==='in';
@@ -5375,7 +5382,7 @@ function viewMove(dir){
   });
   const bulkOn = !isIn && ui.bulk.on;
   const bulkInOn = isIn && ui.bulkIn.on;
-  return `${isIn && !bulkInOn ? prAwaitingPanel() : ''}
+  return `${isIn && !bulkInOn ? prAwaitingPanel() : ''}${!isIn?dispatchLockBanner():''}
   ${bulkOn?bulkOutPanel():bulkInOn?bulkInPanel():`
   <div class="panel">
     <h2>${isIn?t('record_in'):t('record_out')}
@@ -5404,7 +5411,7 @@ function viewMove(dir){
             <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
             <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
           </div></div>`
-        :`<div><label class="f">${t('dispense_to')}</label><select id="m-reason" style="width:100%">${outReasons().map(r=>`<option value="${esc(r)}" ${ui.moveReason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
+        :(S.dispatchOnlyMode && S.restrictDispatchTo)?lockedReasonHtml()+'<div></div>':`<div><label class="f">${t('dispense_to')}</label><select id="m-reason" style="width:100%">${outReasons().map(r=>`<option value="${esc(r)}" ${ui.moveReason===r?'selected':''}>${reasonLabel(r)}</option>`).join('')}</select></div>
         <div>${ui.moveReason==='صرف للفروع'?`<label class="f">${t('branch')}</label>
           <div style="display:flex;gap:6px">
             <select id="m-party" style="flex:1;min-width:0">${S.branches.map(br=>`<option>${esc(br)}</option>`).join('')}</select>
@@ -10435,6 +10442,7 @@ function orphanDates(days){ const x=new Date(); x.setDate(x.getDate()-(days||31)
 function moveDatesWithProduction(list, nd){ const old=new Set(); const moved=[];
   list.forEach(m=>{ if(m.date===nd) return; if(m.dir==='out' && !m.runId && activeRecipeOf(m.itemId)){ old.add(m.date); moved.push(m); } m.date=nd; });
   if(!moved.length) return 0; orphanAutoApply([...old]); moved.forEach(m=>prodExtend(m.itemId, nd, +m.qty||0)); markAutoRuns(); return moved.length; }
+function wrongFactoryParty(){ const ids=new Set((FACTORIES||[]).map(f=>f.id)); return S.moves.filter(m=>m.dir==='out' && !m.runId && m.reason && m.reason!=='صرف لمصنع تاني' && ids.has(m.party) && !m.notifyId); }
 function prodActualRows(D){
   const pids=new Set();
   S.moves.forEach(m=>{ if(m.date!==D) return; if((m.dir==='in'&&m.runId&&!isByMove(m))||(m.dir==='out'&&m.reason==='صرف للفروع')) pids.add(m.itemId); });
@@ -10732,6 +10740,8 @@ function healthCheck(){
     add({id:'dupb',lvl:n?'bad':'ok',title:n?`${n} حركة صرف اتسجلت مرتين (نفس الدفعة)`:'مفيش صرف متسجل مرتين',
       desc:n?'نفس الدفعة اتسجلت ورا بعض بنفس الأصناف والكميات. اللوحة الحمرا في «المنصرف» بتشيل المكرر وتلغي إشعاراته والإنتاج اللي اتعمل عشانه.':'',
       rows:DB_.slice(0,20).map(x=>({c:[x.date, (x.reason||'')+' · '+(x.party||''), x.moves.length+' حركة']})), act:n?['hc-go-out','📤 افتح المنصرف']:null}); }
+  { const W=wrongFactoryParty(); if(W.length) add({id:'wfp',lvl:'warn',title:`${W.length} حركة منصرف (${[...new Set(W.map(m=>m.reason))].join('، ')}) متسجلة لمصنع تاني كجهة`,desc:'غالبًا اتسجلت وقت ما كان قيد «المصنع مخصص للتوريد لمصنع واحد بس» شغال. الكمية والسبب صح، الجهة بس اللي غلط.',rows:W.slice(0,30).map(m=>({c:[m.date,(item(m.itemId)||{}).name||'?',fmt(m.qty)+' · '+(m.reason||'')]})),act:['fix-factory-party','🔧 شيل الجهة الغلط']});
+    if(S.dispatchOnlyMode && S.restrictDispatchTo) add({id:'dlock',lvl:'warn',title:'كل المنصرف اليدوي بيتسجل صرف لمصنع تاني',desc:'قيد «المصنع ده مخصص للتوريد لمصنع واحد بس» شغال. لو المصنع ده بيصرف عينات أو هالك أو للفروع بإيده، الغيه.',act:['dispatch-lock-off','إلغاء القيد']}); }
   // 8ج) صرف لمصنع تاني من غير إشعار — المصنع التاني مش هيعرف يستلمه
   { const un=S.moves.filter(m=>m.dir==='out' && m.reason==='صرف لمصنع تاني' && !m.notifyId);
     add({id:'unnot',lvl:un.length?'warn':'ok',title:un.length?`${un.length} صرف لمصنع تاني من غير إشعار`:'كل الصرف للمصانع التانية وصله إشعار',
@@ -11145,6 +11155,10 @@ async function _act(a,d){
     return render();
   }
   if(a==='hc-go-out'){ ui.modal=null; ui.mvReason=''; ui.mvParty=''; goTab('out'); return; }
+  if(a==='dispatch-lock-off'){ if(!isOwner()) return; if(!confirm('إلغاء «المصنع ده مخصص للتوريد لمصنع واحد بس»؟\n\nبعدها المنصرف هيتسجل بالسبب اللي تختاره (عينات، هالك، للفروع…). قيد «قصر الصرف لمصنع تاني» نفسه هيفضل زي ما هو.')) return;
+    S.dispatchOnlyMode=false; await saveMain(); toast('اتلغى القيد — اختيارات الصرف رجعت'); return render(); }
+  if(a==='fix-factory-party'){ const L=wrongFactoryParty(); if(!L.length) return; if(!confirm(`${L.length} حركة منصرف سببها «${[...new Set(L.map(m=>m.reason))].join('، ')}» بس متسجلة لمصنع تاني كجهة. هتتشال الجهة منها (السبب والكمية زي ما هم). تكمل؟`)) return;
+    const g=await guardBulk('تصحيح جهة حركات اتسجلت لمصنع'); if(!g) return; L.forEach(m=>{ m.party=''; }); await saveTx(); await logOp(g, L.length+' حركة'); toast(`اتصلحت ${L.length} حركة ✓`); if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{}); return render(); }
   if(a==='mv-bulk-del'){
     if(!isOwner()) return toast('مسح الحركات لصاحب النظام بس',1);
     const list=S.moves.filter(m=>mvSel.has(m.id)); if(!list.length) return toast('محددش أي حركة',1);
