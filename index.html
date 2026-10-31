@@ -1230,7 +1230,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '29-10 · 23:30'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '31-10 · 23:00'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -10750,7 +10750,9 @@ function healthCheck(){
       desc:O.length?'الصرف اللي اتعمل الإنتاج عشانه اتمسح أو اتقلل، فالخامات اتخصمت على الفاضي. الإلغاء بيرجّع الخامات ومش بيلمس الإنتاج اليدوي أو المتأكد.':'',
       rows:[...byP.values()].map(e=>({c:[e.n, fmt(e.q)+' '+e.u, [...e.d].sort().join('، ')]})), act:O.length?['orphan-prod-fix','🧹 الغي الإنتاج اللي مالوش صرف']:null}); }
   // 6) صرف الفروع النهارده مقارنة بالطلبيات
-  if(BO.orders && BO.orders.length && BO.from===D && BO.to===D){
+  if(BO.orders && BO.orders.length && BO.from===D && BO.to===D && String(D).slice(0,7)<S.period){
+    add({id:'bo',lvl:'ok',title:`صرف ${D} في شهر مقفول — حركاته اتأرشفت مع القفل`,desc:'مراجعة الصرف مقابل الطلبيات بتشتغل على الشهر المفتوح بس.'});
+  } else if(BO.orders && BO.orders.length && BO.from===D && BO.to===D){
     const A=boAudit(D); const c=st=>A.rows.filter(r=>r.st===st).length;
     const bad=c('dup')+c('more')+c('less')+c('done-no-move'), od=c('other-day'), pend=c('pending');
     add({id:'bo',lvl:bad?'bad':(od?'warn':'ok'),title:bad?`صرف الفروع النهارده: ${bad} سطر محتاج مراجعة`:(od?`صرف الفروع: ${od} سطر متسجل بتاريخ تاني`:'صرف الفروع النهارده مطابق للطلبيات'),
