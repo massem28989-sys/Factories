@@ -1230,7 +1230,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '31-10 · 23:00'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '31-10 · 23:45'; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12788,6 +12788,8 @@ async function _act(a,d){
     { const empty=S.items.filter(it=>S.counts[it.id]===undefined).length;
       if(!confirm(`إقفال ${periodLabel(S.period)}؟ الجرد الفعلي هيبقى أول المدة للشهر الجاي.`+
         (empty?`\n\n⚠️ فيه ${empty} صنف ما اتكتبلوش رقم في الجرد — هياخدوا رصيدهم الدفتري زي ما هو (مش صفر).\nلو دول مش موجودين فعلًا، دوس «إلغاء» ودوس «اللي فاضي = صفر» الأول.`:''))) return; }
+    { const later=S.moves.filter(m=>String(m.date||'').slice(0,7)>S.period);
+      if(later.length && !confirm(`⚠️ فيه ${later.length} حركة متسجلة بتاريخ بعد ${periodLabel(S.period)} (زي ${later[0].date}).\nالإقفال هيحسبهم على الشهر ده ويأرشفهم معاه، ومش هيظهروا في الشهر الجديد.\n\nده صح بس لو الجرد اتعمل بعد الحركات دي (يعني الجرد شايفها). لو الحركات دي حصلت بعد الجرد، دوس «إلغاء» وامسحها وسجّلها تاني بعد الإقفال.\n\nتكمّل؟`)) return; }
     const g=await guardBulk('إقفال شهر '+S.period); if(!g) return;
     const t=totals(); const closedPeriod=S.period; const closedMoves=S.moves.filter(m=>m.dir==='in'&&m.invoice).map(m=>({...m}));
     S.closed.push({period:closedPeriod,value:t.value,date:today(),
