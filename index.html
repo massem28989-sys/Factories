@@ -1230,7 +1230,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '02-11 · 02:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '02-11 · 03:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4767,6 +4767,25 @@ function boPreCheck(names){
     rows.push({name:n, it, cf, total, lines, warn, stop, priceW, n:lines.length}); }
   return rows.sort((a,b)=>(b.stop.length-a.stop.length)||(b.warn.length+b.priceW.length-a.warn.length-a.priceW.length)||boLabel(a.name).localeCompare(boLabel(b.name),'ar'));
 }
+// توقّع: الصرف ده (بالإنتاج التلقائي) هيخصم كام من كل خامة — وأنهي خامة هتنزل بالسالب
+function boRawProjection(P){
+  const bal=new Map(), ops=[], short=[]; const hasRec=id=>S.recipes.some(x=>x.outItemId===id && x.outQty>0);
+  P.rows.filter(r=>P.sel[r.name]).forEach(r=>{ const it=r.it; if(!it || !hasRec(it.id)) return;
+    const q=n2(r.lines.filter(x=>!(P.excl||{})[r.name+'|'+x.branch]).reduce((t,x)=>t+(+x.q||0),0)); if(!(q>0)) return;
+    if(!bal.has(it.id)) bal.set(it.id, bookExact(it));
+    const have=bal.get(it.id);
+    if(q>have+1e-9){ try{ planProduction(it.id, r4(q-Math.max(0,have)), bal, ops, short, 0, new Set([it.id])); }catch(e){} }
+    bal.set(it.id, r4(bal.get(it.id)-q)); });
+  const out=[]; bal.forEach((v,id)=>{ const li=item(id); if(!li || isUntracked(id) || hasRec(id)) return; if(v<-1e-6){ const st=bookExact(li); out.push({it:li, start:n2(st), use:n2(st-v), end:n2(v), short:n2(Math.max(0,-v)-Math.max(0,-st))}); } });
+  return out.filter(x=>x.short>0.0005).sort((a,b)=>(b.short*(+b.it.price||0))-(a.short*(+a.it.price||0)));
+}
+function boRawBox(P){ let L=[]; try{ L=boRawProjection(P); }catch(e){ return ''; } if(!L.length) return '';
+  return `<div style="background:#FFF4E5;border:1px solid #F0C27B;border-radius:10px;padding:10px 12px;margin-bottom:10px">
+    <b style="color:#8A4A0B">🧪 ${L.length} خامة هتنزل بالسالب لو صرفت دلوقتي</b>
+    <div class="hint" style="margin:4px 0 6px">الإنتاج التلقائي هيخصم الخامات دي حسب الوصفات، ورصيدها مش مكفي. غالبًا وارد لسه ما اتسجلش — سجّله الأول وبعدين ارجع اصرف، والسالب مش هيظهر خالص.</div>
+    <table class="gridcols"><thead><tr><th>الخامة</th><th class="n">الرصيد دلوقتي</th><th class="n">الصرف هيخصم</th><th class="n">ناقص</th></tr></thead><tbody>
+    ${L.slice(0,25).map(x=>`<tr><td>${esc(x.it.name)}</td><td class="n">${fmt(x.start)}</td><td class="n">${fmt(x.use)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.short)}</b> ${esc(x.it.unit||'')}</td></tr>`).join('')}</tbody></table>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm p" data-act="bo-pre-recv">📥 سجّل وارد الخامات دي (${L.length})</button><span class="hint" style="align-self:center">أو كمّل الصرف عادي — وهتظهر في الفحص اليومي</span></div></div>`; }
 function boPreModal(){
   const P=ui.pre; if(!P) return ''; if(!P.sel){ P.sel={}; P.excl={}; P.rows.forEach(r=>{ P.sel[r.name]=!r.lines.some(x=>x.big) && !r.priceW.length; r.lines.forEach(x=>{ if(x.done>0) P.excl[r.name+'|'+x.branch]=1; }); }); }
   const bad=P.rows.filter(r=>r.stop.length||r.warn.some(w=>!/^تحويل/.test(w))), pw=P.rows.filter(r=>r.priceW.length), ok=P.rows.length-new Set([...bad,...pw]).size;
@@ -4775,6 +4794,7 @@ function boPreModal(){
     <h3>🛡 فحص قبل الصرف</h3>
     <div class="pad" style="max-height:72vh;overflow:auto">
       ${(()=>{ const MP=midnightPlan().filter(x=>x.D===boDispDate()); if(!MP.length) return ''; const x=MP[0]; return `<div style="background:#FDECEC;border:1px solid #F0CACA;border-radius:10px;padding:10px 12px;margin-bottom:10px"><b>⚠ ${x.moves.length} حركة صرف متسجلة يوم ${esc(x.D)} وهي من طلبيات يوم ${esc(x.prev)}</b><div class="hint" style="margin:4px 0 8px">اتصرفت متأخر فاتسجلت بتاريخ الساعة. عشان كده الأصناف تحت ظاهرة «اتصرف قبل كده». انقلها ليومها الأول، وبعدين افتح الفحص تاني.</div><button class="btn sm p" data-act="midnight-fix">📅 انقلهم ليوم ${esc(x.prev)}</button></div>`; })()}
+      ${boRawBox(P)}
       <div class="cards" style="margin-bottom:10px"><div class="card"><div class="k">أصناف</div><div class="v">${P.rows.length}</div><div class="s">على ${br} فرع</div></div>
         <div class="card"><div class="k">سليمة</div><div class="v" style="color:var(--green)">${ok}</div></div>
         <div class="card"><div class="k">كمية محتاجة نظرة</div><div class="v" style="color:#B36B00">${bad.length}</div></div>
@@ -10714,7 +10734,7 @@ function healthCheck(){
   const neg=S.items.filter(it=>!isUntracked(it.id)).map(it=>({it,b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
   add({id:'neg',lvl:neg.length?'bad':'ok',title:neg.length?`${neg.length} صنف رصيده بالسالب`:'مفيش أرصدة بالسالب',
     desc:neg.length?'السبب واحد من تلاتة: وارد/شراء ما اتسجلش، أو إنتاج اتسجل مرتين، أو كمية غلط في الوصفة. لو الصنف ده مش بتتابع مخزونه أصلًا (زي الثلج والمياه) دوس «مش بنتتبعه».':'',
-    rows:neg.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['hc-untrack','مش بنتتبعه',x.it.id], btn3:S.recipes.some(r=>(r.lines||[]).some(l=>l.itemId===x.it.id))?['swap-from','🔁 شيله من الوصفة / بدّله',x.it.id]:null}))});
+    rows:neg.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['hc-untrack','مش بنتتبعه',x.it.id], btn3:S.recipes.some(r=>(r.lines||[]).some(l=>l.itemId===x.it.id))?['swap-from','🔁 شيله من الوصفة / بدّله',x.it.id]:['neg-fix','↪ صفّره',x.it.id]}))});
   { const SM=shortMakeList(); if(SM.length) add({id:'short',lvl:'bad',title:`${SM.length} منتج ليه وصفة واتصرف أكتر من اللي اتصنّع`,
       desc:'المنتجات دي اتصرفت للفروع بس جزء منها ما اتسجلش له إنتاج، فرصيدها بالسالب وخاماتها ما اتخصمتش. لو الصرف ده حصل فعلًا، «صنّع الناقص» بيسجل الإنتاج للكمية الناقصة بس ويخصم الخامات حسب الوصفة.',
       rows:SM.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['make-short','⚙ صنّع الناقص',x.it.id]})), act:['make-short-all',`⚙ صنّع الناقص للكل (${SM.length})`]}); }
@@ -12039,6 +12059,24 @@ async function _act(a,d){
     markAutoRuns(); await saveTx(); await logOp(g, `${n} منتج اتصنّع الناقص منه: `+list.map(E=>`${E.it.name} ${fmt(E.short.qty)}`).join('، ').slice(0,400));
     toast(`اتسجل إنتاج ${n} منتج ✓`); ui.modal=a==='make-short'?balanceModal(d.id):healthModal(); return render(); }
   if(a==='hc-copy'){ const t=healthText(); try{ await navigator.clipboard.writeText(t); toast('التقرير اتنسخ — الصقه في الشات'); }catch(e){ prompt('انسخ التقرير:',t); } return; }
+  if(a==='neg-fix'){ const it=item(d.id); if(!it) return; const q=n2(-calc(it).book); if(!(q>0)) return toast('رصيده مش بالسالب',1);
+    ui.nf={id:it.id, to:'', q};
+    ui.modal=`<div class="modal" data-close="1"><div class="box" style="max-width:560px"><h3>↪ صفّر «${esc(it.name)}» (${fmt(-q)} ${esc(it.unit||'')})</h3><div class="pad">
+      <div class="hint" style="margin-bottom:10px;line-height:1.8">الكمية دي اتصرفت فعلًا. لو البضاعة كانت داخلة على <b>صنف تاني</b> (اسم جديد)، اكتب اسمه — هيتخصم منه نفس الكمية والقديم يرجع صفر، والقيمة الإجمالية مش هتتغير.<br>لو مفيش صنف تاني، سيب الخانة فاضية — هيتسجل وارد «تسوية جرد» بسعر الكارت.</div>
+      <label class="f">الصنف اللي البضاعة دخلت عليه (اختياري)</label>
+      <input type="text" id="nf-to" list="nf-items" style="width:100%" placeholder="اكتب اسم الصنف الجديد…"><datalist id="nf-items">${S.items.filter(i=>i.id!==it.id).map(i=>`<option value="${esc(i.name)}">`).join('')}</datalist>
+      <div class="hint" id="nf-info" style="margin-top:6px"></div></div>
+      <div class="foot"><button class="btn p" data-act="neg-fix-go">صفّره</button><button class="btn" data-close="1">إلغاء</button></div></div></div>`;
+    render(); const inp=$('#nf-to'); if(inp) inp.oninput=()=>{ const t=S.items.find(i=>i.name.trim()===inp.value.trim()); ui.nf.to=t?t.id:''; const inf=$('#nf-info'); if(inf) inf.innerHTML=t?`رصيد «${esc(t.name)}» دلوقتي ${fmt(calc(t).book)} ${esc(t.unit||'')} — هيبقى ${fmt(n2(calc(t).book-q))}${t.unit!==it.unit?` <b style="color:#A32D2D">⚠ الوحدة مختلفة (${esc(it.unit)} ← ${esc(t.unit)})</b>`:''}`:''; };
+    return; }
+  if(a==='neg-fix-go'){ const P=ui.nf; if(!P) return; const it=item(P.id); if(!it) return; const to=P.to?item(P.to):null; const q=n2(-calc(it).book); if(!(q>0)) { ui.modal=healthModal(); return render(); }
+    if(to && to.unit!==it.unit && !confirm(`الوحدة مختلفة: «${it.unit}» و«${to.unit}». هيتخصم ${fmt(q)} ${to.unit} من «${to.name}». متأكد؟`)) return;
+    const g=await guardBulk('تصفير سالب: '+it.name+(to?' ← '+to.name:'')); if(!g) return;
+    const D=today(), batch=uid('nf');
+    S.moves.push({id:uid('m'),dir:'in',itemId:it.id,qty:q,date:D,price:+it.price||0,party:'تسوية جرد (تلقائي)',reason:'',settleBatch:batch});
+    if(to) S.moves.push({id:uid('m'),dir:'out',itemId:to.id,qty:q,date:D,price:+to.price||0,party:'',reason:'تسوية جرد',settleBatch:batch,note:'استهلاك اتسجل على «'+it.name+'»'});
+    CALC_IDX=null; await saveTx(); await logOp(g, `${fmt(q)} ${it.unit}${to?' ← '+to.name:''}`);
+    ui.nf=null; ui.modal=healthModal(); toast(`«${it.name}» رجع صفر ✓${to?` — واتخصم ${fmt(q)} من «${to.name}»`:''}`); return render(); }
   if(a==='hc-untrack'){ await untrackItem(d.id); ui.modal=/ليه رصيد/.test(ui.modal||'')?balanceModal(d.id):healthModal(); return render(); }
   if(a==='hc-untrack-old'){ if(!S.untracked) S.untracked={}; S.untracked[d.id]=1; await saveMain(); toast(`"${(item(d.id)||{}).name}" مش هيتحسب في الأرصدة السالبة ولا طلبات الشراء`); ui.modal=healthModal(); return render(); }
   if(a==='hc-backup-now'){ const r=await snapshotBefore('نسخة يدوية من الفحص اليومي'); if(r.ok){ BACKUPS_LIST=await listBackups(); backupsLoaded=true; toast('اتاخدت نسخة ✓'); } else toast('النسخة فشلت: '+r.err,1); ui.modal=healthModal(); return render(); }
@@ -12234,6 +12272,11 @@ async function _act(a,d){
   if(a==='bo-pre-sync'){ const n=await boPrePriced(); return toast(`اتحدث سعر ${n} منتج لتكلفة الوصفة`); }
   if(a==='bo-pre-set'){ const z=item(d.id); if(!z) return; const from=+z.price||0; z.price=r4(+d.to); const n=await boPrePriced(); return toast(`«${z.name}»: ${fmt(from)} ← ${fmt(z.price)}${n?` · واتحدثت تكلفة ${n} منتج`:''}`); }
   if(a==='bo-pre-ack'){ const P=ui.pre; if(!P) return; (P.ack=P.ack||{})[d.id]=1; boPreRefresh(); return; }
+  if(a==='bo-pre-recv'){ const P=ui.pre; if(!P) return; let L=[]; try{ L=boRawProjection(P); }catch(e){}
+    if(!L.length) return toast('مفيش خامات ناقصة',1);
+    ui.bulkIn={...(ui.bulkIn||{}), on:true, cat:'الكل', q:'', date:'', qty:{}, price:{}}; L.forEach(x=>{ ui.bulkIn.qty[x.it.id]=String(Math.ceil(x.short*100)/100); });
+    ui.modal=null; ui.pre=null; tab='in'; render();
+    toast(`اتجهّز وارد ${L.length} خامة بالكميات الناقصة — عدّل الكمية للي استلمته فعلًا واختار المورد، وبعدين ارجع اصرف`); return; }
   if(a==='bo-pre-go'){
     const P=ui.pre; if(!P) return; const names=P.rows.filter(r=>P.sel[r.name]).map(r=>r.name);
     if(!names.length) return toast('مفيش أصناف متعلّم عليها',1);
