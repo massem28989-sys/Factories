@@ -1230,7 +1230,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '31-10 · 23:45'; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '02-11 · 02:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2472,7 +2472,7 @@ function supplierAccounts(){
     if(!party) return;
     const it = item(m.itemId); if(!it) return;
     const val = n2((+m.qty||0) * (+m.price||0));
-    if(m.dir==='in' && !String(m.party||'').startsWith('إنتاج تلقائي') && !String(m.party||'').startsWith('تسوية جرد')){
+    if(m.dir==='in' && !String(m.party||'').startsWith('إنتاج تلقائي') && !isSettleParty(m.party)){
       const a=ensure(party); a.buys=n2(a.buys+val); a.buyN++; a.moves.push({...m, kind:'buy', val, itemName:it.name, unit:it.unit});
     } else if(m.dir==='out' && m.reason==='مرتجع للمورد'){
       const a=ensure(party); a.returns=n2(a.returns+val); a.retN++; a.moves.push({...m, kind:'ret', val, itemName:it.name, unit:it.unit});
@@ -2562,7 +2562,7 @@ function viewSuppliers(){
 /* ================= مقارنة أسعار الموردين (من حركات الوارد الفعلية) ================= */
 let SPC_Q = '';
 function supplierPriceStats(){
-  const EXCL = p => !p || p.startsWith('إنتاج تلقائي') || p.startsWith('تسوية جرد');
+  const EXCL = p => !p || p.startsWith('إنتاج تلقائي') || isSettleParty(p);
   const byItem = {};
   S.moves.forEach(m=>{
     if(m.dir!=='in' || !(+m.price>0) || EXCL(String(m.party||''))) return;
@@ -3615,7 +3615,7 @@ function financeData(){
   const moves = S.moves.filter(inRange);
   const priceOf = id => { const it=item(id); return it? (+it.price||0) : 0; };
   const isProd = p => String(p||'').startsWith('إنتاج تلقائي');
-  const isSettle = (m) => m.reason==='تسوية جرد' || String(m.party||'').startsWith('تسوية جرد');
+  const isSettle = (m) => m.reason==='تسوية جرد' || isSettleParty(m.party);
 
   const openingValue = n2(S.items.reduce((s,i)=>s+(+i.opening||0)*(+i.price||0),0));
   const closingValue = n2(S.items.reduce((s,i)=>s+calc(i).book*(+i.price||0),0));
@@ -6421,7 +6421,7 @@ function settlementReceiptModal(historyEntry){
 // بيسترجع تسويات قديمة اتعملت قبل ميزة الحفظ، من الحركات الفعلية اللي لسه موجودة في السجل
 // (أي حركة عليها علامة "تسوية جرد")، ويجمّعها حسب التاريخ عشان تقدر تطبعها زي لو كانت متحفوظة
 function reconstructSettlementsFromMoves(){
-  const settleMoves = S.moves.filter(m=>m.reason==='تسوية جرد' || String(m.party||'').startsWith('تسوية جرد'));
+  const settleMoves = S.moves.filter(m=>m.reason==='تسوية جرد' || isSettleParty(m.party));
   const byBatch = {}; // لو الحركة عليها settleBatch، بنجمع بيه؛ وإلا بنجمع حسب التاريخ بس
   settleMoves.forEach(m=>{
     const key = m.settleBatch || ('date:'+m.date);
@@ -7848,7 +7848,7 @@ function zeroPriceInMoves(){
   return S.moves.filter(m=>{
     if(m.dir!=='in' || +m.price>0) return false;
     const p=String(m.party||'');
-    if(p.startsWith('إنتاج تلقائي') || p.startsWith('تسوية جرد')) return false;
+    if(p.startsWith('إنتاج تلقائي') || isSettleParty(p)) return false;
     const it=item(m.itemId); return it && +it.price>0;
   });
 }
@@ -10481,7 +10481,7 @@ function swapModal(){ const P=ui.sw||(ui.sw={from:'',to:'',f:1,date:today(),sel:
     ${from?(R.length?`<table style="margin-top:12px"><thead><tr><th style="width:28px"></th><th>الوصفة</th><th class="n">${esc(from.name)}</th><th class="n">${to?esc(to.name):'الجديدة'}</th></tr></thead><tbody>
       ${R.map(r=>{ const q=(r.lines||[]).filter(l=>l.itemId===from.id).reduce((t,l)=>t+(+l.qty||0),0); const has=to&&(r.lines||[]).some(l=>l.itemId===to.id);
         return `<tr><td><input type="checkbox" data-sw="${esc(r.id)}" ${P.sel&&P.sel[r.id]?'checked':''}></td><td>${esc(r.name)}${has?'<div class="hint">الجديدة موجودة في الوصفة أصلًا — الكميتين هيتجمعوا</div>':''}</td><td class="n">${fmtP(q)} ${esc(from.unit||'')}</td><td class="n"><b>${fmtP(r4(q*f))}</b> ${to?esc(to.unit||''):''}</td></tr>`; }).join('')}</tbody></table>`:'<div class="empty">الخامة دي مش داخلة في أي وصفة</div>'):''}
-    </div><div class="foot">${from&&to&&R.length?`<button class="btn p" data-act="swap-apply">بدّل في ${R.filter(r=>P.sel&&P.sel[r.id]).length} وصفة</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`; }
+    </div><div class="foot">${from&&to&&R.length?`<button class="btn p" data-act="swap-apply">بدّل في ${R.filter(r=>P.sel&&P.sel[r.id]).length} وصفة</button>`:''}${from&&!to&&R.length?`<button class="btn" style="color:#A32D2D;border-color:#E5A3A3" data-act="swap-remove">🗑 شيله من ${R.filter(r=>P.sel&&P.sel[r.id]).length} وصفة من غير بديل</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`; }
 function swapBind(){ const P=ui.sw; const re=()=>{ ui.modal=swapModal(); render(); swapBind(); };
   const a=$('#sw-from'); if(a) a.onchange=()=>{ P.from=a.value; P.sel=null; re(); };
   const b=$('#sw-to'); if(b) b.onchange=()=>{ const it=S.items.find(i=>i.name.trim()===b.value.trim()); if(!it){ toast('الصنف ده مش في كارت الأصناف — ضيفه الأول',1); return; } P.to=it.id; re(); };
@@ -10714,7 +10714,7 @@ function healthCheck(){
   const neg=S.items.filter(it=>!isUntracked(it.id)).map(it=>({it,b:calc(it).book})).filter(x=>x.b<-0.001).sort((a,b)=>a.b-b.b);
   add({id:'neg',lvl:neg.length?'bad':'ok',title:neg.length?`${neg.length} صنف رصيده بالسالب`:'مفيش أرصدة بالسالب',
     desc:neg.length?'السبب واحد من تلاتة: وارد/شراء ما اتسجلش، أو إنتاج اتسجل مرتين، أو كمية غلط في الوصفة. لو الصنف ده مش بتتابع مخزونه أصلًا (زي الثلج والمياه) دوس «مش بنتتبعه».':'',
-    rows:neg.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['hc-untrack','مش بنتتبعه',x.it.id]}))});
+    rows:neg.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['hc-untrack','مش بنتتبعه',x.it.id], btn3:S.recipes.some(r=>(r.lines||[]).some(l=>l.itemId===x.it.id))?['swap-from','🔁 شيله من الوصفة / بدّله',x.it.id]:null}))});
   { const SM=shortMakeList(); if(SM.length) add({id:'short',lvl:'bad',title:`${SM.length} منتج ليه وصفة واتصرف أكتر من اللي اتصنّع`,
       desc:'المنتجات دي اتصرفت للفروع بس جزء منها ما اتسجلش له إنتاج، فرصيدها بالسالب وخاماتها ما اتخصمتش. لو الصرف ده حصل فعلًا، «صنّع الناقص» بيسجل الإنتاج للكمية الناقصة بس ويخصم الخامات حسب الوصفة.',
       rows:SM.map(x=>({c:[x.it.name, fmt(x.b)+' '+(x.it.unit||'')], btn:['why-bal','🔎 ليه؟',x.it.id], btn2:['make-short','⚙ صنّع الناقص',x.it.id]})), act:['make-short-all',`⚙ صنّع الناقص للكل (${SM.length})`]}); }
@@ -10843,7 +10843,7 @@ function healthModal(){
       ${r.act?`<button class="btn sm${r.lvl==='bad'?' p':''}" data-act="${r.act[0]}" style="margin-inline-start:auto">${r.act[1]}</button>`:''}</div>
     ${r.desc?`<div class="hint" style="margin-top:4px;line-height:1.8">${esc(r.desc)}</div>`:''}
     ${r.rows.length?`<details style="margin-top:6px"${r.rows.length<=6?' open':''}><summary class="hint" style="cursor:pointer">التفاصيل (${r.rows.length})</summary>
-      <table class="gridcols" style="margin-top:6px"><tbody>${r.rows.slice(0,60).map(x=>`<tr>${x.c.map((v,i)=>`<td${i?' class="n"':''} style="font-size:12.5px">${esc(String(v))}</td>`).join('')}${x.btn?`<td style="white-space:nowrap"><button class="btn sm" data-act="${x.btn[0]}" data-id="${esc(x.btn[2])}">${x.btn[1]}</button>${x.btn2?` <button class="btn sm" data-act="${x.btn2[0]}" data-id="${esc(x.btn2[2])}">${x.btn2[1]}</button>`:''}</td>`:''}</tr>`).join('')}</tbody></table>
+      <table class="gridcols" style="margin-top:6px"><tbody>${r.rows.slice(0,60).map(x=>`<tr>${x.c.map((v,i)=>`<td${i?' class="n"':''} style="font-size:12.5px">${esc(String(v))}</td>`).join('')}${x.btn?`<td style="white-space:nowrap"><button class="btn sm" data-act="${x.btn[0]}" data-id="${esc(x.btn[2])}">${x.btn[1]}</button>${x.btn2?` <button class="btn sm" data-act="${x.btn2[0]}" data-id="${esc(x.btn2[2])}">${x.btn2[1]}</button>`:''}${x.btn3?` <button class="btn sm" data-act="${x.btn3[0]}" data-id="${esc(x.btn3[2])}">${x.btn3[1]}</button>`:''}</td>`:''}</tr>`).join('')}</tbody></table>
       ${r.rows.length>60?`<div class="hint">… و${r.rows.length-60} كمان</div>`:''}</details>`:''}
   </div>`;
   return `<div class="modal" data-close="1"><div class="box" style="max-width:760px">
@@ -11217,6 +11217,14 @@ async function _act(a,d){
   if(a==='fix-factory-party'){ const L=wrongFactoryParty(); if(!L.length) return; if(!confirm(`${L.length} حركة منصرف سببها «${[...new Set(L.map(m=>m.reason))].join('، ')}» بس متسجلة لمصنع تاني كجهة. هتتشال الجهة منها (السبب والكمية زي ما هم). تكمل؟`)) return;
     const g=await guardBulk('تصحيح جهة حركات اتسجلت لمصنع'); if(!g) return; L.forEach(m=>{ m.party=''; }); await saveTx(); await logOp(g, L.length+' حركة'); toast(`اتصلحت ${L.length} حركة ✓`); if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{}); return render(); }
   if(a==='swap-open'){ ui.sw=null; ui.modal=swapModal(); render(); swapBind(); return; }
+  if(a==='swap-from'){ ui.sw={from:d.id,to:'',f:1,date:today(),sel:null}; ui.modal=swapModal(); render(); swapBind(); return; }
+  if(a==='swap-remove'){ const P=ui.sw; if(!P) return; const from=item(P.from); if(!from) return;
+    const R=S.recipes.filter(r=>P.sel&&P.sel[r.id]&&(r.lines||[]).some(l=>l.itemId===from.id)); if(!R.length) return toast('مفيش وصفات متعلّم عليها',1);
+    if(!confirm(`هيتشال «${from.name}» من ${R.length} وصفة من غير بديل، من يوم ${P.date}:\n\n${R.map(r=>'• '+r.name).join('\n')}\n\nالتشغيلات اللي قبل اليوم ده مش هتتغير، والرصيد السالب الحالي مش هيتمسح (ده صرف حصل فعلًا) — لو عايز تصفّره سجّل له وارد أو «تسوية جرد». تكمل؟`)) return;
+    const g=await guardBulk('شيل خامة من الوصفات: '+from.name); if(!g) return;
+    R.forEach(r=>{ r.lines=(r.lines||[]).filter(l=>l.itemId!==from.id); S.recipeSince=S.recipeSince||{}; S.recipeSince[r.id]=P.date; });
+    await saveMain(); await logOp(g, R.map(r=>r.name).join('، ').slice(0,400)); ui.modal=null; ui.sw=null;
+    const st=recipeSyncState().stale.length; toast(`اتشال «${from.name}» من ${R.length} وصفة ✓${st?` — ${st} منتج تكلفته اتغيرت، دوس «مزامنة الأسعار»`:''}`); return render(); }
   if(a==='swap-apply'){ const P=ui.sw; if(!P) return; const from=item(P.from), to=item(P.to); if(!from||!to) return; const f=+P.f>0?+P.f:1;
     const R=S.recipes.filter(r=>P.sel&&P.sel[r.id]&&(r.lines||[]).some(l=>l.itemId===from.id)); if(!R.length) return toast('مفيش وصفات متعلّم عليها',1);
     if(!confirm(`هيتشال «${from.name}» من ${R.length} وصفة ويتحط مكانه «${to.name}» (الكمية × ${fmtP(f)}) من يوم ${P.date}.\n\nالتشغيلات اللي قبل اليوم ده مش هتتغير. تكمل؟`)) return;
