@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '03-11 · 17:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '03-11 · 17:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4468,7 +4468,7 @@ async function fetchBranchOrders(){
     boApplyOrders(allKeys, results, rk);
   }catch(e){ if(seq!==BO.reqSeq) return; BO.err=e.message; }
   BO.loading=false; BO.refreshing=false; render();
-  if(seq===BO.reqSeq && isOwner() && !BO.err){ boBackfillPrices().catch(()=>{}); }
+  if(seq===BO.reqSeq && !VIEWER && !BO.err){ boBackfillPrices().catch(()=>{}); }
   // طلبات التعديل وبلاغات الاستلام بتتجاب بعد ما الطلبيات تظهر — مش بتأخرها
   await Promise.all([fetchFactoryChangeRequests(), fetchFactoryShortageReports(), fetchReceiptMarks(seq)]);
   if(seq===BO.reqSeq) render();
@@ -10238,7 +10238,11 @@ async function boBackfillPrices(){
   if(set.size) await boFlushOrders(set);
   return n;
 }
-async function boFlushOrders(set){ let ok=0; for(const o of set){ if(await boSaveOrder(o)) ok++; } return ok; }
+async function boFlushOrders(set){ let ok=0; const fail=[];
+  for(const o of set){ if(await boSaveOrder(o)) ok++; else fail.push(o); }
+  for(const o of fail.splice(0)){ await new Promise(r=>setTimeout(r,800)); if(await boSaveOrder(o)) ok++; else fail.push(o); }
+  if(fail.length) setTimeout(()=>alert(`⚠️ ${fail.length} طلبية فرع ما اتكتبش فيها السعر والكمية المصروفة (مشكلة نت):\n${fail.map(o=>'• '+o.branch).join('\n')}\n\nالصرف نفسه اتسجل في المصنع تمام. افتح «طلبيات الفروع» لنفس اليوم تاني وهتتكتب لوحدها.`),1200);
+  return ok; }
 // ===== تحديث أسعار كتالوج الفروع — بمعاينة: تختار اللي يتحدث، وتفك الربط الغلط =====
 async function catSyncPlan(){
   let raw; try{ raw=await faroojGet('inv_catalog:items'); }catch(e){ raw=null; } if(!raw) return null;
