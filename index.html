@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '04-11 · 19:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '04-11 · 19:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3670,7 +3670,7 @@ function financeData(){
   const isProd = p => String(p||'').startsWith('إنتاج تلقائي');
   const isSettle = (m) => m.reason==='تسوية جرد' || isSettleParty(m.party);
 
-  const openingValue = n2(S.items.reduce((s,i)=>s+(+i.opening||0)*(+i.price||0),0));
+  const openingValue = n2(S.items.reduce((s,i)=>s+openingValueOf(i),0));
   const closingValue = n2(S.items.reduce((s,i)=>s+calc(i).book*(+i.price||0),0));
 
   // الوارد: مشتريات من موردين/مصانع، إنتاج داخلي، وتسويات زيادة
@@ -4029,6 +4029,13 @@ function calc(it){
   return { inQ:n2(inQ), outQ:n2(outQ), inVal, book, real, has, diff: has? n2(real-book):null,
            value: n2((has?real:book)*(it.price||0)) };
 }
+// قيمة أول المدة لازم تفضل ثابتة طول الشهر = قيمة جرد إقفال الشهر اللي فات بأسعاره ساعتها.
+// قبل كده كانت بتتحسب بسعر الكارت الحالي، فأي تحديث سعر (استلام بسعر جديد، مزامنة تكلفة وصفة) كان بيغيّرها.
+const _OP_IDX=new WeakMap();
+function openingPrice(it){ const last=(S.closed||[]).slice().sort((a,b)=>String(a.period).localeCompare(String(b.period))).pop();
+  let ix=last && _OP_IDX.get(last); if(last && !ix && last.items){ ix=new Map(last.items.map(x=>[x.id,x])); _OP_IDX.set(last,ix); } const ci=ix && ix.get(it.id);
+  return ci && ci.price!=null ? +ci.price||0 : (+it.price||0); }
+const openingValueOf = it => (+it.opening||0)*openingPrice(it);
 function totals(){
   let value=0, counted=0, low=0, gain=0, loss=0, lossVal=0;
   for(const it of S.items){
@@ -5192,7 +5199,7 @@ function revalModal(){
 function viewCount(){
   if(ROLE==='manager') return viewCountManager();
   const t=totals(), list=filtered();
-  const sumOpen=S.items.reduce((s,i)=>s+i.opening*(i.price||0),0);
+  const sumOpen=S.items.reduce((s,i)=>s+openingValueOf(i),0);
   let sumIn=0,sumOut=0;
   for(const it of S.items){const c=calc(it); sumIn+=c.inVal; sumOut+=c.outQ*(it.price||0);}
   const book=sumOpen+sumIn-sumOut, real=t.value, d=n2(real-book);
