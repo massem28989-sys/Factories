@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '08-11 · 16:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '08-11 · 16:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4429,6 +4429,7 @@ function jumpList(){ const L=[]; const grp=k=>{ const g=(TAB_GROUPS||[]).find(g=
   A('🗺','أماكن الجرد','الجرد','فريزر تلاجة مكان رف',()=>{ if(goTab('count')) act('loc-open',{}); }, own);
   A('🖨️','طباعة ورقة الجرد','الجرد','ورقة طباعة',()=>{ if(goTab('count')) act('count-print-open',{}); }, TABS.some(t=>t[0]==='count'));
   A('🩺','الفحص اليومي','نظرة عامة','مشاكل سالب تنبيه',()=>act('hc-open',{}), isOwner());
+  A('🗓','جدول الورديات','المصنع','ورديات شيفت اجازة دوام',()=>act('sh-open',{}), ROLE==='owner'||ROLE==='manager');
   A('➕','صنف جديد','كارت الأصناف','اضافة صنف',()=>{ if(goTab('items')) act('new-item',{}); }, own);
   A('🍳','وصفة جديدة','الإنتاج','اضافة وصفة',()=>{ if(goTab('prod')) act('new-recipe',{}); }, own);
   A('🛒','طلب شراء جديد','طلبات الشراء','شراء مورد',()=>goTab('purchase'), !VIEWER);
@@ -4470,6 +4471,9 @@ function todayPanel(){ if(ROLE==='manager') return ''; const T=today();
       ${cntLeft!==null?step(6,'📋','جرد النهارده',cntLeft?`فاضل ${cntLeft} صنف`:'خلص ✓',cntLeft?'todo':'ok',"cnt"):''}
       ${pur?step(7,'🛒','طلبات الشراء',`${pur} محتاج موافقة`,'todo',"purchase"):''}
       ${H?step(8,'🩺','الفحص اليومي',hb?`${hb} مشكلة`:hw?`${hw} تنبيه`:'سليم',hb||hw?'todo':'ok',"hc"):''}
+      ${(()=>{ if(!isOwner()) return ''; if(!SHIFT||!SHIFT.ver) return step(9,'🗓','جدول الورديات','لسه ما اتنشرش','todo',"shifts");
+        const pend=(SHIFT.people||[]).filter(pp=>pp.email && !(SHIFT_ACKS[pp.email.toLowerCase()]&&SHIFT_ACKS[pp.email.toLowerCase()].ver===SHIFT.ver&&SHIFT_ACKS[pp.email.toLowerCase()].ok!==false)).length;
+        return step(9,'🗓','جدول الورديات',pend?`${pend} لسه ما أكّدش`:'الكل أكّد ✓',pend?'todo':'ok',"shifts"); })()}
     </div></div>`; }
 function filterBar(withOnly){
   return `<div class="bar">
@@ -12176,6 +12180,7 @@ async function _act(a,d){
   if(a==='count-print-open'){ ui.modal=countPrintModal(); return render(); }
   if(a==='jump'){ jumpOpen(); return; }
   if(a==='ui-look'){ try{ localStorage.setItem('ui-look', d.v); }catch(e){} if(d.v==='classic') delete document.documentElement.dataset.ui; else document.documentElement.dataset.ui='pro'; return render(); }
+  if(a==='today-go' && d.v==='shifts') return act('sh-open',{});
   if(a==='today-go'){ const v=d.v;
     if(v==='shortages'){ if(goTab('branchorders')){ BO.view='shortages'; render(); } return; }
     if(v==='pa') return act('pa-open',{}); if(v==='cnt') return act('cnt-open',{}); if(v==='hc') return act('hc-open',{});
