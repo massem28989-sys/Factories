@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '08-11 · 20:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '08-11 · 23:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4386,7 +4386,7 @@ function locModal(){ const L=locList(); const sel=ui.locSel&&L.some(l=>l.id===ui
       </div>
       ${sel?`<div class="bar" style="padding:0 0 8px"><b>الأصناف في «${esc(locName(sel))}»</b> <input type="search" id="loc-q" value="${esc(ui.locQ||'')}" placeholder="🔍 دوّر على صنف…" style="flex:1;min-width:200px">
         <select id="loc-cat"><option value="">ضيف قسم كامل للمكان ده…</option>${cats().filter(c=>c!=='الكل').map(c=>`<option>${esc(c)}</option>`).join('')}</select><span class="hint">${none} صنف لسه مالوش مكان</span></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">
+      <div id="loc-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">
         ${its.map(it=>{ const cur=(S.itemLoc||{})[it.id]; const here=cur===sel; const other=!here&&locName(cur);
           return `<button class="btn sm" data-act="loc-tog" data-id="${esc(it.id)}" style="justify-content:flex-start;text-align:right;${here?'background:#8E1A20;color:#fff;border-color:#8E1A20':''}">${here?'✓ ':''}${esc(it.name)}${other?` <span style="opacity:.6;font-size:11px">(${esc(other)})</span>`:''}</button>`; }).join('')}
       </div>`:'<div class="empty">ضيف أول مكان من فوق</div>'}
@@ -4396,7 +4396,11 @@ function locModal(){ const L=locList(); const sel=ui.locSel&&L.some(l=>l.id===ui
           <div class="hint" style="margin-top:4px">اللي عليه ✓ هيلاقي زرار «🗺 الأماكن» في شاشة الجرد ويقدر يضيف أماكن ويحط الأصناف فيها.</div></div>`; })():''}
     </div>
     <div class="foot"><button class="btn p" data-close="1">تمام</button></div></div></div>`; }
-function locBind(){ const q=$('#loc-q'); if(q){ q.oninput=()=>{ ui.locQ=q.value; const p=q.selectionStart; ui.modal=locModal(); render(); locBind(); const n=$('#loc-q'); if(n){ n.focus(); n.setSelectionRange(p,p); } }; }
+function locBind(){ const q=$('#loc-q');
+  // البحث: بنحدّث قايمة الأصناف بس (مش الشاشة كلها) — كده الكتابة مش بتقطّع ولا بتضيع حروف
+  if(q){ let t=null; q.oninput=()=>{ ui.locQ=q.value; clearTimeout(t); t=setTimeout(()=>{ const tmp=document.createElement('div'); tmp.innerHTML=locModal(); const ng=tmp.querySelector('#loc-grid'), og=$('#loc-grid'); if(!ng||!og) return;
+      og.replaceWith(ng); ng.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset)); },120); };
+    q.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const f=$('#loc-grid [data-act="loc-tog"]'); if(f) f.click(); } }; }
   const c=$('#loc-cat'); if(c) c.onchange=async()=>{ if(!c.value) return; const n=S.items.filter(it=>it.cat===c.value && !isUntracked(it.id)); n.forEach(it=>{ S.itemLoc[it.id]=ui.locSel; }); await saveMain(); toast(`${n.length} صنف من «${c.value}» اتحطوا في «${locName(ui.locSel)}»`); ui.modal=locModal(); render(); locBind(); };
   const nw=$('#loc-new'); if(nw) nw.onkeydown=e=>{ if(e.key==='Enter') act('loc-add',{}); }; }
 /* ===== 🔎 روح لـ… : دوّر على أي شاشة أو أداة أو صنف واوصله بدوسة (Ctrl+K) ===== */
@@ -12200,7 +12204,11 @@ async function _act(a,d){
   if(a==='loc-ren'){ const l=S.locs.find(x=>x.id===d.v); if(!l) return; const v=(prompt('اسم المكان',l.name)||'').trim(); if(!v) return; l.name=v; await saveMain(); ui.modal=locModal(); render(); locBind(); return; }
   if(a==='loc-del'){ const l=S.locs.find(x=>x.id===d.v); if(!l) return; const n=S.items.filter(it=>S.itemLoc[it.id]===l.id).length; if(!confirm(`تمسح «${l.name}»؟${n?` الـ${n} صنف اللي فيه هيبقوا من غير مكان.`:''}`)) return; S.locs=S.locs.filter(x=>x.id!==l.id); Object.keys(S.itemLoc).forEach(k=>{ if(S.itemLoc[k]===l.id) delete S.itemLoc[k]; }); await saveMain(); ui.modal=locModal(); render(); locBind(); return; }
   if(a==='loc-move'){ const i=S.locs.findIndex(x=>x.id===d.v), j=i+(+d.d); if(i<0||j<0||j>=S.locs.length) return; [S.locs[i],S.locs[j]]=[S.locs[j],S.locs[i]]; await saveMain(); ui.modal=locModal(); render(); locBind(); return; }
-  if(a==='loc-tog'){ if(!ui.locSel) return; S.itemLoc=S.itemLoc||{}; if(S.itemLoc[d.id]===ui.locSel) delete S.itemLoc[d.id]; else S.itemLoc[d.id]=ui.locSel; await saveMain(); const pd0=document.querySelector('.modal .pad'); const y=pd0?pd0.scrollTop:0; ui.modal=locModal(); render(); locBind(); const pd=document.querySelector('.modal .pad'); if(pd) pd.scrollTop=y; return; }
+  if(a==='loc-tog'){ if(!ui.locSel) return; S.itemLoc=S.itemLoc||{}; if(S.itemLoc[d.id]===ui.locSel) delete S.itemLoc[d.id]; else S.itemLoc[d.id]=ui.locSel;
+    const pd0=document.querySelector('.modal .pad'); const y=pd0?pd0.scrollTop:0; ui.modal=locModal(); render(); locBind(); const pd=document.querySelector('.modal .pad'); if(pd) pd.scrollTop=y;
+    // لو كنت بتدوّر: نرجعك لخانة البحث والكلام متعلّم، فتكتب الصنف اللي بعده على طول
+    if(ui.locQ){ const q=$('#loc-q'); if(q){ q.focus({preventScroll:true}); q.select(); } }
+    saveMain(); return; }
   if(a==='count-print-go'){ countPrintGo(); ui.modal=null; return render(); }
   if(a==='bi-inv-clear'){ BULKIN_FILE=null; return render(); }
   if(a==='pr-wa'){ prWaOpen(d.k); return; }
