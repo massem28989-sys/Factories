@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '08-11 · 16:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '08-11 · 17:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1643,7 +1643,7 @@ const SH_DEFAULT={ver:0, times:{day:['06:00','18:00'], night:['18:00','04:00']},
   days:{sat:{day:{who:'محمد'},night:{who:'مصطفى',off:'مهند'}}, sun:{day:{who:'محمد'},night:{who:'مهند'}}, mon:{day:{who:'مصطفى',off:'محمد'},night:{who:'مهند'}},
         tue:{day:{who:'محمد'},night:{who:'مهند'}}, wed:{day:{who:'محمد'},night:{who:'مهند'}}, thu:{day:{who:'محمد'},night:{who:'مهند'}}, fri:{day:{who:'محمد'},night:{who:'مهند'}}},
   people:[{name:'محمد',email:''},{name:'مهند',email:''},{name:'مصطفى',email:''}],
-  notes:['التسليم الساعة 6 المغرب وش لوش: الاستلامات اللي وصلت، والطلبات المعلقة، وبلاغات الفروع.','من 4 لـ6 الصبح: الشيف هو المسؤول عن المصنع، وأي طارئ يكلم محمد.','يوم الإجازة: مصطفى بيسجل من اللاب، ولازم حد موجود في المصنع يستلم ويوزن ويصوّر الفواتير.','ممنوع إجازتين ورا بعض، وممنوع الإجازة يوم الجمعة.']};
+  notes:['التسليم الساعة 6 المغرب وش لوش: الاستلامات اللي وصلت، والطلبات المعلقة، وبلاغات الفروع.','يوم الإجازة: مصطفى بيسجل من اللاب، ولازم حد موجود في المصنع يستلم ويوزن ويصوّر الفواتير.','ممنوع إجازتين ورا بعض، وممنوع الإجازة يوم الجمعة.']};
 let SHIFT=null, SHIFT_ACKS={};
 const shMyEmail=()=>String((AUTH&&AUTH.user&&AUTH.user.email)||'').toLowerCase();
 async function shiftLoad(){
@@ -1655,11 +1655,11 @@ async function shiftLoad(){
 const shTime=t=>{ const [h,m]=String(t||'0:0').split(':').map(Number); const ap=h<12?'ص':'م'; const hh=((h+11)%12)+1; return `${hh}${m?':'+String(m).padStart(2,'0'):''} ${ap}`; };
 const shHours=(a,b)=>{ const f=x=>{ const [h,m]=String(x).split(':').map(Number); return h*60+(m||0); }; let d=f(b)-f(a); if(d<=0) d+=1440; return Math.round(d/6)/10; };
 function shiftTableHtml(S0){
-  const S1=S0||SHIFT||SH_DEFAULT, T=S1.times;
+  const S1=S0||SHIFT||SH_DEFAULT, T=S1.times; const showNotes=isOwner(); // الملاحظات لصاحب النظام بس
   const cell=c=>{ c=c||{}; return c.off?`<td style="background:#fff3c4;color:#6b4f00"><s style="opacity:.7;font-size:12px">${esc(c.off)} · إجازة</s><div style="font-weight:700">${esc(c.who||'—')}</div></td>`:`<td style="font-weight:700">${esc(c.who||'—')}</td>`; };
   return `<div class="tblwrap" style="max-height:none"><table><thead><tr><th>اليوم</th><th>☀ الصبح<div class="hint">${shTime(T.day[0])} – ${shTime(T.day[1])} · ${shHours(T.day[0],T.day[1])} ساعة</div></th><th>☾ الليل<div class="hint">${shTime(T.night[0])} – ${shTime(T.night[1])} · ${shHours(T.night[0],T.night[1])} ساعة</div></th></tr></thead>
     <tbody>${SH_DAYS.map(([k,l])=>{ const D=(S1.days||{})[k]||{}; return `<tr><th>${l}</th>${cell(D.day)}${cell(D.night)}</tr>`; }).join('')}</tbody></table></div>
-    ${(S1.notes||[]).filter(Boolean).length?`<ul style="margin:10px 0 0;padding-inline-start:18px;line-height:1.9;font-size:13px">${S1.notes.filter(Boolean).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}`;
+    ${showNotes&&(S1.notes||[]).filter(Boolean).length?`<div class="hint" style="margin-top:10px">ملاحظاتك (مش بتظهر لحد غيرك):</div><ul style="margin:10px 0 0;padding-inline-start:18px;line-height:1.9;font-size:13px">${S1.notes.filter(Boolean).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}`;
 }
 function shiftAckStatusHtml(){
   if(!SHIFT||!SHIFT.ver) return '';
@@ -1697,7 +1697,7 @@ function shiftEditModal(){
     ${(E.people||[]).map((pp,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"><input id="sh-pn-${i}" value="${esc(pp.name)}" placeholder="الاسم" style="width:120px"><input id="sh-pe-${i}" value="${esc(pp.email||'')}" placeholder="الإيميل" list="sh-emails" style="flex:1;min-width:200px;direction:ltr"><button class="btn sm danger" data-act="sh-p-del" data-i="${i}">شيل</button></div>`).join('')}
     <datalist id="sh-emails">${emails.map(e=>`<option value="${esc(e)}">`).join('')}</datalist>
     <button class="btn sm" data-act="sh-p-add">➕ شخص</button>
-    <h4 style="margin:14px 0 6px">ملاحظات (كل سطر ملاحظة)</h4>
+    <h4 style="margin:14px 0 6px">ملاحظاتك (كل سطر ملاحظة) <span class="hint">— ليك انت بس، مش بتظهر للموظفين</span></h4>
     <textarea id="sh-notes" rows="5" style="width:100%">${esc((E.notes||[]).join('\n'))}</textarea>
     <div id="sh-warn" style="margin-top:8px"></div>
   </div><div class="foot"><button class="btn p" data-act="sh-save">💾 احفظ وانشر</button><button class="btn" data-act="sh-cancel">إلغاء</button></div></div></div>`;
@@ -1732,7 +1732,7 @@ function shiftAckModal(){
     <label class="f" style="margin-top:12px">عندك ملاحظة أو مش هتقدر؟ (اختياري)</label><textarea id="sh-ack-note" rows="2" style="width:100%"></textarea>
   </div><div class="foot"><button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button><button class="btn" data-act="sh-ack-note">✋ ابعت الملاحظة</button><button class="btn" data-act="sh-later">بعدين</button></div></div></div>`;
 }
-async function shiftMaybePrompt(){ try{ await shiftLoad(); if(shiftNeedsAck() && !ui.modal && !ui._shLater){ ui.modal=shiftAckModal(); render(); } }catch(e){} }
+async function shiftMaybePrompt(){ if(CHEF) return; try{ await shiftLoad(); if(shiftNeedsAck() && !ui.modal && !ui._shLater){ ui.modal=shiftAckModal(); render(); } }catch(e){} }
 
 /* ===== 🔀 خامات بديلة: لو الخامة الأساسية خلصت، الإنتاج التلقائي يكمّل من البديل =====
    ING_ALTS = { primaryId: [{id, f}] } — f = كام من البديل قصاد 1 من الأساسي. الأساسي دايمًا الأول. */
@@ -11073,8 +11073,7 @@ function renderChef(){
     const by=(AUTH&&AUTH.user&&AUTH.user.email)||'الشيف', at=new Date().toISOString();
     try{ await prodDraftSave(P=>{ const m=P.drafts[D]||(P.drafts[D]={}); Object.keys(C.vals).forEach(id=>{ const v=C.vals[id]; if(v===''||v==null) delete m[id]; }); ent.forEach(([id,v])=>{ m[id]={qty:n2(+v), by, at}; }); });
       toast('اتبعت للمسؤول ✓'); C.vals=null; }catch(e){ toast('حصل خطأ في الإرسال — جرّب تاني',1); }
-    render(); };
-}
+    render(); };}
 
 function altsModal(){
   const used=new Set(S.recipes.flatMap(r=>(r.lines||[]).filter(l=>!l.by).map(l=>l.itemId)));
