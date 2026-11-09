@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '08-11 · 23:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '09-11 · 14:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5013,7 +5013,7 @@ function boRawBox(P){ let L=[]; try{ L=boRawProjection(P); }catch(e){ return '';
     <b style="color:#8A4A0B">🧪 ${L.length} خامة هتنزل بالسالب لو صرفت دلوقتي</b>
     <div class="hint" style="margin:4px 0 6px">الإنتاج التلقائي هيخصم الخامات دي حسب الوصفات، ورصيدها مش مكفي. غالبًا وارد لسه ما اتسجلش — سجّله الأول وبعدين ارجع اصرف، والسالب مش هيظهر خالص.</div>
     <table class="gridcols"><thead><tr><th>الخامة</th><th class="n">الرصيد دلوقتي</th><th class="n">الصرف هيخصم</th><th class="n">ناقص</th></tr></thead><tbody>
-    ${L.slice(0,25).map(x=>`<tr><td>${esc(x.it.name)}</td><td class="n">${fmt(x.start)}</td><td class="n">${fmt(x.use)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.short)}</b> ${esc(x.it.unit||'')}</td></tr>`).join('')}</tbody></table>
+    ${L.slice(0,25).map(x=>`<tr><td>${esc(x.it.name)}${(()=>{ const A=((ING_ALTS||{})[x.it.id]||[]).filter(a=>item(a.id)); if(!A.length) return ''; return `<div class="hint">🔀 البديل: ${A.map(a=>`${esc(item(a.id).name)} (رصيده ${fmt(n2(bookExact(item(a.id))))} ${esc(item(a.id).unit||'')})`).join('، ')} — اتسحب منه اللي موجود والناقص ده بعد البديل كمان</div>`; })()}</td><td class="n">${fmt(x.start)}</td><td class="n">${fmt(x.use)}</td><td class="n" style="color:#A32D2D"><b>${fmt(x.short)}</b> ${esc(x.it.unit||'')}</td></tr>`).join('')}</tbody></table>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sm p" data-act="bo-pre-recv">📥 سجّل وارد الخامات دي (${L.length})</button><span class="hint" style="align-self:center">أو كمّل الصرف عادي — وهتظهر في الفحص اليومي</span></div></div>`; }
 function boPreModal(){
   const P=ui.pre; if(!P) return ''; if(!P.sel){ P.sel={}; P.excl={}; P.rows.forEach(r=>{ P.sel[r.name]=!r.lines.some(x=>x.big) && !r.priceW.length; r.lines.forEach(x=>{ if(x.done>0) P.excl[r.name+'|'+x.branch]=1; }); }); }
