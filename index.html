@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '10-11 · 14:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '10-11 · 13:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4707,6 +4707,9 @@ async function faroojRequest(params, _try=0){
   const data = await res.json();
   // السيرفر مشغول بكتابة تانية (القفل) — نستنى شوية ونعيد بدل ما الطلبية تبان «ما اتبعتتش»
   if(!data.success && data.error==='busy' && _try<4){ await new Promise(r=>setTimeout(r, 1500*(_try+1))); return faroojRequest(params, _try+1); }
+  // السيرفر رفض المفتاح: نخلي صاحب النظام يدخّله تاني بدل ما الشاشة تفضل تقول unauthorized
+  if(!data.success && data.error==='unauthorized'){ GS_FKEY=null; GS_FKEY_TRIED=true; setTimeout(()=>render(),0);
+    throw new Error('سيرفر الفروع رفض المفتاح — اتأكد إنك عملت Deploy ← New version للكود الجديد، وبعدين دخّل المفتاح تاني'); }
   if(!data.success && data.error && data.error !== 'not_found') throw new Error(data.error);
   return data;
 }
