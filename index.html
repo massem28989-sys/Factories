@@ -1244,7 +1244,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '09-11 · 14:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '10-11 · 11:05'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5623,6 +5623,7 @@ function viewMove(dir){
   const rows=S.moves.filter(m=>m.dir===dir).slice().reverse();
   const mq=(ui.mvQ||'').trim().toLowerCase();
   const shownMoves = rows.filter(m=>{
+    if(ui.mvDay && String(m.date||'').slice(0,10)!==ui.mvDay) return false;
     if(ui.mvReason && m.reason!==ui.mvReason) return false;
     if(ui.mvParty && m.party!==ui.mvParty) return false;
     if(mq){
@@ -5631,6 +5632,7 @@ function viewMove(dir){
     }
     return true;
   });
+  const cardRows = ui.mvDay ? rows.filter(m=>String(m.date||'').slice(0,10)===ui.mvDay) : rows;
   const bulkOn = !isIn && ui.bulk.on;
   const bulkInOn = isIn && ui.bulkIn.on;
   return `${isIn && !bulkInOn ? prAwaitingPanel() : ''}${!isIn?dispatchLockBanner():''}
@@ -5697,13 +5699,13 @@ function viewMove(dir){
     </div>
   </div>`}
   <div class="panel"><div class="pad"><div class="cards">
-    <div class="card"><div class="k">${t('moves_count')}</div><div class="v">${rows.length}</div><div class="s">${periodLabel(S.period)}</div></div>
-    <div class="card"><div class="k">${t('total_qty')}</div><div class="v">${fmt(rows.reduce((s,m)=>s+ +m.qty,0))}</div><div class="s">${t('total_moves')}</div></div>
-    ${isIn?`<div class="card"><div class="k">${t('total_value')}</div><div class="v">${money(rows.reduce((s,m)=>s+m.qty*(m.price||0),0))}</div><div class="s">${t('currency')}</div></div>`
-      :`<div class="card"><div class="k">${t('for_branches')}</div><div class="v" style="color:var(--blue)">${rows.filter(m=>m.reason==='صرف للفروع').length}</div><div class="s">${t('branch_moves')}</div></div>
-        <div class="card"><div class="k">${t('for_production')}</div><div class="v">${rows.filter(m=>String(m.reason||'').indexOf('الإنتاج')>=0).length}</div><div class="s">${t('raw_consumption')}</div></div>
-        <div class="card"><div class="k">${t('waste')}</div><div class="v" style="color:var(--red)">${rows.filter(m=>m.reason==='هالك / تالف').length}</div><div class="s">${t('lost')}</div></div>`}
-    <div class="card"><div class="k">${t('diff_items')}</div><div class="v">${new Set(rows.map(m=>m.itemId)).size}</div><div class="s">${t('item_moved')}</div></div>
+    <div class="card"><div class="k">${t('moves_count')}</div><div class="v">${cardRows.length}</div><div class="s">${ui.mvDay?esc(ui.mvDay):periodLabel(S.period)}</div></div>
+    <div class="card"><div class="k">${t('total_qty')}</div><div class="v">${fmt(cardRows.reduce((s,m)=>s+ +m.qty,0))}</div><div class="s">${t('total_moves')}</div></div>
+    ${isIn?`<div class="card"><div class="k">${t('total_value')}</div><div class="v">${money(cardRows.reduce((s,m)=>s+m.qty*(m.price||0),0))}</div><div class="s">${t('currency')}</div></div>`
+      :`<div class="card"><div class="k">${t('for_branches')}</div><div class="v" style="color:var(--blue)">${cardRows.filter(m=>m.reason==='صرف للفروع').length}</div><div class="s">${t('branch_moves')}</div></div>
+        <div class="card"><div class="k">${t('for_production')}</div><div class="v">${cardRows.filter(m=>String(m.reason||'').indexOf('الإنتاج')>=0).length}</div><div class="s">${t('raw_consumption')}</div></div>
+        <div class="card"><div class="k">${t('waste')}</div><div class="v" style="color:var(--red)">${cardRows.filter(m=>m.reason==='هالك / تالف').length}</div><div class="s">${t('lost')}</div></div>`}
+    <div class="card"><div class="k">${t('diff_items')}</div><div class="v">${new Set(cardRows.map(m=>m.itemId)).size}</div><div class="s">${t('item_moved')}</div></div>
   </div></div></div>
 
   ${!isIn?dupBatchPanel():''}
@@ -5725,6 +5727,7 @@ function viewMove(dir){
           <option value="">${isIn?t('all_suppliers'):t('all_branches_parties')}</option>
           ${[...new Set(rows.map(m=>m.party).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ar')).map(p=>`<option ${ui.mvParty===p?'selected':''}>${esc(p)}</option>`).join('')}
         </select>
+        <span style="display:inline-flex;gap:4px;align-items:center"><button class="btn sm" data-act="mv-day-step" data-n="-1" title="اليوم اللي قبله">◀</button><input type="date" id="mv-day" value="${esc(ui.mvDay||'')}" title="اعرض حركات يوم واحد"><button class="btn sm" data-act="mv-day-step" data-n="1" title="اليوم اللي بعده">▶</button>${ui.mvDay?`<button class="btn sm" data-act="mv-day-clear">كل الأيام</button>`:`<button class="btn sm" data-act="mv-day-step" data-n="0">النهارده</button>`}</span>
         <button class="btn sm ${ui.mvEdit?'p':''}" data-act="mv-toggle-edit">${ui.mvEdit?t('stop_editing'):t('edit_dates_temp')}</button>
       </div>
       ${mvSel.size? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--amberbg);border-radius:10px;padding:10px 12px;margin-top:10px">
@@ -8965,6 +8968,7 @@ function bind(){
   const mvq=$('#mv-q'); if(mvq) mvq.oninput=e=>{ui.mvQ=e.target.value; const p=e.target.selectionStart; render(); const n=$('#mv-q'); if(n){n.focus(); n.setSelectionRange(p,p);}};
   const mvrf=$('#mv-reason-filter'); if(mvrf) mvrf.onchange=e=>{ui.mvReason=e.target.value; render();};
   const mvpf=$('#mv-party-filter'); if(mvpf) mvpf.onchange=e=>{ui.mvParty=e.target.value; render();};
+  const mvd=$('#mv-day'); if(mvd) mvd.onchange=e=>{ui.mvDay=e.target.value||''; render();};
   root.querySelectorAll('[data-mvprod]').forEach(inp=>inp.onchange=async e=>{
     const m=S.moves.find(x=>x.id===e.target.dataset.mvprod); if(!m) return;
     m.prodDate=e.target.value; await saveTx(); toast('اتحفظ تاريخ الإنتاج');
@@ -11852,6 +11856,9 @@ async function _act(a,d){
     try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_ack:'+em,v}]}); SHIFT_ACKS[em]=v; ui.modal=null; toast(a==='sh-ack'?'✓ اتسجل إنك أكّدت الجدول':'✓ الملاحظة وصلت لصاحب النظام'); return render(); }
     catch(e){ return toast('ماتحفظش: '+e.message,1); } }
   if(a==='sh-later'){ ui._shLater=true; ui.modal=null; return render(); }
+  if(a==='mv-day-clear'){ ui.mvDay=''; return render(); }
+  if(a==='mv-day-step'){ const n=+d.n; if(!n||!ui.mvDay){ if(!n){ ui.mvDay=today(); return render(); } ui.mvDay=today(); }
+    const dt=new Date(ui.mvDay+'T00:00:00'); dt.setDate(dt.getDate()+n); ui.mvDay=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; return render(); }
   if(a==='alts-open'){ await ingAltsLoad(); ui.alt={}; ui.modal=altsModal(); render(); altsBind(); return; }
   if(a==='alts-add'){ if(!isOwner()) return toast('صاحب النظام بس',1); const A=ui.alt||{}; const f=+(($('#alt-f')||{}).value)||1;
     if(!A.p||!A.a) return toast('اختار الخامة الأساسية والبديل من القايمة',1); if(A.p===A.a) return toast('البديل لازم يبقى صنف تاني',1);
