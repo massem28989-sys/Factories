@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '10-11 · 15:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '10-11 · 15:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5351,7 +5351,13 @@ function viewBranchOrders(){
     </table></div>
   </div>` : ''}
   ${BO.view==='shortages' ? `<div class="panel">
-    <h2>بلاغات فروق الاستلام من الفروع <em>${BO.shortages.length} بلاغ</em></h2>
+    <h2>بلاغات فروق الاستلام من الفروع <em>${BO.shortages.length} بلاغ</em><button class="btn sm" data-act="fs-audit" style="margin-inline-start:auto" title="يتأكد إن كل بلاغ «اتحل» اتعدّل صرفه وفاتورة الفرع">${BO.fsAuditBusy?'بيفحص…':'🔍 افحص البلاغات اللي اتحلت'}</button></h2>
+    ${Array.isArray(BO.fsAudit)?(BO.fsAudit.length?`<div style="background:#FDECEC;border:1px solid #F0CACA;border-radius:10px;padding:10px 12px;margin:0 14px 10px">
+      <b>⚠ ${BO.fsAudit.length} بلاغ اتعلّم «اتحل» بس فيه حاجة ما اتعدلتش</b>
+      <div class="tblwrap" style="max-height:none;margin-top:6px"><table><thead><tr><th>الفرع</th><th>اليوم</th><th>الصنف</th><th>المشكلة</th><th></th></tr></thead><tbody>
+      ${BO.fsAudit.map((x,i)=>`<tr><td>${esc(x.branch)}</td><td>${esc(x.date)}</td><td>${esc(boLabel(x.name))}</td><td style="white-space:normal">${x.kind==='noadj'?`الصرف لسه <b>${fmt(x.cur)}</b> والفرع استلم <b>${fmt(x.rec)}</b> ← المفروض يبقى ${fmt(x.target)} ${esc(x.unit||'')}`:`فاتورة الفرع لسه «مرسل ${fmt(x.oldSent)}» والصرف الفعلي ${fmt(x.newSent)}`}</td>
+        <td><button class="btn sm p" data-act="fs-audit-fix" data-i="${i}">${x.kind==='noadj'?'عدّل الصرف والفاتورة':'حدّث الفاتورة'}</button></td></tr>`).join('')}
+      </tbody></table></div></div>`:`<div style="background:#EEF5EE;border:1px solid #BFDABF;color:#245E24;border-radius:10px;padding:9px 12px;margin:0 14px 10px">✓ كل البلاغات اللي اتحلت: الصرف وفواتير الفروع متظبطين.</div>`):''}
     <p class="hint" style="margin-top:-6px">لما فرع يشيّك على فاتورة استلام ويلاقي صنف ناقص أو زيادة أو مجاش، البلاغ بيوصلك هنا بالكميات بالظبط. راجع الفرق، وبعدين علّم البلاغ إنه اتحل.</p>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>الفرع</th><th>التاريخ</th><th>الفروق</th><th>بواسطة</th><th>الوقت</th><th>الحالة</th><th></th></tr></thead>
@@ -12793,10 +12799,34 @@ async function _act(a,d){
       else { dispenseOut(x.m.id, x.diff, D, r.branch, 'صرف للفروع', true); }
     }
     await saveTx();
-    let inv=0; for(const x of plan){ if(await boSyncDispenseToOrder(r.branch, x.m.id, D)) inv++; }
+    let inv=0; for(const x of plan){ let ok=await boSyncDispenseToOrder(r.branch, x.m.id, D); if(!ok){ await new Promise(z=>setTimeout(z,1500)); ok=await boSyncDispenseToOrder(r.branch, x.m.id, D); } if(ok) inv++; }
+    if(inv<plan.length) setTimeout(()=>alert(`⚠ الصرف اتعدل، بس ${plan.length-inv} من فواتير الفرع ما اتحدثتش (السيرفر ما ردش).\n\nدوس «🔍 افحص البلاغات اللي اتحلت» وبعدين «حدّث الفاتورة».`),300);
     await logOp(g, plan.map(x=>`${boLabel(x.it.name)} ${fmt(x.cur)}←${fmt(x.target)}`).join('، '));
     await decideFactoryShortageReport(r.id,'resolved');
     toast(`اتعدل الصرف (${plan.length} صنف) وفاتورة الفرع (${inv}) واتعلّم البلاغ «اتحل» ✓`, 0); return render(); }
+  if(a==='fs-audit'){ BO.fsAuditBusy=true; render(); const out=[];
+    try{ for(const r of (BO.shortages||[]).filter(x=>x.status==='resolved')){ const D=r.date;
+        for(const it of (r.items||[])){ const m=findMatchingLocalItem(it.name); if(!m) continue;
+          const cur=boDispTotal(r.branch, m.id, D), sent=+it.sentQty||0, rec=+it.receivedQty||0; const cf=sent>0&&cur>0?cur/sent:(convFactorOf(it.name)||1);
+          const target=n2(rec*cf);
+          // لو الصرف لسه زي ما اتبعت والفرع استلم أقل/أكتر ← البلاغ اتحل من غير تعديل
+          if(Math.abs(cur-n2(sent*cf))<0.005 && Math.abs(target-cur)>0.005){ out.push({kind:'noadj', r, branch:r.branch, date:D, name:it.name, m, cur, rec, target, unit:m.unit}); continue; }
+          const o=await boOrderFor(r.branch, D).catch(()=>null); const x=o?boLineDiff(o, m.id, D):null;
+          if(x) out.push({kind:'inv', r, branch:r.branch, date:D, name:it.name, m, oldSent:x.oldSent, newSent:x.newSent}); } } }
+    catch(e){ toast('الفحص ما كملش: '+e.message,1); }
+    BO.fsAudit=out; BO.fsAuditBusy=false; return render(); }
+  if(a==='fs-audit-fix'){ const x=(BO.fsAudit||[])[+d.i]; if(!x) return;
+    if(x.kind==='noadj'){ const diff=n2(x.target-x.cur);
+      if(!confirm(`${x.branch} — ${x.date}\n${boLabel(x.name)}: الصرف ${fmt(x.cur)} يبقى ${fmt(x.target)} ${x.unit||''} (${diff<0?`يرجع ${fmt(-diff)} للمخزن`:`يتصرف ${fmt(diff)} زيادة`})\nوفاتورة الفرع تتعدل معاه. موافق؟`)) return;
+      const g=await guardBulk('تصحيح بلاغ '+x.branch+' — '+x.date); if(!g) return;
+      if(diff<0){ let need=-diff; const mv=S.moves.filter(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.party===x.branch&&m.itemId===x.m.id&&m.date===x.date).reverse();
+        for(const m of mv){ if(need<=0.0001) break; if(m.qty<=need+0.0001){ need=r4(need-m.qty); DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(z=>z.id!==m.id); } else { m.qty=r4(m.qty-need); need=0; } }
+        prodRelease(x.m.id, x.date, r4(-diff-need)); }
+      else dispenseOut(x.m.id, diff, x.date, x.branch, 'صرف للفروع', true);
+      await saveTx(); await logOp(g, `${boLabel(x.name)} ${fmt(x.cur)}←${fmt(x.target)}`); }
+    const ok=await boSyncDispenseToOrder(x.branch, x.m.id, x.date);
+    toast(ok?'✓ اتظبط — الفاتورة عند الفرع اتحدثت':(x.kind==='noadj'?'الصرف اتعدل، بس الفاتورة ما اتحدثتش — جرّب تاني':'الفاتورة ما اتحدثتش — جرّب تاني'), ok?0:1);
+    BO.fsAudit.splice(+d.i,1); return render(); }
   if(a==='fs-decide'){
     return decideFactoryShortageReport(+d.fsid, d.fsdecision);
   }
