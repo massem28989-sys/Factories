@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '10-11 · 14:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '10-11 · 14:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5848,7 +5848,7 @@ function viewMove(dir){
         <input type="date" id="mv-bulk-date" value="${today()}">
         <button class="btn sm p" data-act="mv-bulk-date">${t('change_their_date')}</button>
         ${ROLE==='owner'?`<button class="btn sm danger" data-act="mv-bulk-del">🗑 امسحهم</button>`:''}
-        ${ROLE==='owner'&&!isIn?`<span style="display:inline-flex;gap:4px;align-items:center;margin-inline-start:8px"><select id="mv-bulk-reason">${OUT_REASONS.filter(r=>r!=='صرف للفروع'&&r!=='صرف لمصنع تاني').map(r=>`<option>${esc(r)}</option>`).join('')}</select><button class="btn sm" data-act="mv-bulk-reason">غيّر السبب</button></span>`:''}
+        ${ROLE==='owner'&&!isIn?`<span style="display:inline-flex;gap:4px;align-items:center;margin-inline-start:8px"><select id="mv-bulk-reason">${OUT_REASONS.filter(r=>r!=='صرف للفروع'&&r!=='صرف لمصنع تاني').map(r=>`<option>${esc(r)}</option>`).join('')}</select><button class="btn sm" data-act="mv-bulk-reason">غيّر السبب</button><button class="btn sm" data-act="mv-to-sale" title="حوّل الحركات المحددة لبيع خارجي بسعر بيع واطبع فاتورة">💵 فاتورة بيع</button></span>`:''}
         <button class="btn sm" data-act="mv-clear-sel">${t('clear_selection')}</button>
       </div>`:''}
     </div>
@@ -12008,6 +12008,16 @@ async function _act(a,d){
       r.lines=lines; S.recipeSince=S.recipeSince||{}; S.recipeSince[r.id]=P.date; });
     await saveMain(); await logOp(g, R.map(r=>r.name).join('، ').slice(0,400)); ui.modal=null; ui.sw=null;
     const st=recipeSyncState().stale.length; toast(`اتبدّلت الخامة في ${R.length} وصفة ✓${st?` — ${st} منتج تكلفته اتغيرت، دوس «مزامنة الأسعار»`:''}`); return render(); }
+  if(a==='mv-to-sale'){ // حوّل حركات منصرف محددة لـ«بيع خارجي» بسعر بيع، واطبع فاتورة البيع
+    if(!isOwner()) return; const list=S.moves.filter(m=>mvSel.has(m.id) && m.dir==='out' && !m.runId); if(!list.length) return toast('حدد حركات المنصرف اللي في الفاتورة الأول',1);
+    await exportSalesLoad();
+    const def=list.find(m=>m.sale!=null)?list.find(m=>m.sale!=null).sale:(EXPORT_SALES.cfg.price||36);
+    const pv=prompt(`سعر البيع للوحدة (درهم) لـ${list.length} صنف:`, String(def)); if(pv===null) return; const sp=+pv; if(!(sp>0)) return toast('اكتب سعر صحيح',1);
+    const cust=prompt('العميل / البلد:', list[0].party||''); if(cust===null) return;
+    list.forEach(m=>{ m.reason='بيع خارجي'; m.party=cust.trim(); m.sale=sp; });
+    const add={}; list.forEach(m=>add[m.id]={p:sp,cust:cust.trim()}); EXPORT_SALES.cfg.price=sp;
+    try{ await saveTx(); await exportSalesSave(add); }catch(e){ return toast('ماتحفظش: '+e.message,1); }
+    mvSel.clear(); ui.modal=bulkReceiptModal(list, list[0].date, cust.trim(), 'بيع خارجي'); toast(`✓ ${list.length} حركة بقت «بيع خارجي» بسعر ${sp}`); return render(); }
   if(a==='mv-bulk-reason'){
     if(!isOwner()) return; const nr=($('#mv-bulk-reason')||{}).value; if(!nr) return;
     const list=S.moves.filter(m=>mvSel.has(m.id) && m.dir==='out' && !m.runId); if(!list.length) return toast('محددش حركات منصرف',1);
