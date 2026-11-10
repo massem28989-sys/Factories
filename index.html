@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '10-11 · 14:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '10-11 · 14:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -6688,12 +6688,65 @@ function runModal(r){
     <div class="foot"><button class="btn g" data-act="do-run" data-id="${r.id}">سجّل الإنتاج</button><button class="btn" data-close="1">إلغاء</button></div>
   </div></div>`;
 }
+/* ===== 💵 فاتورة البيع الخارجي: باسم «كراشي للاستثمار» وشعار فروج أبو العبد ===== */
+const SALE_SELLER={ ar:'كراشي للاستثمار', en:'KARASHI INVESTMENT', brandAr:'فروج أبو العبد', brandEn:'Farooj Abu Alabd', color:'#C8222A' };
+function saleInvoiceNo(moves, date){ const ids=moves.map(m=>m.id).sort().join('|'); let h=0; for(let i=0;i<ids.length;i++) h=(h*31+ids.charCodeAt(i))>>>0; return 'KI-'+String(date||'').replace(/-/g,'')+'-'+String(h%10000).padStart(4,'0'); }
+function saleInvoiceModal(moves, date, cust){
+  const C=SALE_SELLER.color, logo=FACTORY_LOGOS['مصنع-الفروج']||'';
+  const no=saleInvoiceNo(moves, date);
+  const nf=x=>(+x||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const qf=x=>(+x||0).toLocaleString('en-US',{maximumFractionDigits:3});
+  const lines=moves.map(m=>{ const it=item(m.itemId)||{name:'—',unit:''}; const q=+m.qty||0, pr=+m.price||0; return {name:it.name, unit:it.unit||'', q, pr, t:Math.round(q*pr*100)/100}; });
+  const total=Math.round(lines.reduce((t,l)=>t+l.t,0)*100)/100, qty=lines.reduce((t,l)=>t+l.q,0);
+  const th='padding:9px 8px;font-size:11.5px;font-weight:700;color:#fff;background:'+C+';-webkit-print-color-adjust:exact;print-color-adjust:exact;text-align:start';
+  const td='padding:8px;border-bottom:1px solid #EEE3E2;font-size:13px';
+  const lbl='font-size:10.5px;color:#8A7A78;letter-spacing:.02em';
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:820px">
+    <h3>فاتورة بيع <span style="color:var(--muted);font-weight:400">${esc(no)}</span></h3>
+    <div class="pad receipt" style="font-family:inherit;color:#231816;background:#fff">
+      <div style="display:flex;align-items:center;gap:16px;border-bottom:3px solid ${C};padding-bottom:14px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+        ${logo?`<img src="${logo}" alt="" style="width:78px;height:78px;object-fit:contain">`:''}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:22px;font-weight:800;line-height:1.2">${SALE_SELLER.ar}</div>
+          <div style="font-size:12px;font-weight:700;letter-spacing:.14em;color:${C};direction:ltr;text-align:right">${SALE_SELLER.en}</div>
+          <div style="${lbl};margin-top:4px">${SALE_SELLER.brandAr} · ${SALE_SELLER.brandEn}</div>
+        </div>
+        <div style="text-align:end">
+          <div style="font-size:20px;font-weight:800;color:${C}">فاتورة بيع</div>
+          <div style="font-size:12px;font-weight:700;letter-spacing:.12em;direction:ltr">SALES INVOICE</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0">
+        <div style="border:1px solid #EEE3E2;border-radius:8px;padding:8px 10px"><div style="${lbl}">رقم الفاتورة · Invoice No.</div><div style="font-weight:700;direction:ltr;text-align:start;margin-top:2px">${esc(no)}</div></div>
+        <div style="border:1px solid #EEE3E2;border-radius:8px;padding:8px 10px"><div style="${lbl}">التاريخ · Date</div><div style="font-weight:700;direction:ltr;text-align:start;margin-top:2px">${esc(date||'')}</div></div>
+        <div style="border:1px solid #EEE3E2;border-radius:8px;padding:8px 10px"><div style="${lbl}">العميل · Bill to</div><div style="font-weight:700;margin-top:2px">${esc(cust||'—')}</div></div>
+        <div style="border:1px solid #EEE3E2;border-radius:8px;padding:8px 10px"><div style="${lbl}">العملة · Currency</div><div style="font-weight:700;margin-top:2px">درهم إماراتي · AED</div></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums">
+        <thead><tr><th style="${th};width:34px">#</th><th style="${th}">الصنف · Item</th><th style="${th}">الوحدة · Unit</th><th style="${th};text-align:end">الكمية · Qty</th><th style="${th};text-align:end">سعر الوحدة · Price</th><th style="${th};text-align:end">الإجمالي · Amount</th></tr></thead>
+        <tbody>${lines.map((l,i)=>`<tr style="${i%2?'background:#FBF6F5;-webkit-print-color-adjust:exact;print-color-adjust:exact':''}"><td style="${td};color:#8A7A78">${i+1}</td><td style="${td};font-weight:600">${esc(l.name)}</td><td style="${td}">${esc(l.unit)}</td><td style="${td};text-align:end">${qf(l.q)}</td><td style="${td};text-align:end">${nf(l.pr)}</td><td style="${td};text-align:end;font-weight:700">${nf(l.t)}</td></tr>`).join('')}</tbody>
+      </table>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-top:14px;flex-wrap:wrap">
+        <div style="${lbl};line-height:1.8">عدد الأصناف · Items: <b style="color:#231816">${lines.length}</b><br>إجمالي الكمية · Total qty: <b style="color:#231816">${qf(qty)}</b></div>
+        <div style="min-width:260px;border:2px solid ${C};border-radius:10px;overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+          <div style="display:flex;justify-content:space-between;padding:8px 12px;font-size:13px"><span>المجموع · Subtotal</span><b style="direction:ltr">${nf(total)}</b></div>
+          <div style="display:flex;justify-content:space-between;padding:10px 12px;background:${C};color:#fff;font-size:16px;font-weight:800"><span>الإجمالي · Total</span><span style="direction:ltr">AED ${nf(total)}</span></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:46px">
+        ${['المُسلِّم · Delivered by','المستلم · Received by','الختم · Stamp'].map(x=>`<div style="text-align:center"><div style="border-top:1.5px solid #231816;margin-bottom:6px"></div><div style="${lbl}">${x}</div></div>`).join('')}
+      </div>
+      <div style="text-align:center;${lbl};margin-top:22px;border-top:1px solid #EEE3E2;padding-top:8px">${SALE_SELLER.ar} — ${SALE_SELLER.brandAr} · ${SALE_SELLER.en} — ${SALE_SELLER.brandEn}</div>
+    </div>
+    <div class="foot"><button class="btn p" data-act="do-print">${t('r_print')}</button><button class="btn" data-close="1">${t('r_close')}</button></div>
+  </div></div>`;
+}
 function bulkReceiptModal(moves, date, party, reason){
   const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
   const num = 'DOC-'+Date.now().toString().slice(-6);
   const isIn = moves.length && moves[0].dir==='in';
   const isSale = !isIn && (reason==='بيع خارجي' || (moves.length && moves.every(m=>m.reason==='بيع خارجي')));
-  if(isSale) moves = moves.map(m=>({...m, price:salePx(m)})); // فاتورة البيع بسعر البيع مش التكلفة
+  if(isSale) return saleInvoiceModal(moves.map(m=>({...m, price:salePx(m)})), date, party); // فاتورة البيع بسعر البيع، باسم كراشي للاستثمار
   const withPrice = (isIn||isSale) && moves.some(m=>+m.price>0);
   const grand = moves.reduce((t,m)=>t+(+m.qty||0)*(+m.price||0),0);
   const rowsHtml = moves.map((m,i)=>{ const it=item(m.itemId)||{name:'—',unit:''};
