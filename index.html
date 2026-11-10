@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '10-11 · 13:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '10-11 · 14:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1305,6 +1305,7 @@ async function load(){
       const gotData = await pullAll(true);
       await fetchPurchaseRequests();
       await ingAltsLoad();
+      await exportSalesLoad();
       gsKeyLoad().then(()=>{ if(!GS_FKEY && BRANCH_APP) render(); });
       setTimeout(()=>shiftMaybePrompt(), 1500);
       if(gotData && ROLE!=='manager' && !S.items.length && FACTORY==='kunafa'){
@@ -1737,6 +1738,13 @@ async function shiftMaybePrompt(){ if(CHEF) return; try{ await shiftLoad(); if(s
 /* ===== 🔀 خامات بديلة: لو الخامة الأساسية خلصت، الإنتاج التلقائي يكمّل من البديل =====
    ING_ALTS = { primaryId: [{id, f}] } — f = كام من البديل قصاد 1 من الأساسي. الأساسي دايمًا الأول. */
 let ING_ALTS={};
+/* 💵 بيع خارجي (زي بهارات هادي لفروع برا الإمارات): سعر البيع بيتحفظ لكل حركة في صف لوحده
+   stock_settings k='export_sales' = { cfg:{price:36}, m:{ moveId:{p, cust} } } */
+let EXPORT_SALES={cfg:{price:36}, m:{}};
+async function exportSalesLoad(){ if(!DB_CONFIGURED) return; try{ const rows=await sb('stock_settings?'+fEq()+'&k=eq.export_sales&select=v',{prefer:'return=representation'}); const v=rows&&rows[0]&&rows[0].v; if(v) EXPORT_SALES={cfg:{price:36,...(v.cfg||{})}, m:v.m||{}}; }catch(e){} exportSalesApply(); }
+function exportSalesApply(){ const M=EXPORT_SALES.m||{}; (S.moves||[]).forEach(m=>{ if(M[m.id]) m.sale=+M[m.id].p||0; }); }
+async function exportSalesSave(add){ await exportSalesLoad(); EXPORT_SALES.m={...(EXPORT_SALES.m||{}), ...(add||{})}; await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'export_sales',v:EXPORT_SALES}]}); exportSalesApply(); }
+const salePx=m=>(m&&m.sale!=null)?+m.sale:(EXPORT_SALES.m&&EXPORT_SALES.m[m.id]?+EXPORT_SALES.m[m.id].p:0);
 async function ingAltsLoad(){ if(!DB_CONFIGURED) return ING_ALTS; try{ const rows=await sb('stock_settings?'+fEq()+'&k=eq.ing_alts&select=v',{prefer:'return=representation'}); ING_ALTS=(rows&&rows[0]&&rows[0].v)||{}; }catch(e){} return ING_ALTS; }
 async function ingAltsSave(){ if(VIEWER) throw new Error(VIEWER_MSG); await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'ing_alts',v:ING_ALTS}]}); }
 function altRev(){ const m=new Map(); Object.entries(ING_ALTS||{}).forEach(([p,L])=>(L||[]).forEach(a=>{ if(!m.has(a.id)) m.set(a.id,{p, f:+a.f||1}); })); return m; }
@@ -3818,6 +3826,7 @@ function finMonthExport(){
     ['+ زيادة تسويات الجرد',n2(settleIn),''],
     ['− صرف للفروع',brTot,'بسعر يوم الصرف — التفصيل في «الفروع × الأقسام»'],
     ...Object.entries(byR).map(([r,v])=>['− '+r,v,'التفصيل في «صرف تاني»']),
+    ...(()=>{ const SL2=MV.filter(m=>m.dir==='out'&&m.reason==='بيع خارجي'); if(!SL2.length) return []; const r=n2(SL2.reduce((t,m)=>t+(+m.qty||0)*salePx(m),0)), c=n2(SL2.reduce((t,m)=>t+val(m),0)); return [['  ↳ مبيعات خارجية: قيمة البيع',r,`التكلفة ${c} · الربح ${n2(r-c)} — التفصيل في «مبيعات خارجية»`]]; })(),
     ['± فرق الإنتاج والتقييم',resid,'فرق تكلفة الوصفات وتغيير الأسعار خلال الشهر (مش حركة فعلية)'],
     ['= مخزون آخر المدة (دفتري)',closing,'بالسعر الحالي — قارنه بالجرد الفعلي']],[34,18,60],1);
   add('الفروع × الأقسام',[['الفرع','مركز التكلفة الإضافي',...cats,'الإجمالي'],...brs.map(b=>[b,finSubCC(b)||'⚠ مالوش كود',...cats.map(c=>BR[b][c]||0),sum(BR[b])]),['الإجمالي','',...cats.map(c=>n2(brs.reduce((s,b)=>s+(BR[b][c]||0),0))),brTot]],[30,14,...cats.map(()=>14),16],2);
@@ -3829,17 +3838,24 @@ function finMonthExport(){
   MV.filter(m=>m.dir==='out'&&m.reason!=='صرف للفروع'&&!isProd(m)).forEach(m=>{ const v=val(m), pt=String(m.party||'');
     if(isSettle(m)) return; // فروق الجرد مش بتترحل دلوقتي — تحت المراجعة لحد ما الشغل يتظبط
     if(/هالك|تالف/.test(m.reason||'')) jk('waste','التالف',FIN_CODES.waste,v,'هالك وتالف '+per);
+    else if(m.reason==='بيع خارجي') jk('salecost','تكلفة مبيعات خارجية',['⚠','',''],v,'تكلفة البضاعة المباعة برا الإمارات');
     else if(/عجمان/i.test(pt)) jk('ajman','عجمان',FIN_CODES.ajman,v,'تحويل لمخزن عجمان '+per);
     else if(/kunafa|كناف/i.test(pt)) jk('kunafa','مصنع الكنافة',FIN_CODES.kunafa,v,'تحويل لمصنع الكنافة '+per);
     else jk('o:'+pt+'|'+(m.reason||''),'منصرف آخر — '+(pt||m.reason||'أخرى'),['⚠','',''],v,m.reason||'أخرى'); });
   Object.values(JL).forEach(e=>J.push([...e.codes,e.lbl,e.v,'',e.note]));
   const jOut=n2(Object.values(JL).reduce((t,e)=>t+e.v,0)), shortV=n2(byR['تسوية جرد (عجز)']||0);
+  // المبيعات الخارجية: الإيراد بسعر البيع (قيد منفصل: العميل مدين / الإيرادات دائن)
+  const SL=MV.filter(m=>m.dir==='out'&&m.reason==='بيع خارجي'); const saleRev=n2(SL.reduce((t,m)=>t+(+m.qty||0)*salePx(m),0)), saleCost=n2(SL.reduce((t,m)=>t+val(m),0));
+  if(saleRev){ J.push(['⚠','','','عميل — مبيعات خارجية',saleRev,'','قيمة البيع '+per],['⚠','','','إيرادات مبيعات خارجية','',saleRev,'قيمة البيع '+per]); }
   J.push([...FIN_CODES.factory,'المصنع','',n2(brTot+jOut),'إجمالي المنصرف من مخزون المصنع '+per]);
-  J.push([],['','','','الإجمالي',n2(brTot+jOut),n2(brTot+jOut),'لازم المدين = الدائن']);
+  J.push([],['','','','الإجمالي',n2(brTot+jOut+saleRev),n2(brTot+jOut+saleRev),'لازم المدين = الدائن']);
   J.push([],['تحت المراجعة — ما تترحلش الشهر ده'],['','','','عجز جرد',shortV,'','فروق جرد المصنع — مستنية تظبيط الوصفات والوحدات'],['','','','زيادة جرد','',n2(settleIn),'فروق جرد المصنع — مستنية تظبيط الوصفات والوحدات'],['','','','الصافي',n2(shortV-settleIn)>0?n2(shortV-settleIn):'',n2(settleIn-shortV)>0?n2(settleIn-shortV):'','لو اترحّل: الصافي ده بس على حساب فروقات الجرد']);
   add('قيد مقترح',J,[14,12,18,32,16,16,40],4);
   add('تفاصيل صرف الفروع',[['التاريخ','الفرع','الصنف','القسم','الوحدة','الكمية','السعر يوم الصرف','القيمة'],...det.sort((a,b)=>(a[0]+a[1]).localeCompare(b[0]+b[1]))],[12,28,34,14,8,10,14,14],5);
   add('صرف تاني',[['التاريخ','النوع','الجهة','الصنف','الوحدة','الكمية','السعر','القيمة'],...other.sort((a,b)=>a[0].localeCompare(b[0]))],[12,20,20,34,8,10,12,14],5);
+  if(SL.length){ add('مبيعات خارجية',[['التاريخ','العميل','الصنف','الوحدة','الكمية','سعر التكلفة','سعر البيع','التكلفة','قيمة البيع','الربح'],
+    ...SL.map(m=>{ const it=item(m.itemId)||{}; const q=+m.qty||0, c=val(m), r=n2(q*salePx(m)); return [m.date,m.party||'',it.name||'—',it.unit||'',q,n2(pr(m)),salePx(m),c,r,n2(r-c)]; }).sort((a,b)=>a[0].localeCompare(b[0])),
+    [],['الإجمالي','','','','','','',saleCost,saleRev,n2(saleRev-saleCost)]],[12,18,30,8,10,12,12,14,14,14],4); }
   add('المشتريات',[['المورد','القيمة'],...Object.entries(sup).sort((a,b)=>b[1]-a[1]),['الإجمالي',purTot],[],['التاريخ','المورد','الصنف','الوحدة','الكمية','السعر','القيمة','رقم الفاتورة'],...inDet.sort((a,b)=>a[0].localeCompare(b[0]))],[26,26,34,8,10,12,14,14],1);
   XLSX.writeFile(wb, `ملف-المالية-${fac}-${S.period}${FIN.from||FIN.to?'-جزئي':''}.xlsx`);
   toast('✓ ملف المالية اتنزل');
@@ -5555,12 +5571,12 @@ function viewCount(){
 }
  
 /* ================= 2/3. وارد و منصرف ================= */
-const OUT_REASONS=['صرف للإنتاج','صرف للفروع','صرف لمصنع تاني','هالك / تالف','مرتجع للمورد','تسوية جرد','عينات','أخرى'];
+const OUT_REASONS=['صرف للإنتاج','صرف للفروع','صرف لمصنع تاني','بيع خارجي','هالك / تالف','مرتجع للمورد','تسوية جرد','عينات','أخرى'];
 // الجهات المسموح بيها في المصنع ده. null = كلها متاحة (الوضع الافتراضي)
 function outReasons(){
   const a = S.allowedReasons;
   if(!Array.isArray(a) || !a.length) return OUT_REASONS;
-  const filtered = OUT_REASONS.filter(r=>a.includes(r));
+  const filtered = OUT_REASONS.filter(r=>a.includes(r)||r==='بيع خارجي');
   return filtered.length ? filtered : OUT_REASONS;
 }
 /* ---------- شاشة الجرد لوضع المدير: بسيطة، من غير أسعار ولا تبويبات تانية ---------- */
@@ -5680,6 +5696,8 @@ function bulkOutPanel(){
           </div>`
           :b.reason==='\u0635\u0631\u0641 \u0644\u0645\u0635\u0646\u0639 \u062a\u0627\u0646\u064a'?`<label class="f">${t('receiving_factory')}</label>
             <select id="b-party" style="width:100%">${allowedDispatchFactories().map(f=>`<option value="${esc(f.id)}" ${b.party===f.id?'selected':''}>${esc(f.name)}</option>`).join('') || `<option value="">${t('no_other_factories')}</option>`}</select>`
+          :b.reason==='بيع خارجي'?`<label class="f">العميل / البلد</label><input type="text" id="b-party" value="${esc(b.party)}" placeholder="مثلًا: موريتانيا" style="width:100%">
+            <label class="f" style="margin-top:6px">💵 سعر البيع (درهم للوحدة)</label><input type="number" step="any" id="b-sale" value="${esc(b.sale!=null?b.sale:(EXPORT_SALES.cfg.price||36))}" style="width:100%">`
           :`<label class="f">${t('note')}</label><input type="text" id="b-party" value="${esc(b.party)}" style="width:100%">`}</div>
         <div><label class="f">${t('date')}</label><input type="date" id="b-date" value="${b.date||today()}" style="width:100%"></div>
       </div>
@@ -5699,7 +5717,7 @@ function bulkOutPanel(){
         </tr>`;}).join('');})()||`<tr><td colspan="4" class="empty">${t('no_items_filter')}</td></tr>`}
       </tbody></table></div>
     <div class="pad" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line)">
-      <span class="hint">${t('total_dispense_value')}: <b class="num">${money(total)}</b> ${t('currency')}</span>
+      <span class="hint">${t('total_dispense_value')}: <b class="num">${money(total)}</b> ${t('currency')}${b.reason==='بيع خارجي'?(()=>{ const sp=+(b.sale!=null?b.sale:(EXPORT_SALES.cfg.price||36)); const q=Object.entries(b.qty).reduce((t2,[id,v])=>t2+(item(id)&&+v>0?+v:0),0); return ` · 💵 قيمة البيع: <b class="num">${money(q*sp)}</b> · الربح: <b class="num" style="color:var(--green)">${money(q*sp-total)}</b>`; })():''}</span>
       <button class="btn p" style="margin-inline-start:auto" data-act="bulk-submit">${t('record_dispense')} (${count})</button>
     </div>
   </div>`;
@@ -6674,13 +6692,15 @@ function bulkReceiptModal(moves, date, party, reason){
   const facName = esc((FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name);
   const num = 'DOC-'+Date.now().toString().slice(-6);
   const isIn = moves.length && moves[0].dir==='in';
-  const withPrice = isIn && moves.some(m=>+m.price>0);
+  const isSale = !isIn && (reason==='بيع خارجي' || (moves.length && moves.every(m=>m.reason==='بيع خارجي')));
+  if(isSale) moves = moves.map(m=>({...m, price:salePx(m)})); // فاتورة البيع بسعر البيع مش التكلفة
+  const withPrice = (isIn||isSale) && moves.some(m=>+m.price>0);
   const grand = moves.reduce((t,m)=>t+(+m.qty||0)*(+m.price||0),0);
   const rowsHtml = moves.map((m,i)=>{ const it=item(m.itemId)||{name:'—',unit:''};
     return `<tr style="border-bottom:1px dotted var(--line)">${withPrice?`<td style="padding:5px 0;color:var(--muted)">${i+1}</td>`:''}<td style="padding:5px 0">${esc(it.name)}</td><td style="padding:5px 4px;white-space:nowrap" class="n">${fmt(m.qty)} ${esc(it.unit)}</td>${withPrice?`<td class="n" style="padding:5px 4px">${fmtP(+m.price||0)}</td><td class="n" style="padding:5px 0;font-weight:600">${money((+m.qty||0)*(+m.price||0))}</td>`:''}</tr>`;
   }).join('');
   return `<div class="modal" data-close="1"><div class="box" style="max-width:${withPrice?640:460}px">
-    <h3>${isIn?(LANG==='en'?'Goods Received Note':'إيصال استلام'):t('receipt_bulk')} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
+    <h3>${isIn?(LANG==='en'?'Goods Received Note':'إيصال استلام'):isSale?(LANG==='en'?'Sales Invoice':'فاتورة بيع'):t('receipt_bulk')} <span style="color:var(--muted);font-weight:400">#${num}</span></h3>
     <div class="pad receipt">
       <div style="text-align:center;margin-bottom:10px">
         ${FACTORY_LOGOS[FACTORY]?`<img src="${FACTORY_LOGOS[FACTORY]}" style="width:44px;height:44px;object-fit:contain">`:''}
@@ -6690,7 +6710,7 @@ function bulkReceiptModal(moves, date, party, reason){
       <table style="width:100%;border-collapse:collapse;margin:6px 0 10px">
         ${isIn?`<tr><td style="padding:4px 0;color:var(--muted)">${t('r_supplier')}</td><td style="padding:4px 0">${esc(party||'—')}</td></tr>`
         :`<tr><td style="padding:4px 0;color:var(--muted)">${t('r_dispense_to')}</td><td style="padding:4px 0">${esc(reasonLabel(reason)||'—')}</td></tr>
-        ${party?`<tr><td style="padding:4px 0;color:var(--muted)">${reason==='صرف للفروع'?t('branch'):t('r_note')}</td><td style="padding:4px 0">${esc(party)}</td></tr>`:''}`}
+        ${party?`<tr><td style="padding:4px 0;color:var(--muted)">${reason==='صرف للفروع'?t('branch'):isSale?'العميل':t('r_note')}</td><td style="padding:4px 0">${esc(party)}</td></tr>`:''}`}
       </table>
       <table style="width:100%;border-collapse:collapse;border-top:1px dashed var(--line);padding-top:6px">
         <thead><tr>${withPrice?'<th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">#</th>':''}<th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_item')}</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">${t('r_qty')}</th>${withPrice?'<th style="text-align:start;padding:4px 4px;color:var(--muted);font-weight:600;font-size:12px">سعر الوحدة</th><th style="text-align:start;padding:4px 0;color:var(--muted);font-weight:600;font-size:12px">الإجمالي</th>':''}</tr></thead>
@@ -9363,6 +9383,7 @@ function readBulkHeader(){
   const rs=$('#b-reason'); if(rs) ui.bulk.reason=rs.value;
   const pt=$('#b-party'); if(pt) ui.bulk.party=pt.value;
   const dt=$('#b-date'); if(dt) ui.bulk.date=dt.value;
+  const sl=$('#b-sale'); if(sl) ui.bulk.sale=sl.value===''?null:+sl.value;
 }
 function readBulkInHeader(){
   const pt=$('#bi-party'); if(pt) ui.bulkIn.party=pt.value;
@@ -11957,7 +11978,7 @@ async function _act(a,d){
     const dt=new Date(ui.mvDay+'T00:00:00'); dt.setDate(dt.getDate()+n); ui.mvDay=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`; return render(); }
   if(a==='gs-key-save'){ if(!isOwner()) return; const k=(($('#gs-key-in')||{}).value||'').trim(); if(!/^[0-9a-f]{40,80}$/.test(k)) return toast('المفتاح شكله مش صح — انسخه كامل من Execution log',1);
     const old=GS_FKEY; GS_FKEY=k;
-    try{ const r=await faroojRequest({action:'get',key:'inv_branches:list'}); if(!r||(!r.success&&r.error!=='not_found')) throw new Error('x'); }catch(e){ GS_FKEY=old; return toast('السيرفر رفض المفتاح — اتأكد إنك شغّلت setupSecurity ونشرت النسخة الجديدة',1); }
+    try{ const r=await faroojRequest({action:'list',prefix:'inv_factory_order:'}); if(!r||!r.success) throw new Error('x'); }catch(e){ GS_FKEY=old; return toast('السيرفر رفض المفتاح — اتأكد إنك شغّلت setupSecurity ونشرت النسخة الجديدة',1); }
     try{ await sb('stock_settings',{...UPSERT,body:[{factory:GS_KEY_FACTORY,k:'branch_app_key',v:{key:k,at:new Date().toISOString()}}]}); }catch(e){ return toast('اتأكد بس ماتحفظش: '+e.message,1); }
     toast('✓ المفتاح اتحفظ — طلبيات الفروع شغالة'); BO.fetchedKey=''; BO.autoTried=false; return render(); }
   if(a==='alts-open'){ await ingAltsLoad(); ui.alt={}; ui.modal=altsModal(); render(); altsBind(); return; }
@@ -13447,6 +13468,9 @@ async function _act(a,d){
     toast(`اتسجّل صرف ${moves.length} صنف${autoCount?` + ${autoCount} وصفة اشتغلت تلقائي`:''}${skipped.length?` — ${skipped.length} صنف اتخطى لعدم كفاية الرصيد`:''}${notifyMsg}`);
     if(skipped.length) alert('الأصناف دي ما اتصرفتش لعدم كفاية الرصيد:\n\n'+skipped.join('\n'));
     ui.bulk.qty={};
+    if(reason==='بيع خارجي' && moves.length){ const sp=+(b.sale!=null?b.sale:(EXPORT_SALES.cfg.price||36)); const add={}; moves.forEach(m=>{ m.sale=sp; add[m.id]={p:sp,cust:party}; });
+      if(b.sale!=null && +b.sale>0) EXPORT_SALES.cfg.price=+b.sale;
+      try{ await exportSalesSave(add); }catch(e){ toast('سعر البيع ماتحفظش: '+e.message,1); } }
     ui.modal = bulkReceiptModal(moves, date, party, reason);
     return render();
   }
