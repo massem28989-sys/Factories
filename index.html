@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '11-11 · 19:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '11-11 · 23:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -11136,7 +11136,7 @@ function moveDatesWithProduction(list, nd){ const old=new Set(); const moved=[];
 function wrongFactoryParty(){ const ids=new Set((FACTORIES||[]).map(f=>f.id)); return S.moves.filter(m=>m.dir==='out' && !m.runId && m.reason && m.reason!=='صرف لمصنع تاني' && ids.has(m.party) && !m.notifyId); }
 // ===== 🔁 بدّل خامة في الوصفات (المورد مابقاش بيجيب الصنف واتجاب بديله) =====
 function swapModal(){ const P=ui.sw||(ui.sw={from:'',to:'',f:1,date:today(),sel:null});
-  const used=[...new Set(S.recipes.flatMap(r=>(r.lines||[]).map(l=>l.itemId)))].map(id=>item(id)).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const used=[...new Set([...S.recipes.flatMap(r=>(r.lines||[]).map(l=>l.itemId)), ...Object.entries(ING_ALTS||{}).flatMap(([p,L])=>[p,...(L||[]).map(x=>x.id)])])].map(id=>item(id)).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
   const from=item(P.from), to=item(P.to); const R=from?S.recipes.filter(r=>(r.lines||[]).some(l=>l.itemId===from.id)):[];
   if(from && P.sel===null){ P.sel={}; R.forEach(r=>P.sel[r.id]=true); }
   const f=+P.f>0?+P.f:1;
@@ -11152,12 +11152,17 @@ function swapModal(){ const P=ui.sw||(ui.sw={from:'',to:'',f:1,date:today(),sel:
     ${from?(R.length?`<table style="margin-top:12px"><thead><tr><th style="width:28px"></th><th>الوصفة</th><th class="n">${esc(from.name)}</th><th class="n">${to?esc(to.name):'الجديدة'}</th></tr></thead><tbody>
       ${R.map(r=>{ const q=(r.lines||[]).filter(l=>l.itemId===from.id).reduce((t,l)=>t+(+l.qty||0),0); const has=to&&(r.lines||[]).some(l=>l.itemId===to.id);
         return `<tr><td><input type="checkbox" data-sw="${esc(r.id)}" ${P.sel&&P.sel[r.id]?'checked':''}></td><td>${esc(r.name)}${has?'<div class="hint">الجديدة موجودة في الوصفة أصلًا — الكميتين هيتجمعوا</div>':''}</td><td class="n">${fmtP(q)} ${esc(from.unit||'')}</td><td class="n"><b>${fmtP(r4(q*f))}</b> ${to?esc(to.unit||''):''}</td></tr>`; }).join('')}</tbody></table>`:'<div class="empty">الخامة دي مش داخلة في أي وصفة</div>'):''}
+    ${from&&to?(()=>{ const Q=r4(S.moves.filter(m=>m.itemId===from.id&&m.dir==='out'&&m.runId&&m.date===P.date).reduce((t,m)=>t+(+m.qty||0),0)); if(!(Q>0.0005)) return '';
+      const T=[to.id,...(((ING_ALTS||{})[to.id])||[]).map(a=>a.id)].filter((id,i,A)=>id!==from.id&&item(id)&&A.indexOf(id)===i);
+      return `<div style="margin-top:14px;padding:10px 12px;border:1px solid #E8C9A0;background:#FFF8EE;border-radius:8px"><b>↩ الخصم اتعمل على الخامة الغلط؟</b>
+        <div class="hint" style="margin:4px 0 8px">الإنتاج التلقائي يوم ${esc(P.date)} خصم <b>${fmtP(Q)} ${esc(from.unit||'')}</b> من «${esc(from.name)}». تقدر تنقل الخصم ده لـ«${esc(to.name)}» — ولو رصيدها مش مكفّي يكمّل من بدايلها بالترتيب (${T.slice(1).map(id=>esc(item(id).name)).join('، ')||'مفيش بدايل'})، واللي يفضل يرجع على «${esc(from.name)}». الوصفات مش بتتغير.</div>
+        <button class="btn" data-act="swap-move-runs">انقل خصم يوم ${esc(P.date)} لـ«${esc(to.name)}»</button></div>`; })():''}
     </div><div class="foot">${from&&to&&R.length?`<button class="btn p" data-act="swap-apply">بدّل في ${R.filter(r=>P.sel&&P.sel[r.id]).length} وصفة</button>`:''}${from&&!to&&R.length?`<button class="btn" style="color:#A32D2D;border-color:#E5A3A3" data-act="swap-remove">🗑 شيله من ${R.filter(r=>P.sel&&P.sel[r.id]).length} وصفة من غير بديل</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`; }
 function swapBind(){ const P=ui.sw; const re=()=>{ ui.modal=swapModal(); render(); swapBind(); };
   const a=$('#sw-from'); if(a) a.onchange=()=>{ P.from=a.value; P.sel=null; re(); };
   const b=$('#sw-to'); if(b) b.onchange=()=>{ const it=S.items.find(i=>i.name.trim()===b.value.trim()); if(!it){ toast('الصنف ده مش في كارت الأصناف — ضيفه الأول',1); return; } P.to=it.id; re(); };
   const c=$('#sw-f'); if(c) c.onchange=()=>{ P.f=+c.value||1; re(); };
-  const d=$('#sw-date'); if(d) d.onchange=()=>{ P.date=d.value||today(); };
+  const d=$('#sw-date'); if(d) d.onchange=()=>{ P.date=d.value||today(); re(); };
   document.querySelectorAll('[data-sw]').forEach(x=>x.onchange=()=>{ P.sel[x.dataset.sw]=x.checked; re(); }); }
 function prodActualRows(D){
   const pids=new Set(Object.keys(((PROD_DRAFT||{}).drafts||{})[D]||{}).filter(id=>item(id)));
@@ -12095,6 +12100,23 @@ async function _act(a,d){
     R.forEach(r=>{ r.lines=(r.lines||[]).filter(l=>l.itemId!==from.id); S.recipeSince=S.recipeSince||{}; S.recipeSince[r.id]=P.date; });
     await saveMain(); await logOp(g, R.map(r=>r.name).join('، ').slice(0,400)); ui.modal=null; ui.sw=null;
     const st=recipeSyncState().stale.length; toast(`اتشال «${from.name}» من ${R.length} وصفة ✓${st?` — ${st} منتج تكلفته اتغيرت، دوس «مزامنة الأسعار»`:''}`); return render(); }
+  if(a==='swap-move-runs'){ const P=ui.sw; if(!P) return; const from=item(P.from), to=item(P.to); if(!from||!to) return; const D=P.date;
+    const mv=S.moves.filter(m=>m.itemId===from.id&&m.dir==='out'&&m.runId&&m.date===D); const Q=r4(mv.reduce((t,m)=>t+(+m.qty||0),0)); if(!(Q>0)) return toast('مفيش خصم يتنقل',1);
+    const T=[to.id,...(((ING_ALTS||{})[to.id])||[]).map(a=>a.id)].filter((id,i,A)=>id!==from.id&&item(id)&&A.indexOf(id)===i);
+    const avail=T.map(id=>({id, q:r4(Math.max(0,bookQuick(id)))})); let left=Q; const plan=[];
+    avail.forEach((x,i)=>{ if(left<=1e-6) return; const take=i===0&&T.length===1?left:r4(Math.min(left,x.q)); if(take>1e-6){ plan.push({id:x.id,q:take}); left=r4(left-take); } });
+    const msg=`خصم «${from.name}» يوم ${D}: ${fmtP(Q)} ${from.unit||''}\n\nهيتنقل:\n${plan.map(x=>`• ${item(x.id).name}: ${fmtP(x.q)} (رصيدها ${fmtP(avail.find(a=>a.id===x.id).q)})`).join('\n')}${left>1e-6?`\n• يفضل على «${from.name}»: ${fmtP(left)} (البدايل خلصت)`:''}\n\nتكمل؟`;
+    if(!plan.length) return toast('مفيش رصيد في الخامة الجديدة ولا بدايلها',1); if(!confirm(msg)) return;
+    const g=await guardBulk('نقل خصم '+from.name+' — '+D); if(!g) return;
+    // بنوزّع حركات الخصم (حسب كل تشغيلة) على الخطة بالترتيب — الحركة اللي بتتقسم بنعمل لها نسخة بالخامة التانية
+    const pl=plan.map(x=>({...x})); let k=0;
+    for(const m of mv){ let q=+m.qty||0; const parts=[];
+      while(q>1e-6 && k<pl.length){ const t=Math.min(q,pl[k].q); parts.push({id:pl[k].id,q:r4(t)}); q=r4(q-t); pl[k].q=r4(pl[k].q-t); if(pl[k].q<=1e-6) k++; }
+      if(!parts.length) continue;
+      if(q<=1e-6 && parts.length===1){ m.itemId=parts[0].id; m.qty=parts[0].q; m.qx=parts[0].q; continue; }
+      parts.forEach(pt=>S.moves.push({...m, id:uid('m'), itemId:pt.id, qty:pt.q, qx:pt.q}));
+      m.qty=r4(q); m.qx=m.qty; if(!(m.qty>1e-6)){ DELETED_MOVE_IDS.add(m.id); S.moves=S.moves.filter(z=>z.id!==m.id); } }
+    await saveTx(); await logOp(g, plan.map(x=>item(x.id).name+' '+fmtP(x.q)).join('، ')); toast(`اتنقل الخصم ✓ — ${plan.map(x=>item(x.id).name+': '+fmtP(x.q)).join('، ')}`); ui.modal=swapModal(); render(); swapBind(); return; }
   if(a==='swap-apply'){ const P=ui.sw; if(!P) return; const from=item(P.from), to=item(P.to); if(!from||!to) return; const f=+P.f>0?+P.f:1;
     const R=S.recipes.filter(r=>P.sel&&P.sel[r.id]&&(r.lines||[]).some(l=>l.itemId===from.id)); if(!R.length) return toast('مفيش وصفات متعلّم عليها',1);
     if(!confirm(`هيتشال «${from.name}» من ${R.length} وصفة ويتحط مكانه «${to.name}» (الكمية × ${fmtP(f)}) من يوم ${P.date}.\n\nالتشغيلات اللي قبل اليوم ده مش هتتغير. تكمل؟`)) return;
