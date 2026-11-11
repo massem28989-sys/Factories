@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '10-11 · 15:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '11-11 · 14:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1614,6 +1614,11 @@ let PENDING_SYNCS = 0;
 // من غير ما نرجّع حركات اتحذفت فعلاً، ومن غير ما نمسح حركات جاية من جهاز تاني (زي المدير) لسه ما سحبناهاش عندنا
 let DELETED_MOVE_IDS = new Set();
 const MOVE_SIG = new Map(); // آخر نسخة اتحفظت من كل حركة على السيرفر
+// نفس الفكرة للوصفات والأصناف: الجهاز يرفع بس اللي اتغير عنده — عشان جهاز فاتح من بدري بنسخة قديمة
+// (مدير/وردية) ما يرجّعش تعديل اتعمل من جهاز تاني (زي تبديل خامة في الوصفات) أول ما يحفظ أي حاجة.
+const REC_SIG = new Map(), ITEM_SIG = new Map();
+const recSig = r=>JSON.stringify([r.name||'', r.outItemId||'', +r.outQty||0, r.lines||[]]);
+const itemSig = i=>JSON.stringify([i.name||'', i.desc||'', i.unit||'', i.cat||'', +i.opening||0, +i.price||0, +i.min||0, i.note||'', !!i.daily, i.packUnit||'', +i.packSize||0]);
 const moveSig = m => m.dir+'|'+m.itemId+'|'+m.qty+'|'+m.price+'|'+m.date+'|'+(m.party||'')+'|'+(m.reason||'')+'|'+(m.runId||'')+'|'+(m.prodDate||'')+'|'+(m.temp??'')+'|'+(m.invoice||'')+'|'+(m.expDate||'')+'|'+(m.notifyId||'');
 /* بداية جرد جديد: الأرقام القديمة بتتمسح من كل الأجهزة. عشان جهاز لسه شايل الأرقام القديمة ما يرجّعهاش تاني،
    بنحفظ وقت "بداية الجرد"، وأي رقم محلي اتسجل قبل الوقت ده بيتشال بدل ما يتدمج */
@@ -1939,9 +1944,10 @@ async function pushAll(quiet){
       let upOk=false;
       if(S.items.length){
         const up = rows => sb('stock_items?on_conflict=factory,id',{...UPSERT,body:rows});
-        try{ await up(S.items.map(i=>({...base(i), daily:!!i.daily}))); upOk=true; }
+        const chI = ITEM_SIG.size ? S.items.filter(i=>ITEM_SIG.get(i.id)!==itemSig(i)) : S.items;
+        try{ if(chI.length) await up(chI.map(i=>({...base(i), daily:!!i.daily}))); upOk=true; chI.forEach(i=>ITEM_SIG.set(i.id, itemSig(i))); }
         catch(e){
-          if(/daily/i.test(e.message)){ await up(S.items.map(base)); upOk=true;
+          if(/daily/i.test(e.message)){ await up(chI.map(base)); upOk=true; chI.forEach(i=>ITEM_SIG.set(i.id, itemSig(i)));
             errors.push('تنبيه: عمود "متابعة يومية" لسه مش مضاف في القاعدة — الأصناف اتحفظت من غيره.'); }
           else if(/42P10|unique|exclusion|conflict|constraint/i.test(e.message)){ upOk=false; }
           else throw e;
@@ -1953,7 +1959,7 @@ async function pushAll(quiet){
           const list=ids.slice(k,k+100).map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
           await sb('stock_items?'+fEq()+'&id=in.('+encodeURIComponent(list)+')',{method:'DELETE'});
         }
-        DELETED_ITEM_IDS.clear();
+        ids.forEach(id=>ITEM_SIG.delete(id)); DELETED_ITEM_IDS.clear();
       } else {
         // القاعدة مش مجهزة للـ upsert بالمصنع+الكود — نرجع للطريقة القديمة
         await legacyReplace(); DELETED_ITEM_IDS.clear();
@@ -2050,18 +2056,23 @@ async function pushAll(quiet){
     else {
       // الطريقة الآمنة: نحفظ/نحدّث الوصفات الموجودة الأول (upsert)، وبعدين نمسح بس الوصفات اللي اتحذفت فعلًا.
       // قبل كده كان بيمسح كله وبعدين يضيف — ولو الإضافة فشلت لأي سبب (نت، بيانات)، الوصفات كانت بتضيع من السيرفر.
-      const rrows = S.recipes.map(r=>({id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines}));
+      const toRow = r=>({id:r.id,factory:F,name:r.name,out_item:r.outItemId,out_qty:+r.outQty||0,lines:r.lines});
+      const rrows = S.recipes.map(toRow);
+      // بنرفع بس الوصفات اللي اتغيرت على الجهاز ده (لو عارفين نسخة السيرفر)، ونمسح بس اللي كانت موجودة عندنا واتمسحت من هنا
+      const known = REC_SIG.size>0;
+      const chR = known ? S.recipes.filter(r=>REC_SIG.get(r.id)!==recSig(r)) : S.recipes;
       let upOk=false;
-      try{ if(rrows.length) await sb('stock_recipes',{...UPSERT,body:rrows}); upOk=true; }
+      try{ if(chR.length) await sb('stock_recipes',{...UPSERT,body:chR.map(toRow)}); upOk=true; chR.forEach(r=>REC_SIG.set(r.id, recSig(r))); }
       catch(e){ if(!/unique|exclusion|42P10|conflict/i.test(e.message)) throw e; }
       if(upOk){
-        const srv = await sbAll('stock_recipes?'+fEq()+'&select=id',{prefer:'return=representation'})||[];
         const keep = new Set(S.recipes.map(r=>r.id));
-        const gone = srv.map(x=>x.id).filter(id=>!keep.has(id));
+        const gone = known ? [...REC_SIG.keys()].filter(id=>!keep.has(id))
+          : ((await sbAll('stock_recipes?'+fEq()+'&select=id',{prefer:'return=representation'})||[]).map(x=>x.id).filter(id=>!keep.has(id)));
         for(let i=0;i<gone.length;i+=100){
           const list = gone.slice(i,i+100).map(x=>'"'+String(x).replace(/"/g,'')+'"').join(',');
           await sb('stock_recipes?'+fEq()+'&id=in.('+encodeURIComponent(list)+')',{method:'DELETE'});
         }
+        gone.forEach(id=>REC_SIG.delete(id));
       } else {
         // القاعدة مش مجهزة للـ upsert — الطريقة القديمة
         await sb('stock_recipes?'+fEq(),{method:'DELETE'});
@@ -2100,6 +2111,7 @@ async function pushAll(quiet){
         S.branches=_mergeNames('branches', sv.branches, 'الفرع الرئيسي');
         S.suppliers=_mergeNames('suppliers', sv.suppliers, 'المخزن الرئيسي');
         ['boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','boTblAdd','boTblDel'].forEach(k=>{ if(sv[k]) S[k]={...sv[k], ...(S[k]||{})}; });
+        if(sv.recipeSince){ const rs={...(S.recipeSince||{})}; Object.entries(sv.recipeSince).forEach(([k,v])=>{ if(!rs[k]||String(v)>String(rs[k])) rs[k]=v; }); S.recipeSince=rs; } // آخر تاريخ تعديل للوصفة يكسب
       }
     }catch(e){}
     await sb('stock_settings',{...UPSERT,body:[{factory:F,k:'state',v:{period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,restrictDispatchTo:S.restrictDispatchTo||'',dispatchOnlyMode:!!S.dispatchOnlyMode,allowedReasons:S.allowedReasons||null,boMap:S.boMap||{},boConv:S.boConv||{},boDone:S.boDone||{},inboxMap:S.inboxMap||{},boSeen:S.boSeen||{},boHidden:S.boHidden||{},boWeigh:S.boWeigh||{},boKgPer:S.boKgPer||{},untracked:S.untracked||{},cntGrp:S.cntGrp||{},cntLog:S.cntLog||{},unitConv:S.unitConv||{},catSkip:S.catSkip||{},blockNegative:!!S.blockNegative,recipeSince:S.recipeSince||{},locs:S.locs||[],itemLoc:S.itemLoc||{},locEditors:S.locEditors||[],boTblAdd:S.boTblAdd||{},boTblDel:S.boTblDel||{}}}]});
@@ -2133,6 +2145,7 @@ async function pullAll(silent){
     S.items=items.map(r=>({id:r.id,name:r.name,desc:r.descr||'',unit:r.unit,cat:r.cat,
       opening:+r.opening||0,price:+r.price||0,min:+r.min_qty||0,note:r.note||'',daily:!!r.daily,
       packUnit:r.pack_unit||'',packSize:+r.pack_size||0}));
+    ITEM_SIG.clear(); S.items.forEach(i=>ITEM_SIG.set(i.id, itemSig(i)));
     S.period=period; S.locks=(st&&st[0]&&st[0].v&&st[0].v.locks)||{}; S.suppliers=_mergeNames('suppliers', st&&st[0]&&st[0].v&&st[0].v.suppliers, 'المخزن الرئيسي'); S.branches=_mergeNames('branches', st&&st[0]&&st[0].v&&st[0].v.branches, 'الفرع الرئيسي'); S.restrictDispatchTo=(st&&st[0]&&st[0].v&&st[0].v.restrictDispatchTo)||''; S.dispatchOnlyMode=!!(st&&st[0]&&st[0].v&&st[0].v.dispatchOnlyMode); S.allowedReasons=(st&&st[0]&&st[0].v&&st[0].v.allowedReasons)||null; S.boMap=(st&&st[0]&&st[0].v&&st[0].v.boMap)||{}; S.boConv=(st&&st[0]&&st[0].v&&st[0].v.boConv)||{}; S.boSeen={...((st&&st[0]&&st[0].v&&st[0].v.boSeen)||{}), ...(S.boSeen||{})}; S.boHidden=(st&&st[0]&&st[0].v&&st[0].v.boHidden)||S.boHidden||{}; S.boWeigh=(st&&st[0]&&st[0].v&&st[0].v.boWeigh)||S.boWeigh||{}; S.boKgPer=(st&&st[0]&&st[0].v&&st[0].v.boKgPer)||S.boKgPer||{}; S.untracked=(st&&st[0]&&st[0].v&&st[0].v.untracked)||S.untracked||{}; S.cntGrp=(st&&st[0]&&st[0].v&&st[0].v.cntGrp)||S.cntGrp||{}; S.cntLog=(st&&st[0]&&st[0].v&&st[0].v.cntLog)||S.cntLog||{}; S.unitConv=(st&&st[0]&&st[0].v&&st[0].v.unitConv)||S.unitConv||{}; S.catSkip=(st&&st[0]&&st[0].v&&st[0].v.catSkip)||S.catSkip||{}; if(st&&st[0]&&st[0].v&&st[0].v.blockNegative!==undefined) S.blockNegative=!!st[0].v.blockNegative; S.recipeSince=(st&&st[0]&&st[0].v&&st[0].v.recipeSince)||S.recipeSince||{}; S.locEditors=(st&&st[0]&&st[0].v&&st[0].v.locEditors)||S.locEditors||[]; S.locs=(st&&st[0]&&st[0].v&&st[0].v.locs)||S.locs||[]; S.itemLoc=(st&&st[0]&&st[0].v&&st[0].v.itemLoc)||S.itemLoc||{}; S.boTblAdd=(st&&st[0]&&st[0].v&&st[0].v.boTblAdd)||S.boTblAdd||{}; S.boTblDel=(st&&st[0]&&st[0].v&&st[0].v.boTblDel)||S.boTblDel||{}; S.boDone=(st&&st[0]&&st[0].v&&st[0].v.boDone)||{}; S.inboxMap=(st&&st[0]&&st[0].v&&st[0].v.inboxMap)||{};
     const mv=await sbAll('stock_moves?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.moves=mv.map(m=>({id:m.id,dir:m.dir,itemId:m.item_id,qty:+m.qty,price:+m.price,party:m.party,reason:m.reason,date:m.move_date,runId:m.run_id||undefined,prodDate:m.prod_date||'',temp:m.temp!=null?+m.temp:null,notifyId:m.notify_id||undefined,notifyFactory:m.notify_factory||undefined,invoice:m.invoice||undefined,expDate:m.exp_date||''}));
@@ -2141,6 +2154,7 @@ async function pullAll(silent){
     S.counts={}; ct.forEach(c=>S.counts[c.item_id]=+c.qty); COUNTS_LOADED_AT=Date.now();
     const rc=await sbAll('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
     S.recipes=rc.map(r=>({id:r.id,name:r.name,outItemId:r.out_item,outQty:+r.out_qty,lines:r.lines||[]}));
+    REC_SIG.clear(); S.recipes.forEach(r=>REC_SIG.set(r.id, recSig(r)));
     const rn=await sbAll('stock_runs?'+fEq()+'&period=eq.'+encodeURIComponent(period)+'&select=*',{prefer:'return=representation'})||[];
     S.runs=rn.map(r=>({id:r.id,date:r.run_date,name:r.name,batches:+r.batches,outQty:+r.out_qty,cost:+r.cost}));
     markAutoRuns();
@@ -2260,6 +2274,7 @@ async function prepRestoreMoves(snap){
   keep.forEach(id=>DELETED_MOVE_IDS.delete(id)); // حركة في النسخة كانت مستنية تتمسح من عملية قبل كده — لازم تفضل
   srv.forEach(r=>{ if(!keep.has(r.id)) DELETED_MOVE_IDS.add(r.id); });
   MOVE_SIG.clear(); // كل حركات النسخة تتبعت من جديد
+  REC_SIG.clear(); ITEM_SIG.clear(); // والوصفات والأصناف كمان
 }
  
 async function loadFactories(){
@@ -13973,6 +13988,18 @@ async function boot(){
   try{ render(); }
   catch(e){ console.error(e); document.getElementById('root').innerHTML='<div class="boot">مشكلة في العرض: '+esc(e.message)+'</div>'; }
   if(DB.on){ fetchFactoryInbox(FACTORY).then(list=>{ MY_INBOX=list; if(pendingInboxCount()) render(); }); }
+  // الأجهزة اللي مش بتسحب تلقائي (مدير/وردية) — نحدّث الوصفات كل دقيقتين، عشان الخصم التلقائي يمشي على الوصفة الجديدة
+  // (مثلاً بعد تبديل خامة) من غير ما حد يعمل ريفريش. الوصفة اللي اتعدلت على الجهاز ده ولسه ما اترفعتش ما بتتلمسش.
+  if(ROLE!=='owner' && DB.on){
+    setInterval(async ()=>{ if(document.hidden || DB.busy || DB.dirty || !REC_SIG.size) return;
+      try{ const rc=await sbAll('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'}); if(!rc || DB.busy || DB.dirty) return;
+        const loc=new Map(S.recipes.map(r=>[r.id,r])); const srvIds=new Set(); let ch=0; const out=[];
+        rc.forEach(x=>{ srvIds.add(x.id); const nr={id:x.id,name:x.name,outItemId:x.out_item,outQty:+x.out_qty,lines:x.lines||[]}; const l=loc.get(x.id);
+          if(l && REC_SIG.get(l.id)!==recSig(l)){ out.push(l); return; } // متعدّلة هنا ولسه ما اترفعتش
+          if(!l || recSig(l)!==recSig(nr)) ch++; out.push(nr); REC_SIG.set(nr.id, recSig(nr)); });
+        S.recipes.forEach(l=>{ if(!srvIds.has(l.id)){ if(REC_SIG.has(l.id)){ REC_SIG.delete(l.id); ch++; } else out.push(l); } });
+        if(ch){ S.recipes=out; _matchCache=new Map(); } }catch(e){} }, 120000);
+  }
   if(ROLE==='owner' && DB.on){
     setInterval(async ()=>{
       const typing = document.activeElement && document.activeElement.hasAttribute('data-count');
