@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '11-11 · 14:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '11-11 · 14:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -11110,11 +11110,15 @@ function autoDayIndex(ds){ const runs=new Map((S.runs||[]).map(r=>[r.id,r])); co
     if(m.dir==='in' && m.runId && !isByMove(m)){ const run=runs.get(m.runId); if((isAutoRunIn(m)||(run&&run.auto)) && !(run&&run.actual)){ if(!e) idx.set(k,e={auto:0,out:0,hasAuto:false}); e.auto+= +m.qty||0; if(isAutoRunIn(m)) e.hasAuto=true; } else if(isAutoRunIn(m)){ if(!e) idx.set(k,e={auto:0,out:0,hasAuto:false}); e.hasAuto=true; } }
     else if(m.dir==='out'){ if(!e) idx.set(k,e={auto:0,out:0,hasAuto:false}); e.out+= +m.qty||0; } }
   return idx; }
+function bookQuick(P){ const it=item(P); let b=it?(+it.opening||0):0; for(const m of S.moves){ if(m.itemId===P) b+=(m.dir==='in'?1:-1)*(+m.qty||0); } return b; }
 function orphanAutoApply(dates){ const cut=new Map(); const ds=new Set(dates);
   for(let pass=0; pass<6; pass++){ let ch=false; let idx=autoDayIndex(ds);
     for(const [k,e] of idx){ if(!e.hasAuto) continue; const ex=r4(Math.max(0,e.auto-e.out)); if(!(ex>0.0005)) continue;
       const [P,D]=k.split('|'); const st=autoDayStats(P,D); // نتأكد بالحساب الكامل قبل أي تعديل
-      if(st.excess>0.0005){ const c=shrinkRuns(P,D,st.excess,{autoOnly:true,cascade:false}); if(c>0){ cut.set(k, r4((cut.get(k)||0)+c)); ch=true; idx=autoDayIndex(ds); } } }
+      // ما نلغيش أكتر من الرصيد الفاضل فعلًا من المنتج — لو الزيادة دي اتلغت قبل كده من يوم تاني (مثلًا بأداة «تنظيف الإنتاج الزايد»)
+      // الرصيد بيبقى صفر أو بالسالب، والإلغاء هنا كان بيخصمها تاني ويخلّي المنتج بالسالب
+      const cap=r4(Math.max(0, bookQuick(P))); const ex2=Math.min(st.excess, cap);
+      if(ex2>0.0005){ const c=shrinkRuns(P,D,ex2,{autoOnly:true,cascade:false}); if(c>0){ cut.set(k, r4((cut.get(k)||0)+c)); ch=true; idx=autoDayIndex(ds); } } }
     if(!ch) break; }
   return cut; }
 function orphanAutoPlan(dates){
