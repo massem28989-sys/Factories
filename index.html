@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '11-11 · 23:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '12-11 · 03:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1295,7 +1295,7 @@ function _mergeNames(kind, serverList, def){
 const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','locEditors','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip','blockNegative','recipeSince'];
 function stateSettings(){ const o={}; STATE_KEYS.forEach(k=>{ if(S[k]!==undefined) o[k]=S[k]; }); return o; }
 async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,blockNegative:!!S.blockNegative,recipeSince:S.recipeSince,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
-async function saveTx(){ BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
+async function saveTx(){ try{ const f=anchorHeal(); if(f) setTimeout(()=>toast(`🔒 ${f} تعديل في أيام قبل الجرد اتعوّض — الرصيد بعد الجرد ما اتغيرش`),400); }catch(e){ console.warn('anchorHeal',e); } BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
   if(DB_CONFIGURED){
@@ -1305,6 +1305,8 @@ async function load(){
       const gotData = await pullAll(true);
       await fetchPurchaseRequests();
       await ingAltsLoad();
+      await cntAnchorLoad();
+      await stdLoad();
       await exportSalesLoad();
       gsKeyLoad().then(()=>{ if(!GS_FKEY && BRANCH_APP) render(); });
       setTimeout(()=>shiftMaybePrompt(), 1500);
@@ -1750,6 +1752,80 @@ async function exportSalesLoad(){ if(!DB_CONFIGURED) return; try{ const rows=awa
 function exportSalesApply(){ const M=EXPORT_SALES.m||{}; (S.moves||[]).forEach(m=>{ if(M[m.id]) m.sale=+M[m.id].p||0; }); }
 async function exportSalesSave(add){ await exportSalesLoad(); EXPORT_SALES.m={...(EXPORT_SALES.m||{}), ...(add||{})}; await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'export_sales',v:EXPORT_SALES}]}); exportSalesApply(); }
 const salePx=m=>(m&&m.sale!=null)?+m.sale:(EXPORT_SALES.m&&EXPORT_SALES.m[m.id]?+EXPORT_SALES.m[m.id].p:0);
+/* ===== 🔒 مرساة الجرد =====
+   كل جرد بيتسجل بيحفظ «الصنف ده كان رصيده الفعلي كذا ساعة كذا». بعد كده لو أي حاجة قبل الجرد اتعدلت
+   (تنظيف إنتاج، صنّع الناقص بتاريخ قديم، فاتورة قديمة اتسجلت متأخر، حركة اتمسحت…) الرصيد بعد الجرد ما بيتغيرش:
+   الفرق بيتحط تلقائي في «تسوية جرد (تعويض تعديل قبل الجرد)» بتاريخ الجرد — يعني بيغيّر فرق الجرد بتاع الفترة دي بس.
+   CNT_ANCHOR = { itemId: [{d, q, at, excl:[moveIds], cid}] }  (آخر 12 جرد لكل صنف) */
+let CNT_ANCHOR=null;
+const ANCHOR_PARTY='تسوية جرد (تعويض تعديل قبل الجرد)';
+const mvTsA = m => { const id=String(m&&m.id||""); return /^m[0-9a-z]{12}$/.test(id) ? parseInt(id.slice(1,9),36) : 0; };
+async function cntAnchorLoad(){ if(!DB_CONFIGURED||!DB.on){ CNT_ANCHOR=CNT_ANCHOR||{}; return CNT_ANCHOR; }
+  try{ const rows=await sb('stock_settings?'+fEq()+'&k=eq.cnt_anchor&select=v',{prefer:'return=representation'}); CNT_ANCHOR=(rows&&rows[0]&&rows[0].v)||{}; }catch(e){ if(CNT_ANCHOR===null) CNT_ANCHOR=null; } return CNT_ANCHOR; }
+let _anchorSaving=null;
+async function cntAnchorSave(){ if(VIEWER||!DB.on||!CNT_ANCHOR) return; try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'cnt_anchor',v:CNT_ANCHOR}]}); }catch(e){ console.warn('anchor save',e); } }
+function cntAnchorAdd(itemId, a){ if(!CNT_ANCHOR) CNT_ANCHOR={}; const L=(CNT_ANCHOR[itemId]||[]).slice(); L.push(a); L.sort((x,y)=>x.at-y.at); CNT_ANCHOR[itemId]=L.slice(-12); }
+function lastAnchor(itemId){ const L=(CNT_ANCHOR||{})[itemId]; return L&&L.length?L[L.length-1]:null; }
+// بيرجّع عدد التعويضات اللي اتعملت/اتعدلت. بيتنده قبل كل حفظ للحركات.
+function anchorHeal(){
+  if(!CNT_ANCHOR || VIEWER) return 0; const ids=Object.keys(CNT_ANCHOR).filter(id=>(CNT_ANCHOR[id]||[]).length && item(id)); if(!ids.length) return 0;
+  const want=new Set(ids); const by=new Map(); for(const m of S.moves){ if(want.has(m.itemId)){ let a=by.get(m.itemId); if(!a) by.set(m.itemId,a=[]); a.push(m); } }
+  let fixes=0, anchorsChanged=false;
+  for(const id of ids){ const it=item(id); const L=CNT_ANCHOR[id]; const mv=by.get(id)||[]; const prevC=new Set();
+    const claimed=new Set();
+    for(const a of L){ const ex=new Set(a.excl||[]);
+      // حركات التعويض بتاعة الجرد ده: بالـ id المتسجل، أو أي تعويض بنفس التاريخ مش متحجوز (لو جهاز تاني عمله قبل ما المرساة توصلنا)
+      const comps=mv.filter(m=>!claimed.has(m.id) && (m.id===a.cid || ((m.party===ANCHOR_PARTY||m.note===ANCHOR_PARTY) && m.date===a.d && !prevC.has(m.id))));
+      comps.sort((x,y)=>(y.id===a.cid)-(x.id===a.cid));
+      let sum=+it.opening||0, cm=comps[0]||null; const extra=new Set(comps.slice(1).map(m=>m.id));
+      if(extra.size){ extra.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(z=>!extra.has(z.id)); fixes++; anchorsChanged=true; }
+      if(cm && a.cid!==cm.id){ a.cid=cm.id; anchorsChanged=true; } if(cm) claimed.add(cm.id);
+      for(const m of mv){ if(cm && m.id===cm.id) continue; if(extra.has(m.id)) continue;
+        const pre = prevC.has(m.id) || m.date<a.d || (mvTsA(m)<=a.at && !ex.has(m.id));
+        if(pre) sum+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); }
+      const t=r4((+a.q||0)-sum); const cur=cm?(cm.dir==='in'?+cm.qty:-cm.qty):0;
+      if(Math.abs(t-cur)>0.006){ fixes++;
+        if(Math.abs(t)<0.006){ if(cm){ DELETED_MOVE_IDS.add(cm.id); S.moves=S.moves.filter(z=>z.id!==cm.id); } a.cid=null; anchorsChanged=true; }
+        else if(cm){ cm.dir=t>0?'in':'out'; cm.qty=r4(Math.abs(t)); cm.price=t>0?(+it.price||0):0; }
+        else { const nm={id:uid('m'),dir:t>0?'in':'out',itemId:id,qty:r4(Math.abs(t)),date:a.d,price:t>0?(+it.price||0):0,party:t>0?ANCHOR_PARTY:'',reason:t>0?'':'تسوية جرد',note:ANCHOR_PARTY};
+          if(t<0) nm.party=ANCHOR_PARTY; S.moves.push(nm); a.cid=nm.id; anchorsChanged=true; } }
+      if(a.cid) prevC.add(a.cid); } }
+  if(fixes){ CALC_IDX=null; _anchorFixes+=fixes; }
+  if(anchorsChanged) _anchorSaving=cntAnchorSave();
+  return fixes; }
+let _anchorFixes=0;
+
+/* ===== 🧾 سجل التغييرات (وصفات وكارت الأصناف) — أي تعديل من أي شاشة أو جهاز بيتسجل وقت ما بيتحفظ على السيرفر ===== */
+let CHGLOG=null;
+const ITEM_FIELDS=[['الاسم',0],['الوصف',1],['الوحدة',2],['القسم',3],['أول المدة',4],['السعر',5],['الحد الأدنى',6],['ملاحظة',7],['يومي',8],['وحدة العبوة',9],['حجم العبوة',10]];
+function chgRecipeDiff(o, n){ const out=[]; const nm=id=>{ const z=item(id); return z?z.name:id; };
+  if(!o) return ['وصفة جديدة: '+n.name+' — الخارج '+fmtP(+n.outQty||0)];
+  if(!n) return ['الوصفة اتمسحت'];
+  if((o[0]||'')!==(n.name||'')) out.push(`الاسم: ${o[0]} ← ${n.name}`);
+  if((o[1]||'')!==(n.outItemId||'')) out.push(`المنتج: ${nm(o[1])} ← ${nm(n.outItemId)}`);
+  if((+o[2]||0)!==(+n.outQty||0)) out.push(`الخارج: ${fmtP(+o[2]||0)} ← ${fmtP(+n.outQty||0)}`);
+  const key=l=>l.itemId+(l.by?'|by':''); const A=new Map(), B=new Map();
+  (o[3]||[]).forEach(l=>A.set(key(l),(A.get(key(l))||0)+(+l.qty||0))); (n.lines||[]).forEach(l=>B.set(key(l),(B.get(key(l))||0)+(+l.qty||0)));
+  new Set([...A.keys(),...B.keys()]).forEach(k=>{ const a=A.get(k), b=B.get(k); const id=k.split('|')[0]; const tag=k.includes('|by')?' (ناتج ثانوي)':'';
+    if(a==null) out.push(`+ ${nm(id)}${tag}: ${fmtP(b)}`); else if(b==null) out.push(`− ${nm(id)}${tag} (كان ${fmtP(a)})`); else if(Math.abs(a-b)>1e-9) out.push(`${nm(id)}${tag}: ${fmtP(a)} ← ${fmtP(b)}`); });
+  return out; }
+async function chgLogAppend(entries){ if(!entries.length||!DB.on||VIEWER) return;
+  try{ const r=await sb('stock_settings?'+fEq()+'&k=eq.chg_log&select=v',{prefer:'return=representation'}); const list=((r&&r[0]&&r[0].v&&r[0].v.list)||[]).concat(entries).slice(-3000);
+    await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'chg_log',v:{list}}]}); if(CHGLOG) CHGLOG=list; }catch(e){ console.warn('chglog',e); } }
+async function chgLogLoad(){ try{ const r=await sb('stock_settings?'+fEq()+'&k=eq.chg_log&select=v',{prefer:'return=representation'}); CHGLOG=(r&&r[0]&&r[0].v&&r[0].v.list)||[]; }catch(e){ CHGLOG=CHGLOG||[]; } return CHGLOG; }
+const chgWho = ()=>(AUTH&&AUTH.user&&AUTH.user.email)||ROLE||'';
+
+/* ===== 📌 السعر المعياري الشهري =====
+   أول الشهر بيتثبّت سعر كل منتج — والصرف للفروع طول الشهر بيتسجل بيه (مش بسعر الكارت اللي بيتغير مع كل فاتورة أو تعديل وصفة).
+   الفرق بين التكلفة الفعلية والمعيارية بيظهر في تقرير الانحرافات آخر الشهر. STD_COST = { 'YYYY-MM': {at, by, prices:{itemId:price}} } */
+let STD_COST=null;
+async function stdLoad(){ if(!DB_CONFIGURED||!DB.on){ STD_COST=STD_COST||{}; return STD_COST; }
+  try{ const r=await sb('stock_settings?'+fEq()+'&k=eq.std_cost&select=v',{prefer:'return=representation'}); STD_COST=(r&&r[0]&&r[0].v)||{}; }catch(e){ STD_COST=STD_COST||{}; } return STD_COST; }
+async function stdSave(){ if(VIEWER) throw new Error(VIEWER_MSG); await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'std_cost',v:STD_COST||{}}]}); }
+function stdPrice(itemId, date){ const M=(STD_COST||{})[String(date||today()).slice(0,7)]; if(!M||!M.prices) return null; const v=M.prices[itemId]; return (v!=null&&+v>0)?+v:null; }
+// سعر الصرف للفرع: المعياري لو الشهر ده متثبّت، وإلا سعر الكارت
+function dispPrice(itemId, date){ const sp=stdPrice(itemId, date); return sp!=null?sp:(+(item(itemId)||{}).price||0); }
+
 async function ingAltsLoad(){ if(!DB_CONFIGURED) return ING_ALTS; try{ const rows=await sb('stock_settings?'+fEq()+'&k=eq.ing_alts&select=v',{prefer:'return=representation'}); ING_ALTS=(rows&&rows[0]&&rows[0].v)||{}; }catch(e){} return ING_ALTS; }
 async function ingAltsSave(){ if(VIEWER) throw new Error(VIEWER_MSG); await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'ing_alts',v:ING_ALTS}]}); }
 function altRev(){ const m=new Map(); Object.entries(ING_ALTS||{}).forEach(([p,L])=>(L||[]).forEach(a=>{ if(!m.has(a.id)) m.set(a.id,{p, f:+a.f||1}); })); return m; }
@@ -1945,6 +2021,11 @@ async function pushAll(quiet){
       if(S.items.length){
         const up = rows => sb('stock_items?on_conflict=factory,id',{...UPSERT,body:rows});
         const chI = ITEM_SIG.size ? S.items.filter(i=>ITEM_SIG.get(i.id)!==itemSig(i)) : S.items;
+        const chgE=[]; if(ITEM_SIG.size) chI.forEach(i=>{ const o=ITEM_SIG.get(i.id); const nw=JSON.parse(itemSig(i));
+          if(!o){ chgE.push({at:new Date().toISOString(), by:chgWho(), kind:'item', id:i.id, name:i.name, ch:['صنف جديد']}); return; }
+          const ov=JSON.parse(o); const ch=ITEM_FIELDS.filter(([l,k])=>String(ov[k])!==String(nw[k])).map(([l,k])=>`${l}: ${ov[k]===''?'—':ov[k]} ← ${nw[k]===''?'—':nw[k]}`);
+          if(ch.length) chgE.push({at:new Date().toISOString(), by:chgWho(), kind:'item', id:i.id, name:i.name, ch}); });
+        if(chgE.length) chgLogAppend(chgE);
         try{ if(chI.length) await up(chI.map(i=>({...base(i), daily:!!i.daily}))); upOk=true; chI.forEach(i=>ITEM_SIG.set(i.id, itemSig(i))); }
         catch(e){
           if(/daily/i.test(e.message)){ await up(chI.map(base)); upOk=true; chI.forEach(i=>ITEM_SIG.set(i.id, itemSig(i)));
@@ -2061,6 +2142,9 @@ async function pushAll(quiet){
       // بنرفع بس الوصفات اللي اتغيرت على الجهاز ده (لو عارفين نسخة السيرفر)، ونمسح بس اللي كانت موجودة عندنا واتمسحت من هنا
       const known = REC_SIG.size>0;
       const chR = known ? S.recipes.filter(r=>REC_SIG.get(r.id)!==recSig(r)) : S.recipes;
+      if(known){ const E=[]; chR.forEach(r=>{ const o=REC_SIG.get(r.id); const ch=chgRecipeDiff(o?JSON.parse(o):null, r); if(ch.length) E.push({at:new Date().toISOString(), by:chgWho(), kind:'recipe', id:r.id, name:r.name, ch, since:(S.recipeSince||{})[r.id]||'', old:o?JSON.parse(o):null}); });
+        const keepIds=new Set(S.recipes.map(r=>r.id)); [...REC_SIG.keys()].filter(id=>!keepIds.has(id)).forEach(id=>{ const o=JSON.parse(REC_SIG.get(id)); E.push({at:new Date().toISOString(), by:chgWho(), kind:'recipe', id, name:o[0], ch:['الوصفة اتمسحت'], old:o}); });
+        if(E.length) chgLogAppend(E); }
       let upOk=false;
       try{ if(chR.length) await sb('stock_recipes',{...UPSERT,body:chR.map(toRow)}); upOk=true; chR.forEach(r=>REC_SIG.set(r.id, recSig(r))); }
       catch(e){ if(!/unique|exclusion|42P10|conflict/i.test(e.message)) throw e; }
@@ -3801,6 +3885,57 @@ const FIN_CODES={ factory:['110402100','622','62299'], waste:['310101160','622',
 const FIN_SUBCC={"FAE - Al Satwa": "62201", "FAE - Al Warqa 1": "62202", "FAE - Corniche": "62203", "FAE - Abu Dhabi (Al Nahyaan)": "62204", "FAE - Samnan": "62205", "FAE - Al Fujairah": "62206", "FAE- Ajman (Sheikh Ammar )": "62207", "FAE - Al Khawaneej 2 (Dubai)": "62208", "FAE - Al Barsha": "62209", "FAE - Ras Al Khaiymaa": "62210", "FAE - Al jimi": "62211", "FAE - Al Shahama": "62212", "FAE - Ni’mah": "62213", "FAE - Al Shamkha": "62214", "FAE - Business Bay": "62215", "FAE- Al Foursan Mall": "62216", "FAE - Khor Fakkan": "62217", "FAE - Downtown": "62219", "FAE - AL Yahr": "62220", "FAE - Festival land": "62222", "FAE - Al sajaa": "62223", "FAE - DHK Shamkha": "62225"};
 const _finKey=x=>String(x||'').toLowerCase().replace(/[’'`]/g,'').replace(/[\s\-()]+/g,'');
 function finSubCC(b){ const k=_finKey(b); for(const [n,c] of Object.entries(FIN_SUBCC)) if(_finKey(n)===k) return c; return ''; }
+// 📊 تقرير الانحرافات: لكل صنف في الفترة — اللي الوصفات خصمته (نظري) قصاد اللي الجرد قال إنه اتصرف فعلًا (فرق الجرد)
+function varianceData(from, to){
+  const inR=m=>(!from||m.date>=from)&&(!to||m.date<=to);
+  const isAdjIn=m=>m.dir==='in'&&isSettleParty(m.party), isAdjOut=m=>m.dir==='out'&&(m.reason==='تسوية جرد'||m.reason===PRE_REASON||isSettleParty(m.party));
+  const R=new Map(); const g=id=>{ let x=R.get(id); if(!x){ x={id, buyQ:0, buyV:0, theo:0, direct:0, adjIn:0, adjOut:0, cnt:0}; R.set(id,x); } return x; };
+  for(const m of S.moves){ if(!inR(m)) continue; const x=g(m.itemId); const q=+m.qty||0;
+    if(isAdjIn(m)){ x.adjIn+=q; x.cnt++; } else if(isAdjOut(m)){ x.adjOut+=q; x.cnt++; }
+    else if(m.dir==='out' && m.runId) x.theo+=q;
+    else if(m.dir==='out') x.direct+=q;
+    else if(m.dir==='in' && !m.runId && !/^إنتاج/.test(m.party||'') && !String(m.party||'').startsWith(BYP_PREFIX)){ x.buyQ+=q; x.buyV+=q*(+m.price||0); } }
+  const out=[]; R.forEach(x=>{ const it=item(x.id); if(!it||isUntracked(it.id)) return; if(!x.cnt) return; const net=r4(x.adjIn-x.adjOut); if(Math.abs(net)<0.005) return;
+    const pr=+it.price||0; const use=x.theo+x.direct; out.push({...x, it, net, val:n2(net*pr), pr, use, pct: use>0? -net/use : null, avgBuy: x.buyQ>0? x.buyV/x.buyQ : null}); });
+  out.sort((a,b)=>Math.abs(b.val)-Math.abs(a.val));
+  const sur=out.filter(r=>r.val>0).reduce((t,r)=>t+r.val,0), sh=out.filter(r=>r.val<0).reduce((t,r)=>t+r.val,0);
+  return {rows:out, sur:n2(sur), sh:n2(sh), net:n2(sur+sh)}; }
+function varianceModal(){ const P=ui.var||(ui.var={from:FIN.from||today().slice(0,8)+'01', to:FIN.to||today(), q:''});
+  const V=varianceData(P.from,P.to); const q=(P.q||'').trim(); const rows=V.rows.filter(r=>!q||r.it.name.includes(q)||String(r.it.cat||'').includes(q));
+  const pc=x=>x==null?'—':(x*100>0?'+':'')+(x*100).toFixed(1)+'%';
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:1100px"><h3>📊 تقرير الانحرافات (الوصفات قصاد الجرد)</h3><div class="pad" style="max-height:74vh;overflow:auto">
+    <div class="hint" style="line-height:1.8">لكل صنف اتجرد في الفترة: <b>النظري</b> = اللي السيستم خصمه بالوصفات (إنتاج تلقائي ويدوي)، و<b>فرق الجرد</b> = اللي الجرد الفعلي قاله زيادة أو ناقص عن الدفتر.
+      <b style="color:#A32D2D">العجز</b> معناه اتصرف فعلًا أكتر من الوصفات (هالك، وصفة ناقصة، أو بضاعة خرجت من غير تسجيل) — <b style="color:#2F7D4A">الزيادة</b> معناها الوصفات بتخصم أكتر من الحقيقة. أي نسبة فوق ±5% محتاجة مراجعة.</div>
+    <div class="bar" style="margin:10px 0;flex-wrap:wrap;gap:8px"><label class="hint">من</label><input type="date" id="var-from" value="${esc(P.from)}"><label class="hint">لحد</label><input type="date" id="var-to" value="${esc(P.to)}">
+      <input type="text" id="var-q" placeholder="دوّر بصنف أو قسم…" value="${esc(q)}" style="min-width:180px"><button class="btn sm p" data-act="var-xlsx" style="margin-inline-start:auto">📥 Excel</button></div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px">
+      <div class="panel" style="margin:0"><div class="pad"><div class="hint">زيادات (الوصفات بتخصم زيادة)</div><div style="font-size:22px;font-weight:700;color:#2F7D4A">${money(V.sur)}</div></div></div>
+      <div class="panel" style="margin:0"><div class="pad"><div class="hint">عجز (اتصرف أكتر من الوصفات)</div><div style="font-size:22px;font-weight:700;color:#A32D2D">${money(-V.sh)}</div></div></div>
+      <div class="panel" style="margin:0"><div class="pad"><div class="hint">الصافي</div><div style="font-size:22px;font-weight:700;color:${V.net<0?'#A32D2D':'#2F7D4A'}">${V.net<0?'عجز ':'زيادة '}${money(Math.abs(V.net))}</div></div></div></div>
+    <table class="gridcols"><thead><tr><th>الصنف</th><th class="n">مشتريات</th><th class="n">النظري (وصفات)</th><th class="n">صرف مباشر</th><th class="n">فرق الجرد</th><th class="n">نسبة الانحراف</th><th class="n">القيمة</th></tr></thead><tbody>
+    ${rows.slice(0,200).map(r=>{ const bad=r.pct!=null&&Math.abs(r.pct)>0.05; return `<tr${bad?' style="background:#FFF6F0"':''}><td><b>${esc(r.it.name)}</b><div class="hint">${esc(r.it.cat||'')} · ${esc(r.it.unit||'')}</div></td>
+      <td class="n">${r.buyQ?fmt(r.buyQ):'—'}</td><td class="n">${r.theo?fmt(r.theo):'—'}</td><td class="n">${r.direct?fmt(r.direct):'—'}</td>
+      <td class="n" style="color:${r.net<0?'#A32D2D':'#2F7D4A'};font-weight:600">${r.net>0?'+':''}${fmt(r.net)}</td><td class="n"${bad?' style="color:#A32D2D;font-weight:700"':''}>${pc(r.pct)}</td>
+      <td class="n" style="color:${r.val<0?'#A32D2D':'#2F7D4A'}">${money(r.val)}</td></tr>`; }).join('')||'<tr><td colspan="7" class="empty">مفيش فروق جرد في الفترة دي</td></tr>'}</tbody></table>
+  </div><div class="foot"><button class="btn" data-close="1">قفل</button></div></div></div>`; }
+function varianceBind(){ const P=ui.var; const re=()=>{ ui.modal=varianceModal(); render(); varianceBind(); };
+  const f=$('#var-from'), t=$('#var-to'), q=$('#var-q'); if(f) f.onchange=()=>{ P.from=f.value; re(); }; if(t) t.onchange=()=>{ P.to=t.value; re(); }; if(q) q.onchange=()=>{ P.q=q.value; re(); }; }
+function stdModal(){ const P=ui.std||(ui.std={m:today().slice(0,7)}); const M=(STD_COST||{})[P.m];
+  const prods=S.items.filter(it=>S.recipes.some(r=>r.outItemId===it.id&&r.outQty>0) || S.moves.some(m=>m.itemId===it.id&&m.reason==='صرف للفروع'&&m.date>=today().slice(0,8)+'01'));
+  const st=recipeSyncState().stale.length;
+  const months=Object.keys(STD_COST||{}).sort().reverse();
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:760px"><h3>📌 السعر المعياري للشهر</h3><div class="pad" style="max-height:72vh;overflow:auto">
+    <div class="hint" style="line-height:1.8">بتثبّت سعر كل منتج للشهر كله: الصرف للفروع وفواتيرهم بيتسجلوا بالسعر ده من أول يوم في الشهر لآخره، مهما الوصفة أو سعر الخامات اتغيروا.
+      أي فرق بين التكلفة الحقيقية والمعيارية بيبان في «تقرير الانحرافات» — مش في تحميل الفروع. <b>الصرف اللي اتسجل قبل التثبيت ما بيتغيرش.</b></div>
+    <div class="bar" style="margin:10px 0;gap:8px;flex-wrap:wrap"><label class="hint">الشهر</label><input type="month" id="std-m" value="${esc(P.m)}">
+      ${M?`<span class="hint">✓ متثبّت ${new Date(M.at).toLocaleString('ar-EG',{dateStyle:'short',timeStyle:'short'})} — ${Object.keys(M.prices||{}).length} صنف${M.by?' — '+esc(M.by):''}</span>`:'<span class="hint">لسه ما اتثبّتش</span>'}</div>
+    ${st?`<div class="hint" style="color:#8A4A0B;margin-bottom:8px">⚠ فيه ${st} منتج سعر الكارت بتاعه مختلف عن تكلفة وصفته — اعمل «مزامنة الأسعار» الأول عشان المعياري يتثبّت على التكلفة الصح.</div>`:''}
+    <table class="gridcols"><thead><tr><th>المنتج</th><th class="n">سعر الكارت دلوقتي</th><th class="n">المعياري المتثبّت</th></tr></thead><tbody>
+      ${prods.sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(it=>{ const sp=M&&M.prices?M.prices[it.id]:null; const d=sp!=null&&Math.abs(sp-(+it.price||0))>0.005;
+        return `<tr><td>${esc(it.name)}</td><td class="n">${fmtP(+it.price||0)}</td><td class="n"${d?' style="color:#8A4A0B;font-weight:600"':''}>${sp!=null?fmtP(sp):'—'}</td></tr>`; }).join('')}</tbody></table>
+    ${months.length?`<div class="hint" style="margin-top:10px">الشهور المتثبّتة: ${months.map(m=>esc(m)).join('، ')}</div>`:''}
+  </div><div class="foot"><button class="btn p" data-act="std-set">${M?'حدّث المعياري لـ':'ثبّت المعياري لـ'}${esc(P.m)} بأسعار الكارت دلوقتي</button>${M?`<button class="btn" style="color:#A32D2D" data-act="std-del">شيل التثبيت</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`; }
+function stdBind(){ const m=$('#std-m'); if(m) m.onchange=()=>{ ui.std.m=m.value||today().slice(0,7); ui.modal=stdModal(); render(); stdBind(); }; }
 function finMonthExport(){
   if(typeof XLSX==='undefined') return toast('مكتبة الإكسل ما اتحمّلتش — اعمل تحديث للصفحة',1);
   const inR=m=>(!FIN.from||m.date>=FIN.from)&&(!FIN.to||m.date<=FIN.to);
@@ -3942,7 +4077,8 @@ function viewFinance(){
       <label class="hint">من</label><input type="date" id="fin-from" value="${esc(FIN.from)}">
       <label class="hint">لحد</label><input type="date" id="fin-to" value="${esc(FIN.to)}">
       ${hasFilter?`<button class="btn sm" data-act="fin-clear">كل الفترة</button>`:''}
-      <button class="btn sm p" data-act="fin-month-xlsx" style="margin-inline-start:auto">📊 ملف المالية (Excel)</button>
+      <button class="btn sm" data-act="var-open" style="margin-inline-start:auto">📊 تقرير الانحرافات</button>
+      <button class="btn sm p" data-act="fin-month-xlsx">📊 ملف المالية (Excel)</button>
       <button class="btn sm g" data-act="fin-export">تصدير CSV</button>
       <button class="btn sm" data-act="do-print">🖨️ طباعة</button>
     </div>
@@ -4270,6 +4406,26 @@ function totals(){
 // تحديث سعر المنتجات من تكلفة وصفاتها (مع المنتجات الداخلة في منتجات تانية)
 function applyRecipePriceSync(){ let n=0; for(let pass=0; pass<7; pass++){ const st=recipeSyncState().stale; if(!st.length) break; st.forEach(x=>{ x.item.price=x.to; }); n+=st.length; } return n; }
 // بعد أي استلام غيّر سعر خامة: نسأل نحدّث أسعار المنتجات اللي اتأثرت دلوقتي — قبل ما الصرف يطلع بسعر قديم
+// 💰 متوسط مرجّح: سعر الخامة في الكارت = (الرصيد اللي كان موجود × سعره + الكمية الجديدة × سعر الفاتورة) ÷ الإجمالي
+// بيتنده بعد ما حركة الوارد تتضاف لـ S.moves. لو الرصيد قبلها صفر أو سالب ← سعر الفاتورة زي ما هو.
+function wacApply(it, m){ if(!it||!m||!(+m.price>0)||!(+m.qty>0)) return null; const old=+it.price||0;
+  const prevQ=Math.max(0, r4(bookQuick(it.id)-(+m.qty||0)));
+  const nw = (prevQ>0 && old>0) ? r4((prevQ*old + (+m.qty)*(+m.price))/(prevQ+(+m.qty))) : r4(+m.price);
+  it.price=nw; return {it, from:old, to:nw, buy:+m.price}; }
+// 🔄 تحديث تكلفة المنتجات تلقائي قبل الصرف: التغيير الصغير (≤5%) بيتطبق لوحده ويتسجل، والكبير بيظهر في «فحص قبل الصرف» تقرر فيه
+const AUTO_SYNC_PCT=0.05;
+async function autoPriceSync(){ const applied=[];
+  for(let pass=0; pass<7; pass++){ const st=recipeSyncState().stale.filter(x=>!(x.from>0) || Math.abs(x.to-x.from)/x.from<=AUTO_SYNC_PCT); if(!st.length) break;
+    st.forEach(x=>{ applied.push({id:x.item.id, name:x.item.name, from:x.from, to:x.to}); x.item.price=x.to; }); }
+  if(applied.length){ await saveMain(); const at=new Date().toISOString();
+    chgLogAppend(applied.map(x=>({at, by:'تلقائي', kind:'item', id:x.id, name:x.name, ch:[`السعر: ${x.from} ← ${x.to} (تحديث تكلفة تلقائي قبل الصرف)`]}))); }
+  return applied; }
+// ليه تكلفة المنتج اتغيرت؟ — أكبر خامات اتغير سعرها في الوصفة (من سجل التغييرات، آخر 7 أيام)
+function costWhy(itemId){ const r=activeRecipeOf(itemId); if(!r||!CHGLOG||!CHGLOG.length) return ''; const ids=new Set(); const walk=(x,d)=>{ (x.lines||[]).forEach(l=>{ ids.add(l.itemId); const sub=activeRecipeOf(l.itemId); if(sub&&d<4) walk(sub,d+1); }); }; walk(r,0);
+  const lim=Date.now()-7*864e5; const hits=new Map();
+  CHGLOG.forEach(e=>{ if((e.kind==='item'&&ids.has(e.id)) && new Date(e.at).getTime()>lim){ const c=(e.ch||[]).find(c=>/^السعر:/.test(c)); if(c) hits.set(e.id, `«${e.name}» ${c.replace(/^السعر:\s*/,'').replace(/\s*\(.*\)$/,'')}`); } });
+  const rc=CHGLOG.filter(e=>e.kind==='recipe'&&ids.has(e.id)===false&&e.id===r.id&&new Date(e.at).getTime()>lim).map(e=>'الوصفة اتعدلت: '+(e.ch||[]).slice(0,2).join('، '));
+  const L=[...hits.values(), ...rc]; return L.length?'السبب: '+L.slice(0,3).join(' · '):''; }
 async function afterPriceChange(changes){
   changes=(changes||[]).filter(c=>c && Math.abs((+c.to||0)-(+c.from||0))>0.004); if(!changes.length) return;
   const st=recipeSyncState().stale; if(!st.length) return;
@@ -5108,7 +5264,7 @@ function boPreCheck(names){
       const ack=((ui.pre&&ui.pre.ack)||{});
       [...seen].map(id=>item(id)).filter(li=>li && +li.price>0 && !activeRecipeOf(li.id) && !ack[li.id]).forEach(li=>{ const lp=lastBuy(li.id); if(lp && Math.abs(li.price-lp.price)/lp.price>0.2 && priceW.length<3) priceW.push({msg:`خامة «${li.name}» سعرها في الكارت ${fmt(li.price)} وآخر شراء ${fmt(lp.price)} (${lp.date})`, fix:'set', to:+lp.price, id:li.id}); });
       if(zeros.length) priceW.push({msg:`خامات في الوصفة سعرها صفر: ${zeros.map(z=>z.name).join('، ')} — تكلفة الإنتاج هتطلع غلط`, fix:'input', ids:zeros.map(z=>z.id)});
-      else if(c>0 && !ack[it.id] && Math.abs(price-c)>0.01 && Math.abs(price-c)/c>0.01) priceW.push({msg:`سعر الكارت ${fmt(price)} وتكلفة الوصفة ${fmt(c)}`, fix:'sync', to:c, id:it.id});
+      else if(c>0 && !ack[it.id] && stdPrice(it.id, T)==null && Math.abs(price-c)>0.01 && Math.abs(price-c)/c>0.01){ const pct=price>0?Math.round((c/price-1)*1000)/10:null; const why=costWhy(it.id); priceW.push({msg:`تكلفة الوصفة اتغيرت ${pct!=null?(pct>0?'+':'')+pct+'%':''}: ${fmt(price)} ← ${fmt(c)}${why?' — '+why:''}`, fix:'sync', to:c, id:it.id}); }
       else if(!(c>0) && !(price>0)) priceW.push({msg:'سعره صفر والوصفة مالهاش تكلفة', fix:'input', ids:[it.id]});
     } else if(!(price>0)) priceW.push({msg:'سعره في الكارت صفر — الفاتورة هتطلع من غير قيمة', fix:'input', ids:[it.id]});
     else { const lp=lastBuy(it.id); if(lp && Math.abs(price-lp.price)/lp.price>0.2 && !((ui.pre&&ui.pre.ack)||{})[it.id]) priceW.push({msg:`سعر الكارت ${fmt(price)} وآخر شراء ${fmt(lp.price)} (${lp.date} من ${lp.party||'-'})`, fix:'set', to:+lp.price}); }
@@ -6643,7 +6799,7 @@ function recipeModal(editRecipe){
   const vOutCat = H.outCat  !== undefined ? H.outCat  : '';
   const matched = S.items.find(i=>i.name.toLowerCase()===String(vOutName||'').trim().toLowerCase());
   return `<div class="modal" data-close="1"><div class="box">
-    <h3>${r?'تعديل وصفة':'وصفة جديدة'}</h3>
+    <h3>${r?'تعديل وصفة':'وصفة جديدة'}${r?` <button class="btn sm" style="margin-inline-start:8px" data-act="rc-hist" data-id="${esc(r.id)}">📜 تاريخها</button>`:''}</h3>
     <div class="pad">
       <div class="grid" style="margin-bottom:12px">
         <div style="grid-column:1/-1"><label class="f">اسم الوصفة</label><input type="text" id="r-name" value="${esc(vName)}" placeholder="مثال: تشغيلة كنافة مبرومة قشطة" style="width:100%"></div>
@@ -7206,10 +7362,31 @@ function viewBackups(){
       </tr>`).join('') : `<tr><td colspan="7" class="empty">${backupsLoaded?'لسه مفيش نسخ — هتتكوّن أول نسخة تلقائي أول ما تفتح النظام النهاردة':'جاري التحميل...'}</td></tr>`}</tbody>
     </table></div>
   </div>
+  ${viewChgLog()}
   ${viewOpLog()}
   ${viewExternalBackups()}`;
 }
 
+function chgRowsHtml(L){ const f=x=>x?new Date(x).toLocaleString('ar-EG',{dateStyle:'short',timeStyle:'short'}):'-';
+  return L.map(e=>`<tr><td style="font-size:12px;white-space:nowrap">${f(e.at)}</td><td>${e.kind==='recipe'?'🍳 وصفة':e.kind==='count'?'🔒 جرد':'🏷 صنف'}</td>
+    <td><b>${esc(e.name||'')}</b>${e.since?`<div class="hint">ساري من ${esc(e.since)}</div>`:''}</td><td style="font-size:12.5px;line-height:1.7">${(e.ch||[]).map(c=>esc(c)).join('<br>')}</td><td style="font-size:12px">${esc(e.by||'')}</td></tr>`).join(''); }
+function viewChgLog(){
+  if(CHGLOG===null){ CHGLOG=[]; chgLogLoad().then(()=>render()); }
+  const q=(ui.chgq||'').trim(), k=ui.chgk||'';
+  const L=(CHGLOG||[]).filter(e=>(!k||e.kind===k) && (!q || (e.name||'').includes(q) || (e.ch||[]).some(c=>c.includes(q)) || (e.by||'').includes(q))).slice().reverse();
+  return `<div class="panel"><h2>🧾 سجل التغييرات <em>${(CHGLOG||[]).length}</em></h2>
+    <div class="pad"><div class="hint">أي تعديل في وصفة (خارج، خامات، كميات) أو في كارت الأصناف (سعر، وحدة، أول المدة…) بيتسجل هنا وقت ما يتحفظ — من أي شاشة وأي جهاز، ومين عمله. ده المرجع لو رقم اتغير ومش عارف إمتى أو ليه.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input type="text" id="chg-q" placeholder="دوّر باسم وصفة أو صنف أو شخص…" value="${esc(q)}" style="flex:1;min-width:200px">
+        <select id="chg-k"><option value="">الكل</option><option value="recipe"${k==='recipe'?' selected':''}>الوصفات</option><option value="item"${k==='item'?' selected':''}>كارت الأصناف</option></select></div></div>
+    <div class="tblwrap" style="max-height:520px;overflow:auto"><table class="gridcols"><thead><tr><th>الوقت</th><th>النوع</th><th>الاسم</th><th>التغيير</th><th>مين</th></tr></thead>
+      <tbody>${L.length?chgRowsHtml(L.slice(0,300)):`<tr><td colspan="5" class="empty">${CHGLOG&&CHGLOG.length?'مفيش نتايج':'لسه مفيش تغييرات متسجلة — أول تعديل هيظهر هنا'}</td></tr>`}</tbody></table></div></div>`;
+}
+document.addEventListener('change', e=>{ const t=e.target; if(!t||!t.id) return;
+  if(t.id==='chg-k'){ ui.chgk=t.value; render(); } else if(t.id==='chg-q'){ ui.chgq=t.value; render(); } });
+function rcHistModal(id){ const r=S.recipes.find(x=>x.id===id); const L=(CHGLOG||[]).filter(e=>e.kind==='recipe'&&e.id===id).slice().reverse();
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:820px"><h3>📜 تاريخ الوصفة: ${esc(r?r.name:'')}</h3><div class="pad" style="max-height:70vh;overflow:auto">
+    ${L.length?`<table class="gridcols"><thead><tr><th>الوقت</th><th>النوع</th><th>الاسم</th><th>التغيير</th><th>مين</th></tr></thead><tbody>${chgRowsHtml(L)}</tbody></table>`:'<div class="empty">مفيش تعديلات متسجلة على الوصفة دي من وقت تشغيل السجل</div>'}
+  </div><div class="foot"><button class="btn" data-close="1">قفل</button></div></div></div>`; }
 function viewOpLog(){
   if(OPLOG===null) loadOpLog();
   const L=OPLOG||[]; const fmt=x=>x?new Date(x).toLocaleString(LANG==='en'?'en-GB':'ar-EG'):'-';
@@ -8313,7 +8490,7 @@ async function prReceiveSave(key){
     const pch=[];
     for(const l of lines){ const it=item(l.r.itemId);
       const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:''};
-      S.moves.push(m); moves.push(m); if(l.priceBase>0){ pch.push({it, from:+it.price||0, to:m.price}); it.price=m.price; } }
+      S.moves.push(m); moves.push(m); if(l.priceBase>0){ const w=wacApply(it, m); if(w) pch.push(w); } }
     setTimeout(()=>afterPriceChange(pch), 900);
     let invMsg='';
     const f=($('#prr-inv')||{}).files; 
@@ -9589,7 +9766,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=dispenseForceDefaul
     if(make>0.0001) planProduction(itemId, make, bal, ops, short, 0, new Set([itemId]));
     if(short.length && !force){ const x=short[0]; return {move:null, auto:false, error:`الرصيد مش كفاية لخامة "${x.name}" (متاح ${fmt(x.bal)}، مطلوب ${fmt(x.need)})`, shortages:short}; }
     commitProduction(ops, date);
-    const m={id:uid('m'),dir:'out',itemId,qty,date,price:r4(+(item(itemId)||{}).price||0),party,reason};
+    const m={id:uid('m'),dir:'out',itemId,qty,date,price:r4(reason==='صرف للفروع'?dispPrice(itemId,date):(+(item(itemId)||{}).price||0)),party,reason};
     if(short.length){ m.forced=true; noteShortages(short); }
     S.moves.push(m);
     return {move:m, auto:true, nested:ops.some(o=>o.nested), shortages: short.length?short:undefined};
@@ -9599,7 +9776,7 @@ function dispenseOut(itemId, qty, date, party, reason, force=dispenseForceDefaul
   if(qty > bal+1e-9){
     if(!force) return {move:null, auto:false, error:`الرصيد مش كفاية (متاح ${fmt(bal)} بس، والمطلوب ${fmt(qty)})`, shortages:[{name:it?it.name:'غير معروف', need:qty, bal}]};
   }
-  const m={id:uid('m'),dir:'out',itemId,qty,date,price:r4(+(it||{}).price||0),party,reason};
+  const m={id:uid('m'),dir:'out',itemId,qty,date,price:r4(reason==='صرف للفروع'?dispPrice(itemId,date):(+(it||{}).price||0)),party,reason};
   if(qty>bal+1e-9){ m.forced=true; noteShortages([{name:it?it.name:'غير معروف', need:qty, bal:Math.max(0,bal)}]); }
   S.moves.push(m);
   return {move:m, auto:false, shortages: (qty>bal && force)?[{name:it?it.name:'غير معروف', need:qty, bal}]:undefined};
@@ -10718,7 +10895,7 @@ async function boResyncPlan(){
 }
 function boStampLine(o, name, sentBranchQty, factoryQty, m){
   const l=(o.items||[]).find(x=>x.name===name); if(!l) return false;
-  const price=+m.price||0, value=n2(factoryQty*price);
+  const price=dispPrice(m.id, o.date||today()), value=n2(factoryQty*price);
   l.sent=n2(sentBranchQty); l.factoryQty=n2(factoryQty); l.factoryUnit=m.unit; l.value=value;
   l.price = sentBranchQty>0 ? Math.round(value/sentBranchQty*10000)/10000 : 0; l.pricedAt=today();
   return true;
@@ -12100,6 +12277,23 @@ async function _act(a,d){
     R.forEach(r=>{ r.lines=(r.lines||[]).filter(l=>l.itemId!==from.id); S.recipeSince=S.recipeSince||{}; S.recipeSince[r.id]=P.date; });
     await saveMain(); await logOp(g, R.map(r=>r.name).join('، ').slice(0,400)); ui.modal=null; ui.sw=null;
     const st=recipeSyncState().stale.length; toast(`اتشال «${from.name}» من ${R.length} وصفة ✓${st?` — ${st} منتج تكلفته اتغيرت، دوس «مزامنة الأسعار»`:''}`); return render(); }
+  if(a==='var-open'){ ui.var=null; ui.modal=varianceModal(); render(); varianceBind(); return; }
+  if(a==='var-xlsx'){ if(typeof XLSX==='undefined') return toast('مكتبة الإكسل ما اتحمّلتش — اعمل تحديث للصفحة',1); const P=ui.var; const V=varianceData(P.from,P.to);
+    const A=[['تقرير الانحرافات — الوصفات قصاد الجرد'],['من',P.from,'لحد',P.to],[],['الصنف','القسم','الوحدة','مشتريات','النظري (وصفات)','صرف مباشر','فرق الجرد (+زيادة / −عجز)','نسبة الانحراف','سعر الوحدة','القيمة']];
+    V.rows.forEach(r=>A.push([r.it.name,r.it.cat||'',r.it.unit||'',r4(r.buyQ),r4(r.theo),r4(r.direct),r.net,r.pct==null?'':Math.round(r.pct*1000)/1000,r.pr,r.val]));
+    A.push([],['إجمالي الزيادات','','','','','','','','',V.sur],['إجمالي العجز','','','','','','','','',V.sh],['الصافي','','','','','','','','',V.net]);
+    const ws=XLSX.utils.aoa_to_sheet(A); ws['!cols']=[{wch:40},{wch:14},{wch:8},{wch:11},{wch:14},{wch:11},{wch:16},{wch:12},{wch:10},{wch:12}]; ws['!views']=[{RTL:true}];
+    const wb=XLSX.utils.book_new(); wb.Workbook={Views:[{RTL:true}]}; XLSX.utils.book_append_sheet(wb,ws,'الانحرافات'); XLSX.writeFile(wb,`انحرافات-${P.from}-${P.to}.xlsx`); return; }
+  if(a==='std-open'){ await stdLoad(); ui.std={m:today().slice(0,7)}; ui.modal=stdModal(); render(); stdBind(); return; }
+  if(a==='std-set'){ if(!isOwner()) return toast('صاحب النظام بس',1); const P=ui.std; await stdLoad();
+    const prods=S.items.filter(it=>+it.price>0); const st=recipeSyncState().stale.length;
+    if(!confirm(`هيتثبّت سعر ${prods.length} صنف لشهر ${P.m} على سعر الكارت دلوقتي.${st?`\n\n⚠ لسه فيه ${st} منتج سعره مختلف عن تكلفة وصفته — الأحسن تعمل «مزامنة الأسعار» الأول.`:''}\n\nالصرف للفروع في الشهر ده هيتسجل بالأسعار دي. تكمل؟`)) return;
+    const prices={}; prods.forEach(it=>prices[it.id]=r4(+it.price)); STD_COST={...(STD_COST||{}), [P.m]:{at:Date.now(), by:chgWho(), prices}};
+    try{ await stdSave(); }catch(e){ return toast('ماتحفظش: '+e.message,1); }
+    chgLogAppend([{at:new Date().toISOString(), by:chgWho(), kind:'item', id:'std', name:'السعر المعياري '+P.m, ch:[`اتثبّت لـ ${prods.length} صنف`]}]);
+    toast('اتثبّت المعياري لـ'+P.m+' ✓'); ui.modal=stdModal(); render(); stdBind(); return; }
+  if(a==='std-del'){ if(!isOwner()) return; const P=ui.std; if(!confirm('تشيل تثبيت '+P.m+'؟ الصرف الجديد هيرجع بسعر الكارت.')) return; const nx={...(STD_COST||{})}; delete nx[P.m]; STD_COST=nx; await stdSave(); ui.modal=stdModal(); render(); stdBind(); return; }
+  if(a==='rc-hist'){ await chgLogLoad(); ui.modal=rcHistModal(d.id); return render(); }
   if(a==='swap-move-runs'){ const P=ui.sw; if(!P) return; const from=item(P.from), to=item(P.to); if(!from||!to) return; const D=P.date;
     const mv=S.moves.filter(m=>m.itemId===from.id&&m.dir==='out'&&m.runId&&m.date===D); const Q=r4(mv.reduce((t,m)=>t+(+m.qty||0),0)); if(!(Q>0)) return toast('مفيش خصم يتنقل',1);
     const T=[to.id,...(((ING_ALTS||{})[to.id])||[]).map(a=>a.id)].filter((id,i,A)=>id!==from.id&&item(id)&&A.indexOf(id)===i);
@@ -12258,9 +12452,9 @@ async function _act(a,d){
     if(!rows.length) return toast('مفيش صفوف متطابقة تتسجل',1);
     if(!confirm(`هيتم تسجيل ${rows.length} حركة وارد بتواريخها الحقيقية. تكمل؟`)) return;
     rows.forEach(r=>{
-      S.moves.push({ id:uid('m'), dir:'in', itemId:r.match.id, qty:n2(r.qty), date:r.date,
-        price:r4(r.price), party:r.party||'', reason:'' });
-      if(r.price>0) r.match.price = r4(r.price);
+      const nm={ id:uid('m'), dir:'in', itemId:r.match.id, qty:n2(r.qty), date:r.date,
+        price:r4(r.price), party:r.party||'', reason:'' }; S.moves.push(nm);
+      if(r.price>0) wacApply(r.match, nm);
     });
     await saveMain(); await saveTx();
     ui.modal=null; IRI_PARSED=[];
@@ -12960,6 +13154,11 @@ async function _act(a,d){
       prodConfirm(r.it.id, D); }
     // 2) الخامات وباقي الأصناف: على الدفتري بعد الإنتاج
     for(const r of raw){ settle(r.it, n2(r.actual-pcBook(r.it, P)), true); }
+    // 🔒 مرساة لكل صنف اتجرد (جرد «آخر اليوم» بس — اللي بيتقارن بالرصيد الحالي)
+    if(P.when!=='start'){ if(CNT_ANCHOR===null) await cntAnchorLoad(); const at=Date.now();
+      L.all.filter(r=>r.it && r.actual!=null).forEach(r=>{ const excl=pcTodayIns(r.it, D).filter(m=>!(P.incl&&P.incl[m.id])).map(m=>m.id);
+        cntAnchorAdd(r.it.id, {d:D, q:r4(+r.actual), at, excl, by:chgWho()}); });
+      await cntAnchorSave(); }
     { S.cntLog=S.cntLog||{}; const ids=new Set([...(S.cntLog[D]||[]), ...L.rows.filter(r=>r.it&&!r.err).map(r=>r.it.id)]); S.cntLog[D]=[...ids];
       const keys=Object.keys(S.cntLog).sort(); keys.slice(0,Math.max(0,keys.length-14)).forEach(k=>delete S.cntLog[k]); await saveMain(); if(ui.cnt) ui.cnt.vals={}; }
     markAutoRuns(); await saveTx();
@@ -13204,6 +13403,7 @@ async function _act(a,d){
       if(dn.length && !confirm(`⚠ «${boLabel(faroojName)}» اتصرف النهارده قبل كده لـ${dn.length} فرع (${dn.slice(0,4).map(b=>b.branch).join('، ')}).\n\nلو صرفت تاني هيتخصم مرتين. تكمل برضه؟`)) return;
       const H=boHistOf(match.id,21); const big=perBranch.filter(b=>{ const md=H.br(b.branch); return md && b.qty>Math.max(3*md, md+5); });
       if(big.length && !confirm(`⚠ كميات أكبر من المعتاد:\n\n${big.slice(0,6).map(b=>`• ${b.branch}: ${fmt(b.qty)} ${match.unit} (المعتاد ${fmt(H.br(b.branch))})`).join('\n')}\n\nمتأكد إنها مش غلطة كتابة؟`)) return;
+      if(CHGLOG===null) await chgLogLoad(); await autoPriceSync();
       const pc=boPreCheck([faroojName]); if(pc[0] && pc[0].priceW.length){ ui.pre={names:[faroojName], rows:pc}; ui.modal=boPreModal(); render(); boPreBind(); return toast('السعر لازم يتظبط الأول',1); } }
 
     let autoAny=false, total=0; let failed=[]; const fails=[];
@@ -13238,6 +13438,7 @@ async function _act(a,d){
     const names = Object.keys(BO.totals).filter(n=>boReadyToDispense(n) && !boIsDone(n));
     const blocked = Object.keys(BO.totals).filter(n=>findMatchingLocalItem(n) && convFactorOf(n)===null && !boIsDone(n)).length;
     if(!names.length) return toast(blocked? `مفيش أصناف جاهزة — ${blocked} صنف محتاج معامل تحويل الأول` : 'مفيش أصناف جاهزة للصرف (يا إما اتصرفت يا إما محتاجة مطابقة)',1);
+    if(CHGLOG===null) await chgLogLoad(); const auto=await autoPriceSync(); if(auto.length) toast(`🔄 اتحدثت تكلفة ${auto.length} منتج تلقائي (تغيير أقل من 5%)`);
     ui.pre={names, rows:boPreCheck(names)}; ui.modal=boPreModal(); render(); boPreBind(); return;
   }
   if(a==='price-stale-fix'){ const P=priceStalePlan(); if(!P.length) return toast('مفيش حاجة تتصلح');
@@ -13498,7 +13699,7 @@ async function _act(a,d){
       const unitPrice = unitMul>1 ? r4(enteredPrice/unitMul) : r4(enteredPrice);
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:unitPrice,party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
       S.moves.push(m);
-      if(m.price>0){ const old=+it.price||0; it.price=m.price; await saveMain(); setTimeout(()=>afterPriceChange([{it, from:old, to:m.price}]), 400); }
+      if(m.price>0){ const w=wacApply(it, m); await saveMain(); if(w) setTimeout(()=>afterPriceChange([w]), 400); }
       // الوارد العادي منفصل تمامًا عن طلبات الشراء — مابيخصمش منها. استلام طلب الشراء بيتم من زرار «استلام» في الطلب نفسه بس.
       // بنكتفي بتنبيه لو فيه طلب مفتوح لنفس الصنف، عشان لو الوارد ده كان من الطلب فعلًا
       { const op=openPurchaseFor(id); if(op.length) autoMsg += ` — ملحوظة: فيه طلب شراء مفتوح لـ"${it.name}" (${op.map(r=>fmt(Math.max(0,(+r.qty||0)-(+r.receivedQty||0)))+' '+(r.unit||'')+(r.supplier?' من '+r.supplier:'')).join('، ')}) ومااتخصمش منه. لو الوارد ده من الطلب، امسح الحركة دي واستلمه من «طلبات الشراء ← استلام»`; }
@@ -13567,7 +13768,7 @@ async function _act(a,d){
       const price = (typed!==undefined && typed!=='') ? +typed : (+it.price>0 ? +it.price : 0);
       const m={id:uid('m'),dir:'in',itemId:id,qty:r4(qty),date,price:r4(price),party,reason:''};
       S.moves.push(m); moves.push(m);
-      if(price>0) it.price=r4(price);
+      if(price>0) wacApply(it, m);
     }
     let invMsg='';
     if(BULKIN_FILE){
@@ -13802,6 +14003,7 @@ async function _act(a,d){
       if(c.diff>0){ S.moves.push({id:uid('m'),dir:'in',itemId:it.id,qty:n2(c.diff),date:d,price:+it.price||0,party:'تسوية جرد (تلقائي)',reason:'',settleBatch:batchId}); }
       else { S.moves.push({id:uid('m'),dir:'out',itemId:it.id,qty:n2(-c.diff),date:d,price:0,party:'',reason:'تسوية جرد',settleBatch:batchId}); }
     });
+    { if(CNT_ANCHOR===null) await cntAnchorLoad(); const at=Date.now(); counted.forEach(it=>cntAnchorAdd(it.id,{d, q:r4(+S.counts[it.id]||0), at, excl:[], by:chgWho()})); await cntAnchorSave(); }
     await saveTx();
     // بنحفظ سجل التسوية دي في القاعدة (مش بس في الذاكرة) عشان يفضل موجود حتى لو قفلت الصفحة وفتحتها تاني بعدين
     try{
