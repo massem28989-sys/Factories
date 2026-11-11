@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '11-11 · 16:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '11-11 · 19:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5108,7 +5108,7 @@ function boPreCheck(names){
       const ack=((ui.pre&&ui.pre.ack)||{});
       [...seen].map(id=>item(id)).filter(li=>li && +li.price>0 && !activeRecipeOf(li.id) && !ack[li.id]).forEach(li=>{ const lp=lastBuy(li.id); if(lp && Math.abs(li.price-lp.price)/lp.price>0.2 && priceW.length<3) priceW.push({msg:`خامة «${li.name}» سعرها في الكارت ${fmt(li.price)} وآخر شراء ${fmt(lp.price)} (${lp.date})`, fix:'set', to:+lp.price, id:li.id}); });
       if(zeros.length) priceW.push({msg:`خامات في الوصفة سعرها صفر: ${zeros.map(z=>z.name).join('، ')} — تكلفة الإنتاج هتطلع غلط`, fix:'input', ids:zeros.map(z=>z.id)});
-      else if(c>0 && Math.abs(price-c)>0.01 && Math.abs(price-c)/c>0.01) priceW.push({msg:`سعر الكارت ${fmt(price)} وتكلفة الوصفة ${fmt(c)}`, fix:'sync', to:c});
+      else if(c>0 && !ack[it.id] && Math.abs(price-c)>0.01 && Math.abs(price-c)/c>0.01) priceW.push({msg:`سعر الكارت ${fmt(price)} وتكلفة الوصفة ${fmt(c)}`, fix:'sync', to:c, id:it.id});
       else if(!(c>0) && !(price>0)) priceW.push({msg:'سعره صفر والوصفة مالهاش تكلفة', fix:'input', ids:[it.id]});
     } else if(!(price>0)) priceW.push({msg:'سعره في الكارت صفر — الفاتورة هتطلع من غير قيمة', fix:'input', ids:[it.id]});
     else { const lp=lastBuy(it.id); if(lp && Math.abs(price-lp.price)/lp.price>0.2 && !((ui.pre&&ui.pre.ack)||{})[it.id]) priceW.push({msg:`سعر الكارت ${fmt(price)} وآخر شراء ${fmt(lp.price)} (${lp.date} من ${lp.party||'-'})`, fix:'set', to:+lp.price}); }
@@ -5158,7 +5158,7 @@ function boPreModal(){
           ${r.lines.filter(x=>x.done>0).map(x=>`<label style="display:block;font-size:12px"><input type="checkbox" data-preexcl="${i}|${esc(x.branch)}"${P.excl[r.name+'|'+x.branch]?'':' checked'}> اصرف لـ${esc(x.branch)} تاني (${fmt(x.q)})</label>`).join('')}
           ${r.warn.map(x=>`<div style="color:${/^تحويل/.test(x)?'#5F6B73':'#8A4A0B'}">${/^تحويل/.test(x)?'↔':'⚠'} ${esc(x)}</div>`).join('')}
           ${r.priceW.map(x=>`<div style="color:#A32D2D;margin-top:3px">💲 <b>${esc(x.msg)}</b> — مش هيتصرف غير لما يتظبط
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${x.fix==='sync'?`<button class="btn sm p" data-act="bo-pre-sync">خلّي السعر = تكلفة الوصفة (${fmt(x.to)})</button>`
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${x.fix==='sync'?`<button class="btn sm p" data-act="bo-pre-sync" data-id="${esc(x.id||r.it.id)}" data-to="${x.to}">خلّي السعر = تكلفة الوصفة (${fmt(x.to)})</button><button class="btn sm" data-act="bo-pre-ack" data-id="${esc(x.id||r.it.id)}" title="مثلًا الكمية دي اتعملت بخامة تانية (زيت قديم) — اصرف بسعر الكارت النهارده بس">سعر الكارت صح (اصرف بيه)</button>`
               : x.fix==='set'?`<button class="btn sm p" data-act="bo-pre-set" data-id="${esc(x.id||r.it.id)}" data-to="${x.to}">اعتمد آخر شراء (${fmt(x.to)})</button><button class="btn sm" data-act="bo-pre-ack" data-id="${esc(x.id||r.it.id)}">السعر الحالي صح</button>`
               : x.ids.map(id=>{ const z=item(id); return `<label style="display:flex;gap:4px;align-items:center;font-size:12px">${esc(z.name)}: <input type="number" step="any" min="0" data-preprice="${esc(id)}" placeholder="السعر" style="width:80px"> د.إ/${esc(z.unit||'')}</label>`; }).join('')}</div></div>`).join('')}
           ${!r.stop.length&&!r.warn.length&&!r.priceW.length?'<span class="hint">✓ تمام</span>':''}</td></tr>`).join('')}
@@ -13224,7 +13224,9 @@ async function _act(a,d){
     P.forEach(x=>{ x.it.price=r4(x.to); }); const n=applyRecipePriceSync(); await saveMain();
     await logOp(g, P.map(x=>`${x.it.name} ${fmt(x.from)}←${fmt(x.to)}`).join('، ')+(n?` · ${n} منتج اتحدثت تكلفته`:''));
     toast(`اتصلح سعر ${P.length} صنف${n?` و${n} منتج`:''}`); return render(); }
-  if(a==='bo-pre-sync'){ const n=await boPrePriced(); return toast(`اتحدث سعر ${n} منتج لتكلفة الوصفة`); }
+  if(a==='bo-pre-sync'){ // الصنف ده بس — مش كل المنتجات (عشان اللي اتعلّم «سعر الكارت صح» ما يتغيرش)
+    if(d.id && +d.to>0){ const z=item(d.id); if(z){ z.price=n2(+d.to); await saveMain(); boPreRefresh(); return toast(`اتحدث سعر «${z.name}» لـ ${fmt(z.price)}`); } }
+    const n=await boPrePriced(); return toast(`اتحدث سعر ${n} منتج لتكلفة الوصفة`); }
   if(a==='bo-pre-set'){ const z=item(d.id); if(!z) return; const from=+z.price||0; z.price=r4(+d.to); const n=await boPrePriced(); return toast(`«${z.name}»: ${fmt(from)} ← ${fmt(z.price)}${n?` · واتحدثت تكلفة ${n} منتج`:''}`); }
   if(a==='bo-pre-ack'){ const P=ui.pre; if(!P) return; (P.ack=P.ack||{})[d.id]=1; boPreRefresh(); return; }
   if(a==='bo-pre-recv'){ const P=ui.pre; if(!P) return; let L=[]; try{ L=boRawProjection(P); }catch(e){}
