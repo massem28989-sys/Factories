@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '11-11 · 14:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '11-11 · 16:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12826,11 +12826,16 @@ async function _act(a,d){
   if(a==='fs-audit'){ BO.fsAuditBusy=true; render(); const out=[];
     try{ for(const r of (BO.shortages||[]).filter(x=>x.status==='resolved')){ const D=r.date;
         for(const it of (r.items||[])){ const m=findMatchingLocalItem(it.name); if(!m) continue;
-          const cur=boDispTotal(r.branch, m.id, D), sent=+it.sentQty||0, rec=+it.receivedQty||0; const cf=sent>0&&cur>0?cur/sent:(convFactorOf(it.name)||1);
+          const cur=boDispTotal(r.branch, m.id, D), sent=+it.sentQty||0, rec=+it.receivedQty||0;
+          const o=await boOrderFor(r.branch, D).catch(()=>null);
+          // معامل التحويل (وحدة الفرع ← وحدة المصنع) من سطر الفاتورة نفسه — مش من الصرف الحالي،
+          // لأن الصرف لو اتعدل قبل كده القسمة عليه كانت بتطلّع معامل غلط وتطلب تعديل تاني (24 ← 28.8)
+          const l=o?(o.items||[]).find(z=>{ const mm=findMatchingLocalItem(z.name); return mm&&mm.id===m.id; }):null;
+          const cf=(l && +l.factoryQty>0 && +l.sent>0) ? (+l.factoryQty)/(+l.sent) : (convFactorOf(it.name)||1);
           const target=n2(rec*cf);
           // لو الصرف لسه زي ما اتبعت والفرع استلم أقل/أكتر ← البلاغ اتحل من غير تعديل
           if(Math.abs(cur-n2(sent*cf))<0.005 && Math.abs(target-cur)>0.005){ out.push({kind:'noadj', r, branch:r.branch, date:D, name:it.name, m, cur, rec, target, unit:m.unit}); continue; }
-          const o=await boOrderFor(r.branch, D).catch(()=>null); const x=o?boLineDiff(o, m.id, D):null;
+          const x=o?boLineDiff(o, m.id, D):null;
           if(x) out.push({kind:'inv', r, branch:r.branch, date:D, name:it.name, m, oldSent:x.oldSent, newSent:x.newSent}); } } }
     catch(e){ toast('الفحص ما كملش: '+e.message,1); }
     BO.fsAudit=out; BO.fsAuditBusy=false; return render(); }
