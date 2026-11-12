@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '12-11 · 23:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '13-11 · 00:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2607,7 +2607,8 @@ function inboxIsSuggested(notifName){
 }
 
 // تاريخ وارد المصنع التاني = اليوم اللي اتصرف فيه هناك، طول ما هو في نفس الشهر ومش في المستقبل
-function inboxMoveDate(n){ const d=String(n&&n.date||''); const T=today(); return (/^\d{4}-\d\d-\d\d$/.test(d) && d<=T && d.slice(0,7)===T.slice(0,7)) ? d : T; }
+const INBOX_DATE={}; // تاريخ استلام اختاره المستخدم بإيده (مثلًا البضاعة وصلت قبل الجرد واتسجلت متأخر)
+function inboxMoveDate(n){ const o=n&&INBOX_DATE[n.id]; if(o && /^\d{4}-\d\d-\d\d$/.test(o) && o<=today()) return o; const d=String(n&&n.date||''); const T=today(); return (/^\d{4}-\d\d-\d\d$/.test(d) && d<=T && d.slice(0,7)===T.slice(0,7)) ? d : T; }
 // استلامات قديمة اتسجلت بيوم الاستلام بدل يوم الإرسال
 function inboxRedatePlan(){ const out=[]; const used=new Set();
   MY_INBOX.filter(n=>n.status==='received' && n.type!=='discrepancy' && n.matchedItemId && n.receivedAt && n.date).forEach(n=>{
@@ -4180,7 +4181,7 @@ function viewInbox(){
         <td class="n">
           <input type="number" step="any" min="0" data-inboxqty="${n.id}" value="${n.qty}" style="width:74px;padding:4px 6px;font-size:12.5px;text-align:center">
           <span class="chip">${esc(n.unit||'')}</span>
-          <div class="hint" style="margin-top:2px">المُرسل أعلن ${fmt(n.qty)} · هيتسجل بتاريخ <b>${esc(inboxMoveDate(n))}</b></div>
+          <div class="hint" style="margin-top:2px">المُرسل أعلن ${fmt(n.qty)} · هيتسجل بتاريخ <input type="date" data-inboxdate="${esc(n.id)}" value="${esc(inboxMoveDate(n))}" max="${today()}" style="padding:1px 4px;font-size:12px" title="غيّره لو البضاعة وصلت في يوم تاني (مثلًا قبل الجرد)"></div>
         </td>
         <td>
           <input type="text" list="inbox-items-list" data-inboxsearch="${esc(n.itemName)}" value="${mt?esc(mt.name):''}" placeholder="اكتب اسم الصنف للبحث…" style="width:100%;min-width:190px;padding:5px 7px;font-size:12.5px">
@@ -7381,7 +7382,7 @@ function viewChgLog(){
     <div class="tblwrap" style="max-height:520px;overflow:auto"><table class="gridcols"><thead><tr><th>الوقت</th><th>النوع</th><th>الاسم</th><th>التغيير</th><th>مين</th></tr></thead>
       <tbody>${L.length?chgRowsHtml(L.slice(0,300)):`<tr><td colspan="5" class="empty">${CHGLOG&&CHGLOG.length?'مفيش نتايج':'لسه مفيش تغييرات متسجلة — أول تعديل هيظهر هنا'}</td></tr>`}</tbody></table></div></div>`;
 }
-document.addEventListener('change', e=>{ const t=e.target; if(!t||!t.id) return;
+document.addEventListener('change', e=>{ const t=e.target; if(t && t.dataset && t.dataset.inboxdate){ INBOX_DATE[t.dataset.inboxdate]=t.value; return; } if(!t||!t.id) return;
   if(t.id==='chg-k'){ ui.chgk=t.value; render(); } else if(t.id==='chg-q'){ ui.chgq=t.value; render(); } });
 function rcHistModal(id){ const r=S.recipes.find(x=>x.id===id); const L=(CHGLOG||[]).filter(e=>e.kind==='recipe'&&e.id===id).slice().reverse();
   return `<div class="modal" data-close="1"><div class="box" style="max-width:820px"><h3>📜 تاريخ الوصفة: ${esc(r?r.name:'')}</h3><div class="pad" style="max-height:70vh;overflow:auto">
