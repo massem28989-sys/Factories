@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '12-11 · 03:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '12-11 · 23:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1781,7 +1781,7 @@ function anchorHeal(){
       if(extra.size){ extra.forEach(id=>DELETED_MOVE_IDS.add(id)); S.moves=S.moves.filter(z=>!extra.has(z.id)); fixes++; anchorsChanged=true; }
       if(cm && a.cid!==cm.id){ a.cid=cm.id; anchorsChanged=true; } if(cm) claimed.add(cm.id);
       for(const m of mv){ if(cm && m.id===cm.id) continue; if(extra.has(m.id)) continue;
-        const pre = prevC.has(m.id) || m.date<a.d || (mvTsA(m)<=a.at && !ex.has(m.id));
+        const pre = prevC.has(m.id) || m.date<a.d || (m.date===a.d && mvTsA(m)<=a.at && !ex.has(m.id)) || (!a.past && m.date>a.d && mvTsA(m)<=a.at);
         if(pre) sum+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); }
       const t=r4((+a.q||0)-sum); const cur=cm?(cm.dir==='in'?+cm.qty:-cm.qty):0;
       if(Math.abs(t-cur)>0.006){ fixes++;
@@ -11182,7 +11182,10 @@ function bookAt(it, D){ let q=+it.opening||0; for(const m of S.moves){ if(m.item
 // وارد اليوم (شراء/استلام) للصنف — الجرد غالبًا بيتعمل قبل الاستلام، فاللي مش متعلّم «داخل في الجرد» بيتشال من الدفتري وقت المقارنة
 function pcTodayIns(it, D){ return S.moves.filter(m=>m.itemId===it.id&&m.dir==='in'&&!m.runId&&m.date===D&&!/تسوية/.test(m.party||'')); }
 function pcBook(it, P){ const D=P.date||today(); if(P.when==='start') return bookAt(it, D);
-  const ex=pcTodayIns(it, D).filter(m=>!(P.incl&&P.incl[m.id])).reduce((t,m)=>t+(+m.qty||0),0); return n2(calc(it).book-ex); }
+  const ex=pcTodayIns(it, D).filter(m=>!(P.incl&&P.incl[m.id])).reduce((t,m)=>t+(+m.qty||0),0);
+  // جرد بتاريخ قديم (اتعمل امبارح واتسجل النهارده): بيتقارن برصيد آخر اليوم ده بس — من غير صرف/إنتاج الأيام اللي بعده
+  if(D<today()){ let q=+it.opening||0; for(const m of S.moves){ if(m.itemId!==it.id || m.date>D) continue; q+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); } return n2(q-ex); }
+  return n2(calc(it).book-ex); }
 function pcPlan(P){
   const rows=P.rows.map(r=>{ const it=item(r.itemId); if(!it) return {...r, err:'مش لاقي الصنف ده — اختاره من القايمة'};
     const Q=qtyToItem(it, r.parts||[{qty:+r.qty, unit:r.unit}]);
@@ -11233,7 +11236,7 @@ function pcModal(){
       <textarea id="pc-text" dir="rtl" rows="6" style="width:100%;font-size:14px;text-align:right" placeholder="كباب دجاج 3.87 كغ&#10;شاورما خام 200 كغ">${esc(P.text)}</textarea>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0">
         <button class="btn p" data-act="pc-parse">حلّل القايمة</button>
-        <span class="hint">اليوم:</span><input type="date" id="pc-date" value="${esc(P.date)}">
+        <span class="hint">اليوم:</span><input type="date" id="pc-date" value="${esc(P.date)}">${P.date<today()?`<span class="hint" style="color:#8A4A0B">📅 جرد بتاريخ قديم — هيتقارن برصيد آخر يوم ${esc(P.date)} (من غير صرف وإنتاج الأيام اللي بعده)</span>`:'<span class="hint">اختار اليوم اللي الجرد <b>اتعمل</b> فيه فعلًا، مش يوم التسجيل</span>'}
         <span class="hint">الأصناف اللي مش في القايمة:</span>
         <select id="pc-scope"><option value="cat"${P.scope==='cat'?' selected':''}>نفس أقسام القايمة = صفر</option><option value="none"${P.scope==='none'?' selected':''}>سيبها زي ما هي</option><option value="all"${P.scope==='all'?' selected':''}>كل الأصناف = صفر</option></select>
       </div>
@@ -13157,7 +13160,7 @@ async function _act(a,d){
     // 🔒 مرساة لكل صنف اتجرد (جرد «آخر اليوم» بس — اللي بيتقارن بالرصيد الحالي)
     if(P.when!=='start'){ if(CNT_ANCHOR===null) await cntAnchorLoad(); const at=Date.now();
       L.all.filter(r=>r.it && r.actual!=null).forEach(r=>{ const excl=pcTodayIns(r.it, D).filter(m=>!(P.incl&&P.incl[m.id])).map(m=>m.id);
-        cntAnchorAdd(r.it.id, {d:D, q:r4(+r.actual), at, excl, by:chgWho()}); });
+        cntAnchorAdd(r.it.id, {d:D, q:r4(+r.actual), at, excl, by:chgWho(), past:D<today()}); });
       await cntAnchorSave(); }
     { S.cntLog=S.cntLog||{}; const ids=new Set([...(S.cntLog[D]||[]), ...L.rows.filter(r=>r.it&&!r.err).map(r=>r.it.id)]); S.cntLog[D]=[...ids];
       const keys=Object.keys(S.cntLog).sort(); keys.slice(0,Math.max(0,keys.length-14)).forEach(k=>delete S.cntLog[k]); await saveMain(); if(ui.cnt) ui.cnt.vals={}; }
