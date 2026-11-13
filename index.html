@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '13-11 · 00:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '13-11 · 14:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5197,19 +5197,25 @@ function branchUnitOf(faroojName){
 /* ===== 🛡 فحص قبل الصرف: الكميات والأسعار قبل ما يتسجل أي حاجة ===== */
 // آخر شراء = أحدث تاريخ (مش آخر سطر في القايمة — ترتيب الحركات مش بالتاريخ)
 // أصناف (من غير وصفة) سعرها في الكارت بعيد عن آخر شراء — منهم اللي اتظبط على سعر شراء قديم بسبب غلطة «آخر شراء» قبل 26-10
-function priceStalePlan(){ const out=[];
-  for(const it of S.items){ if(activeRecipeOf(it.id) || isUntracked(it.id)) continue; const lb=lastBuy(it.id); if(!lb) continue; const p=+it.price||0;
-    if(Math.abs(p-lb.price)<=0.005 || (p>0 && Math.abs(p-lb.price)/lb.price<=0.2)) continue;
-    const old=S.moves.some(m=>m!==lb && m.dir==='in' && m.itemId===it.id && !m.runId && Math.abs((+m.price||0)-p)<0.005 && String(m.date)<String(lb.date));
-    out.push({it, from:p, to:+lb.price, at:lb.date, old}); }
-  return out.sort((a,b)=>(b.old-a.old)||a.it.name.localeCompare(b.it.name,'ar')); }
+// 💲 مع المتوسط المرجّح سعر الكارت مش لازم يساوي آخر شراء. اللي بننبّه عليه: فاتورة سعرها غريب عن المعتاد
+// (آخر شراء بعيد +/-30% عن متوسط اللي قبله في آخر 60 يوم) — غالبًا سعر اتكتب غلط (للكرتونة بدل الكيلو مثلًا)، وده بيبوّظ المتوسط.
+function priceAckGet(){ try{ return JSON.parse(localStorage.getItem('priceAck')||'{}'); }catch(e){ return {}; } }
+function priceStalePlan(){ const out=[]; const ack=priceAckGet(); const lim=(d=>{ d.setDate(d.getDate()-60); return ymdLocal(d); })(new Date());
+  for(const it of S.items){ if(activeRecipeOf(it.id) || isUntracked(it.id)) continue; const lb=lastBuy(it.id); if(!lb || ack[lb.id]) continue;
+    const prev=S.moves.filter(m=>m!==lb && m.dir==='in'&&m.itemId===it.id&&!m.runId&&+m.price>0&&m.date>=lim&&String(m.date)<=String(lb.date)&&!/تسوية/.test(m.party||'')&&!isByMove(m));
+    if(prev.length<2) continue; const tq=prev.reduce((t,m)=>t+(+m.qty||0),0); if(!(tq>0)) continue;
+    const avg=prev.reduce((t,m)=>t+(+m.qty||0)*(+m.price),0)/tq; const dev=(+lb.price-avg)/avg;
+    if(Math.abs(dev)<=0.3) continue;
+    out.push({it, m:lb, buy:+lb.price, avg:r4(avg), dev, card:+it.price||0, at:lb.date}); }
+  return out.sort((a,b)=>Math.abs(b.dev)-Math.abs(a.dev)); }
 function priceStalePanel(){ const P=priceStalePlan(); if(!P.length) return '';
-  const o=P.filter(x=>x.old).length;
-  return `<div class="panel" style="border:2px solid #2F5E8A"><div class="pad"><b style="color:#2F5E8A">💲 ${P.length} صنف سعره في الكارت بعيد عن آخر شراء</b>${o?` <span class="hint">— منهم ${o} سعره = سعر شراء قديم (غالبًا اتظبط بالغلط من فحص الصرف قبل 26-10)</span>`:''}
-    <div class="tblwrap" style="max-height:260px;overflow:auto;margin:8px 0"><table class="gridcols"><thead><tr><th>الصنف</th><th class="n">في الكارت</th><th class="n">آخر شراء</th><th>تاريخه</th></tr></thead><tbody>
-    ${P.map(x=>`<tr${x.old?' style="background:#EEF4FA"':''}><td>${esc(x.it.name)}${x.old?' <span class="chip b">سعر قديم</span>':''}</td><td class="n">${fmt(x.from)}</td><td class="n"><b>${fmt(x.to)}</b></td><td class="hint">${esc(x.at)}</td></tr>`).join('')}
-    </tbody></table></div>
-    <button class="btn p" data-act="price-stale-fix">رجّع الكل لآخر شراء (${P.length}) وحدّث تكلفة المنتجات</button> <span class="hint">لو صنف منهم سعره الحالي هو الصح، عدّله من كارته بعد كده.</span></div></div>`; }
+  return `<div class="panel" style="border:2px solid #2F5E8A"><div class="pad"><b style="color:#2F5E8A">💲 ${P.length} فاتورة شراء سعرها غريب عن المعتاد</b>
+    <div class="hint" style="margin-top:4px">الكارت شغال بالمتوسط المرجّح، فالفاتورة دي دخلت في متوسط الصنف. لو سعرها <b>غلط</b> (مثلًا سعر الكرتونة بدل الكيلو) صلّح حركة الوارد من «الوارد والمنصرف» والمتوسط يتظبط — ولو <b>صح</b> (السوق غلي أو رخص فعلًا) دوس «السعر صح».</div>
+    <div class="tblwrap" style="max-height:260px;overflow:auto;margin:8px 0"><table class="gridcols"><thead><tr><th>الصنف</th><th class="n">سعر الفاتورة</th><th class="n">متوسط اللي قبلها</th><th class="n">الفرق</th><th class="n">الكارت (متوسط)</th><th>التاريخ</th><th></th></tr></thead><tbody>
+    ${P.map(x=>`<tr><td>${esc(x.it.name)}<div class="hint">${esc(x.m.party||'')} · ${fmt(x.m.qty)} ${esc(x.it.unit||'')}</div></td><td class="n"><b>${fmt(x.buy)}</b></td><td class="n">${fmt(x.avg)}</td>
+      <td class="n" style="color:${x.dev<0?'#2F7D4A':'#A32D2D'};font-weight:600">${x.dev>0?'+':''}${Math.round(x.dev*100)}%</td><td class="n">${fmt(x.card)}</td><td class="hint">${esc(x.at)}</td>
+      <td><button class="btn sm" data-act="price-ack" data-id="${esc(x.m.id)}">السعر صح</button></td></tr>`).join('')}
+    </tbody></table></div></div></div>`; }
 function lastBuy(id){ let best=null; for(const m of S.moves){ if(m.dir!=='in'||m.itemId!==id||m.runId||!(+m.price>0)||/تسوية/.test(m.party||'')||isByMove(m)) continue; if(!best || String(m.date)>=String(best.date)) best=m; } return best; }
 function boMedian(a){ if(a.length<3) return null; const v=a.slice().sort((x,y)=>x-y); return v[Math.floor(v.length/2)]; }
 function boHistOf(itemId, days){ const T=today(); const d=new Date(T+'T12:00:00'); d.setDate(d.getDate()-(days||21)); const from=ymdLocal(d);
@@ -13445,6 +13451,7 @@ async function _act(a,d){
     if(CHGLOG===null) await chgLogLoad(); const auto=await autoPriceSync(); if(auto.length) toast(`🔄 اتحدثت تكلفة ${auto.length} منتج تلقائي (تغيير أقل من 5%)`);
     ui.pre={names, rows:boPreCheck(names)}; ui.modal=boPreModal(); render(); boPreBind(); return;
   }
+  if(a==='price-ack'){ const k=priceAckGet(); k[d.id]=1; try{ localStorage.setItem('priceAck',JSON.stringify(k)); }catch(e){} return render(); }
   if(a==='price-stale-fix'){ const P=priceStalePlan(); if(!P.length) return toast('مفيش حاجة تتصلح');
     if(!confirm(`هيتغير سعر ${P.length} صنف في الكارت لآخر سعر شراء، وبعدين تكلفة المنتجات اللي هم داخلين فيها تتحدث. تكمل؟`)) return;
     const g=await guardBulk('أسعار الكارت ← آخر شراء'); if(!g) return;
