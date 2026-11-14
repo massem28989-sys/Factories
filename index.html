@@ -1038,10 +1038,13 @@ let _trNameKey=''; function _trNamesRe(){ let key=''; try{ key=((S&&S.items)||[]
     ns=[...new Set(ns.map(x=>String(x||'').trim()).filter(x=>x.length>=4 && /[\u0600-\u06FF]/.test(x)))].sort((a,b)=>b.length-a.length);
     const AL='\\u0621-\\u063A\\u0640-\\u065F\\u0671-\\u06D3';
     _trNameRe = ns.length ? new RegExp('(?<!['+AL+'])(?:'+ns.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')(?!['+AL+'])','g') : null; _trNameAt=Date.now(); } return _trNameRe; }
+// عناوين الجداول المختصرة (جدول اللحوم، المقبلات، الخضار، ضربات الصوص) — مش أسامي أصناف كاملة، فبتتترجم
+const EN_LABELS={"أفخاد": "Thighs", "افخاد دجاج": "Chicken thighs", "بصل": "Onion", "بطاطا فريش": "Fresh potato", "بهارات بطاطا مشوية": "Roast potato spice", "بيواز": "Biwaz", "تبولة": "Tabbouleh", "جوانح": "Wings", "حمص": "Hummus", "خس": "Lettuce", "دجاج مخلى": "Boneless whole chicken", "دجاج مسحب": "Boneless chicken", "رمان": "Pomegranate", "ريش": "Lamb chops", "سطل احمر": "Red bucket", "سطل وايت": "White bucket", "سلطه دايت": "Low-carb salad", "سماق": "Sumac", "سمبوسة": "Sambosa", "سمبوسه": "Sambosa", "صحن حمص": "Hummus plate", "صغيرة": "Small", "صوص بطاطا حارة": "Spicy potato sauce", "صوص ثوم": "Garlic sauce", "صوص ثوم دبي": "Garlic sauce Dubai", "صوص حريقة": "Hareqa sauce", "صوص ساندوتش": "Sandwich sauce", "صوص سبايسي": "Spicy sauce", "صوص سبايسي دبي": "Spicy sauce Dubai", "صوص سطل أبيض": "White bucket sauce", "صوص سطل أحمر": "Red bucket sauce", "صوص طحينة": "Tahini sauce", "صوص كوكتيل دجاج": "Chicken cocktail sauce", "صوص ميكس": "Mix sauce", "صوص وردي": "Pink sauce", "صوص وردي دبي": "Pink sauce Dubai", "طاووق": "Tawooq", "طماطم": "Tomato", "فتوش": "Fattoush", "فتولة": "Fatola", "فتوله": "Fatola", "فروج بالعظم": "Chicken with bone", "فروج كامل": "Whole chicken", "فروج مخلي": "Boneless whole chicken", "فلفل أخضر حار": "Green chili", "كباب دجاج": "Chicken kabab", "كباب لحم": "Meat kabab", "كبيرة": "Large", "لحم عرايس": "Arayes meat", "ليمون": "Lemon", "متبل": "Mutabal", "ملح": "Salt", "ميكس جبن": "Mix cheese", "ناجتس": "Nuggets", "وسط": "Medium"};
 function trText(t){
   const v=t.nodeValue; if(!v || !/[\u0600-\u06FF]/.test(v)) return;
   const p=t.parentElement; if(p && p.closest('.iname,[data-notr],script,style,textarea')) return;
-  const vt=v.trim(); if(_trItemNames().has(vt) || _trItemNames().has(vt.replace(/^[\s·•:,\-–]+|[\s·•:,\-–]+$/g,''))) return;
+  const vt=v.trim(); if(EN_LABELS[vt]!==undefined && !(p && p.closest('td'))){ t.nodeValue=v.replace(vt,EN_LABELS[vt]); return; }
+  if(_trItemNames().has(vt) || _trItemNames().has(vt.replace(/^[\s·•:,\-–]+|[\s·•:,\-–]+$/g,''))) return;
   if(EN_EXACT[vt]!==undefined){ t.nodeValue=v.replace(vt,EN_EXACT[vt]); return; }
   const keep=[]; const NR=_trNamesRe(); const v0=trStrLong(v); const masked = NR ? v0.replace(NR, m=>{ keep.push(m); return '\uE000'+(keep.length-1)+'\uE001'; }) : v;
   let nv=trStr(masked).replace(/\uE000(\d+)\uE001/g,(_,i)=>keep[+i]);
@@ -1243,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '14-11 · 12:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '15-11 · 01:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
