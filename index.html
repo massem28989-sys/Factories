@@ -1243,7 +1243,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '13-11 · 14:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '14-11 · 12:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -7388,7 +7388,7 @@ function viewChgLog(){
     <div class="tblwrap" style="max-height:520px;overflow:auto"><table class="gridcols"><thead><tr><th>الوقت</th><th>النوع</th><th>الاسم</th><th>التغيير</th><th>مين</th></tr></thead>
       <tbody>${L.length?chgRowsHtml(L.slice(0,300)):`<tr><td colspan="5" class="empty">${CHGLOG&&CHGLOG.length?'مفيش نتايج':'لسه مفيش تغييرات متسجلة — أول تعديل هيظهر هنا'}</td></tr>`}</tbody></table></div></div>`;
 }
-document.addEventListener('change', e=>{ const t=e.target; if(t && t.dataset && t.dataset.inboxdate){ INBOX_DATE[t.dataset.inboxdate]=t.value; return; } if(!t||!t.id) return;
+document.addEventListener('change', e=>{ const t=e.target; if(t && t.dataset && t.dataset.inboxdate){ INBOX_DATE[t.dataset.inboxdate]=t.value; return; } if(t && t.dataset && t.dataset.prneed){ prSetNeed(t.dataset.prneed, t.value); return; } if(!t||!t.id) return;
   if(t.id==='chg-k'){ ui.chgk=t.value; render(); } else if(t.id==='chg-q'){ ui.chgq=t.value; render(); } });
 function rcHistModal(id){ const r=S.recipes.find(x=>x.id===id); const L=(CHGLOG||[]).filter(e=>e.kind==='recipe'&&e.id===id).slice().reverse();
   return `<div class="modal" data-close="1"><div class="box" style="max-width:820px"><h3>📜 تاريخ الوصفة: ${esc(r?r.name:'')}</h3><div class="pad" style="max-height:70vh;overflow:auto">
@@ -8039,7 +8039,7 @@ function prReadyPanels(){
   const chips=g=>g.rs.slice(0,6).map(r=>`<span class="chip">${esc(r.itemName)} · ${r.orderUnit&&r.orderUnit!==r.unit?fmtP(r.orderQty)+' '+esc(r.orderUnit):fmt(r.qty)+' '+esc(r.unit||'')}${+r.receivedQty>0?` <b style="color:var(--green)">✓${fmt(r.receivedQty)}</b>`:''}</span>`).join(' ')+(g.rs.length>6?` <span class="hint">+${g.rs.length-6}</span>`:'');
   const toSend=gs.filter(g=>!sent(g)), waiting=gs.filter(sent);
   const card=(g,isSent)=>{ const nd=g.rs[0].needDate||''; const late=isSent && nd && nd<T;
-    const st = !isSent ? `<span class="hint">${g.rs.length} صنف${g.note?' · '+esc(g.note):''}</span>`
+    const st = !isSent ? `<span class="hint">${g.rs.length} صنف${g.note?' · '+esc(g.note):''}</span> <label class="hint" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">🚚 التوصيل <input type="date" data-prneed="${esc(g.key)}" value="${esc(nd)}" min="${T}" style="padding:2px 5px;font-size:12.5px"></label>`
       : `<span style="color:${late?'var(--red)':'var(--green)'}">${late?'⏰ اتأخر — كان المفروض يوصل '+esc(nd):'✓ اتبعت'+(nd?' · التوصيل '+esc(nd):'')}</span>${recv(g)?` · <span class="hint">وصل ${recv(g)} من ${g.rs.length} صنف</span>`:''}`;
     return `<div style="border:1px solid ${late?'#E5A3A3':'var(--line)'};border-radius:12px;padding:10px 12px;margin-bottom:8px;${ui.prJustSent===g.key?'background:var(--brand-bg)':late?'background:#FDF4F4':''}">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:15px">${g.supplier?esc(g.supplier):'<span class="hint">من غير مورد</span>'}</b> ${st}
@@ -8271,6 +8271,12 @@ async function prEditSave(){
   ui.prEdit=null; ui.modal=null; ui.prJustSent=groupId;
   toast(E.sent?'الطلب اتعدّل — ابعته للمورد تاني بالنسخة الجديدة':'الطلب اتعدّل'); render();
 }
+// تغيير تاريخ التوصيل من الكارت مباشرة (قبل الإرسال للمورد) — للمدير وصاحب النظام
+async function prSetNeed(key, v){ const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && (r.status==='approved'||r.status==='pending')); if(!rs.length) return;
+  if(rs.some(r=>r.sentToSupplierAt) && !isOwner()) return toast('الطلب اتبعت للمورد — التعديل من صاحب النظام',1);
+  const old=rs[0].needDate||''; if(v===old) return; rs.forEach(r=>{ r.needDate=v||''; r.editedAt=new Date().toISOString(); });
+  const ok=await savePurchaseRequests(); if(!ok){ rs.forEach(r=>r.needDate=old); toast('ماتحفظش — حاول تاني',1); return render(); }
+  toast(v?'التوصيل بقى يوم '+v+' ✓':'اتشال تاريخ التوصيل'); render(); }
 /* دمج كل الطلبات المفتوحة لنفس المورد في طلب واحد */
 async function prMerge(supplier){
   const gs=prOpenGroups().filter(g=>(g.supplier||'')===supplier); if(gs.length<2) return;
