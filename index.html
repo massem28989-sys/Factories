@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '15-11 · 01:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '15-11 · 02:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1872,6 +1872,56 @@ async function loadDashboard(){
   render();
 }
 
+/* ===== 🎛 لوحة المتابعة — كل اللي محتاج قرار أو مراجعة في مكان واحد (صاحب النظام) ===== */
+const ctlNm=n=>{ const P=String(n||'').split(/\s+-\s*|\s*-\s+/).map(x=>x.trim()).filter(Boolean); if(LANG==='en') return P.find(x=>!/[\u0600-\u06FF]/.test(x))||P[0]||''; return P.find(x=>/[\u0600-\u06FF]/.test(x))||P[0]||''; };
+let CTL_CACHE={k:'',v:null};
+function ctlData(){ const T=today(), M0=T.slice(0,8)+'01';
+  const k=S.moves.length+'|'+S.items.length+'|'+S.recipes.length+'|'+T+'|'+(CHGLOG?CHGLOG.length:0)+'|'+PURCHASE_REQUESTS.length+'|'+(BO.shortagesCount||0)+'|'+(BO.changesCount||0)+'|'+S.moves.reduce((t,m)=>t+(+m.qty||0),0);
+  if(CTL_CACHE.k===k) return CTL_CACHE.v;
+  const V=varianceData(M0,T); const red=V.rows.filter(r=>r.pct!=null&&Math.abs(r.pct)>0.05&&Math.abs(r.val)>=100).slice(0,4);
+  // أهم الخامات (بقيمة الاستهلاك آخر 14 يوم) وآخر جرد لكل واحدة
+  const lim=(d=>{ d.setDate(d.getDate()-14); return ymdLocal(d); })(new Date()); const use=new Map(), last=new Map(), bal=new Map();
+  for(const m of S.moves){ const q=+m.qty||0; bal.set(m.itemId,(bal.get(m.itemId)||0)+(m.dir==='in'?q:-q));
+    if(m.dir==='out' && m.date>=lim && !(m.reason==='تسوية جرد')) use.set(m.itemId,(use.get(m.itemId)||0)+q);
+    if((m.dir==='in'&&isSettleParty(m.party))||(m.dir==='out'&&m.reason==='تسوية جرد')){ if(!last.has(m.itemId)||m.date>last.get(m.itemId)) last.set(m.itemId,m.date); } }
+  Object.entries(CNT_ANCHOR||{}).forEach(([id,L])=>{ const a=L&&L[L.length-1]; if(a&&(!last.has(id)||a.d>last.get(id))) last.set(id,a.d); });
+  const key=[...use.entries()].map(([id,q])=>({it:item(id),v:q*(+(item(id)||{}).price||0)})).filter(x=>x.it&&!activeRecipeOf(x.it.id)&&!isUntracked(x.it.id)).sort((a,b)=>b.v-a.v).slice(0,12);
+  const d7=(d=>{ d.setDate(d.getDate()-7); return ymdLocal(d); })(new Date());
+  const stale=key.filter(x=>!last.has(x.it.id)||last.get(x.it.id)<d7).map(x=>({it:x.it,d:last.get(x.it.id)||''}));
+  const neg=S.items.filter(it=>!isUntracked(it.id) && ((+it.opening||0)+(bal.get(it.id)||0))<-0.5);
+  let odd=[]; try{ odd=priceStalePlan(); }catch(e){}
+  let big=[]; try{ big=recipeSyncState().stale.filter(x=>x.from>0&&Math.abs(x.to-x.from)/x.from>AUTO_SYNC_PCT); }catch(e){}
+  const gs=(()=>{ try{ return prOpenGroups(); }catch(e){ return []; } })(); const late=gs.filter(g=>g.rs.some(r=>r.sentToSupplierAt)&&g.rs[0].needDate&&g.rs[0].needDate<T).length, unsent=gs.filter(g=>!g.rs.some(r=>r.sentToSupplierAt)).length;
+  const chg=(CHGLOG||[]).filter(e=>e.kind==='recipe'&&String(e.at).slice(0,10)>=d7).length;
+  const v={V,red,stale,neg,odd,big,late,unsent,chg,sh:BO.shortagesCount||0, cr:BO.changesCount||0, inbox:pendingInboxCount(), pur:pendingPurchaseCount(), M0};
+  CTL_CACHE={k,v}; return v; }
+function controlPanel(){ if(!isOwner()) return ''; if(CHGLOG===null){ CHGLOG=[]; chgLogLoad().then(()=>render()); }
+  let D; try{ D=ctlData(); }catch(e){ console.warn('ctl',e); return ''; }
+  const row=(lvl,ic,t,sub,btn)=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid ${lvl==='bad'?'#E5A3A3':lvl==='warn'?'#E8C9A0':'var(--line)'};border-radius:10px;background:${lvl==='bad'?'#FDF4F4':lvl==='warn'?'#FFF8EE':'transparent'}">
+    <span style="font-size:18px">${ic}</span><div style="flex:1;min-width:0"><b>${t}</b>${sub?`<div class="hint" style="margin-top:2px">${sub}</div>`:''}</div>${btn||''}</div>`;
+  const go=(t,l)=>`<button class="btn sm" data-act="today-go" data-v="${t}">${l}</button>`;
+  const R=[]; const nm=L=>L.slice(0,4).map(x=>esc(ctlNm((x.it||x.item).name))).join('، ')+(L.length>4?` +${L.length-4}`:'');
+  if(D.sh) R.push(row('bad','🚩',`${D.sh} بلاغ فرق من الفروع مستني قرار`,'الفرع استلم أقل أو أكتر من الفاتورة',go('shortages','افتح')));
+  if(D.cr) R.push(row('bad','✏️',`${D.cr} طلب تعديل / إضافة على طلبية`,'أصناف الفرع عايز يضيفها أو يغيّرها',go('branchorders','افتح')));
+  if(D.neg.length) R.push(row('bad','➖',`${D.neg.length} صنف رصيده بالسالب`,nm(D.neg.map(it=>({it}))),go('dailystock','راجع')));
+  if(D.odd.length) R.push(row('warn','💲',`${D.odd.length} فاتورة شراء سعرها غريب`,D.odd.slice(0,3).map(x=>`${esc(ctlNm(x.it.name))} ${x.dev>0?'+':''}${Math.round(x.dev*100)}%`).join(' · '),go('in','راجع')));
+  if(D.big.length) R.push(row('warn','🔄',`${D.big.length} منتج تكلفته اتغيرت أكتر من 5%`,nm(D.big)+' — هتتعرض عليك في «فحص قبل الصرف»',go('prod','الوصفات')));
+  if(D.stale.length) R.push(row('warn','📋',`${D.stale.length} خامة أساسية ما اتجردتش من أسبوع`,D.stale.slice(0,5).map(x=>esc(ctlNm(x.it.name))+(x.d?` (${x.d.slice(5)})`:' (ولا مرة)')).join('، '),go('dailystock','اجرد')));
+  if(D.late) R.push(row('warn','⏰',`${D.late} طلب شراء اتأخر عن ميعاد التوصيل`,'',go('purchase','افتح')));
+  if(D.unsent) R.push(row('', '📤',`${D.unsent} طلب شراء لسه ما اتبعتش للمورد`,'',go('purchase','افتح')));
+  if(D.pur) R.push(row('warn','🛒',`${D.pur} طلب شراء محتاج موافقتك`,'',go('purchase','افتح')));
+  if(D.inbox) R.push(row('', '🏭',`${D.inbox} استلام من مصنع تاني مستني`,'',go('inbox','افتح')));
+  if(D.chg) R.push(row('', '🧾',`${D.chg} تعديل وصفات في آخر 7 أيام`,'',go('backups','السجل')));
+  const V=D.V; const vc=V.net<0?'#A32D2D':'#2F7D4A';
+  return `<div class="panel"><h2>🎛 لوحة المتابعة <em>${R.length?R.length+' بند':'كله تمام'}</em></h2><div class="pad">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px">
+      <div class="card"><div class="k">انحراف الشهر (صافي)</div><div class="v" style="color:${vc}">${V.rows.length?(V.net<0?'عجز ':'زيادة ')+money(Math.abs(V.net)):'—'}</div><div class="s">من ${D.M0.slice(5)} · ${V.rows.length} صنف اتجرد</div></div>
+      <div class="card"><div class="k">عجز حقيقي</div><div class="v" style="color:#A32D2D">${money(-V.sh)}</div><div class="s">اتصرف أكتر من الوصفات</div></div>
+      <div class="card"><div class="k">زيادات</div><div class="v" style="color:#2F7D4A">${money(V.sur)}</div><div class="s">الوصفات بتخصم زيادة</div></div>
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center;gap:6px"><button class="btn sm p" data-act="var-open">📊 تقرير الانحرافات</button>${D.red.length?`<div class="hint">الأحمر: ${D.red.map(r=>esc(ctlNm(r.it.name))+' '+(r.pct>0?'+':'')+Math.round(r.pct*100)+'%').join(' · ')}</div>`:''}</div>
+    </div>
+    ${R.length?`<div style="display:flex;flex-direction:column;gap:6px">${R.join('')}</div>`:'<div class="empty">✓ مفيش حاجة محتاجة قرار دلوقتي</div>'}
+  </div></div>`; }
 function viewDashboard(){
   if(!DASHBOARD_DATA && !dashboardLoading) loadDashboard();
   const totalValue = DASHBOARD_DATA ? n2(DASHBOARD_DATA.reduce((s,f)=>s+(f.approxValue||0),0)) : 0;
@@ -1880,6 +1930,7 @@ function viewDashboard(){
   const totalPendingInbox = DASHBOARD_DATA ? DASHBOARD_DATA.reduce((s,f)=>s+(f.pendingInbox||0),0) : 0;
 
   return `${todayPanel()}
+  ${controlPanel()}
   <div class="panel"><div class="pad">
     <div class="hint">نظرة سريعة على كل المصانع مع بعض. القيمة هنا <b>تقريبية</b> (بناءً على الرصيد الافتتاحي × السعر الحالي، من غير حساب الوارد والمنصرف بالتفصيل) — للرقم الدقيق لمصنع معيّن، ادخل عليه وشوف "الجرد الشهري".</div>
   </div></div>
@@ -12014,19 +12065,20 @@ function enUnit(u){ const s=String(u||'').trim(); const M=[[/^(كيلو|كجم|�
   for(const [r,v] of M) if(r.test(s)) return v; return s; }
 function boPrint(kind, lang){
   const EN = lang==='en' && kind==='branches';
+  const UIEN = EN || LANG==='en'; // واجهة البرنامج إنجليزي ← شيتات التحضير كمان بتطلع إنجليزي
   if(!BO.orders.length) return toast('مفيش طلبيات تتطبع — اختار اليوم الأول',1);
   const w=window.open('','_blank'); if(!w){ toast('المتصفح منع فتح نافذة الطباعة — اسمح بالـ popups',1); return; }
   let fac=(FACTORIES.find(f=>f.id===FACTORY)||{name:''}).name||'';
-  if(EN) fac=({'مصنع-الفروج':'Farooj Abu Alabd — Factory','kunafa':'Baba Kunafa — Factory'})[FACTORY]||(/[A-Za-z]/.test(fac)?fac:'Factory');
+  if(UIEN) fac=({'مصنع-الفروج':'Farooj Abu Alabd — Factory','kunafa':'Baba Kunafa — Factory'})[FACTORY]||(/[A-Za-z]/.test(fac)?fac:'Factory');
   const logo=FACTORY_LOGOS[FACTORY]||'';
-  const dayTxt = BO.from===BO.to ? (()=>{ try{ return new Date(BO.from+'T12:00:00').toLocaleDateString(EN?'en-GB':'ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }catch(e){ return BO.from; } })() : `من ${BO.from} لـ ${BO.to}`;
+  const dayTxt = BO.from===BO.to ? (()=>{ try{ return new Date(BO.from+'T12:00:00').toLocaleDateString(UIEN?'en-GB':'ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'}); }catch(e){ return BO.from; } })() : (UIEN?`${BO.from} to ${BO.to}`:`من ${BO.from} لـ ${BO.to}`);
   // أحدث طلبية لكل فرع (نفس اللي بيظهر في جداول التعديل) + لو فيه أكتر من طلبية بنجمعهم في الطباعة
   const byBranch=new Map();
   BO.orders.forEach(o=>{ const m=byBranch.get(o.branch)||new Map(); (o.items||[]).forEach(it=>{ if(!(+it.qty>0)) return; const k=it.name; const cur=m.get(k)||{name:it.name,unit:it.unit,qty:0}; cur.qty=n2(cur.qty+(+it.qty||0)); m.set(k,cur); }); byBranch.set(o.branch,m); });
   const branches=[...byBranch.keys()].sort((a,b)=>a.localeCompare(b,'ar'));
   const lbl = n => { const all=[...CORE_ITEMS,...APPETIZER_ITEMS,...NADER_SAUCES]; const f=all.find(x=>x.name===n); return f?f.label:n; };
   const groups=[['الأصناف الأساسية',CORE_ITEMS],['المقبلات والصوصات',APPETIZER_ITEMS],...(NADER_SAUCES.length?[['صوصات نادر',NADER_SAUCES]]:[]),['أصناف إضافية',extraItemsList()]];
-  const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">${EN?'Printed':'اتطبعت'} ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
+  const head=(t,sub)=>`<div class="hd">${logo?`<img src="${logo}">`:''}<div><h1>${esc(t)}</h1><div class="s">${fac?esc(fac)+' · ':''}${esc(dayTxt)}${sub?' · '+esc(sub):''}</div></div><div class="r">${UIEN?'Printed':'اتطبعت'} ${new Date().toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div></div>`;
   let body='';
   if(kind!=='branches'){
     const P = kind==='sheet'?{tot:1,nader:1,meat:1,appet:1,veg:1,dist:1} : kind==='all'?{tot:1,dist:1} : {[kind]:1};
@@ -12081,7 +12133,7 @@ function boPrint(kind, lang){
         <div class="sig"><div>${L.s1}</div><div>${L.s2}</div><div>${L.s3}</div></div></section>`;
     });
   }
-  w.document.write(`<!doctype html><html lang="${EN?'en':'ar'}" dir="${EN?'ltr':'rtl'}"><head><meta charset="utf-8"><title>${kind!=='branches'?'شيت التحضير':(EN?'Delivery notes':'أذونات التسليم')} — ${esc(BO.from)}</title>
+  w.document.write(`<!doctype html><html lang="${UIEN?'en':'ar'}" dir="${UIEN?'ltr':'rtl'}"><head><meta charset="utf-8"><title>${kind!=='branches'?(UIEN?'Prep sheet':'شيت التحضير'):(EN?'Delivery notes':'أذونات التسليم')} — ${esc(BO.from)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;600;700&display=swap" rel="stylesheet">
   <style>@page{size:A4 ${(kind==='branches'||kind==='meat'||kind==='appet'||kind==='veg'||kind==='nader')?'portrait':'landscape'};margin:10mm}*{box-sizing:border-box}body{font-family:'Readex Pro',Tahoma,sans-serif;margin:0;color:#111;font-size:12.5px}
   .hd{display:flex;align-items:center;gap:12px;border-bottom:4px solid #8E1A20;padding-bottom:8px;margin-bottom:10px}.hd img{width:52px;height:52px;object-fit:contain}.hd h1{margin:0;font-size:20px;color:#8E1A20}.hd .s{color:#555;font-size:12px}.hd .r{margin-inline-start:auto;color:#777;font-size:11px}
@@ -12092,6 +12144,14 @@ function boPrint(kind, lang){
   ${NADER_CSS}
   .pb{page-break-before:always}tr{page-break-inside:avoid}@media screen{body{max-width:1100px;margin:16px auto;padding:0 14px}}</style></head><body>
   ${body||'<p>مفيش أصناف</p>'}<script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  // ترجمة شيتات التحضير (العناوين، الوحدات، التوقيعات) — أسامي الفروع والأصناف الكاملة بتفضل زي ما هي
+  if(UIEN && !EN){ try{ const X={'الفرع':'Branch','الصنف':'Item','الوحدة':'Unit','كل الأصناف':'All items','جهّزها':'Prepared by','راجعها':'Checked by','مدير المصنع':'Factory manager','اتجهّز':'Done','الإجمالي':'Total',
+      'صوصات نادر — خطة التجهيز':'Nader sauces — prep plan','ضربات + كميات لكل فرع':'Batches + quantities per branch','ضربات صوصات نادر':'Nader sauce batches','مفيش أصناف':'No items','مفيش صوصات نادر في الطلبيات دي':'No Nader sauces in these orders'};
+    const wk=w.document.createTreeWalker(w.document.body, NodeFilter.SHOW_TEXT); const L=[]; let n; while((n=wk.nextNode())) L.push(n);
+    L.forEach(t=>{ let v=t.nodeValue, vt=v.trim(); if(!vt || !/[\u0600-\u06FF]/.test(vt)) return; if(t.parentElement && t.parentElement.closest('script,style')) return;
+      if(X[vt]!==undefined){ t.nodeValue=v.replace(vt,X[vt]); return; } if(EN_LABELS[vt]!==undefined){ t.nodeValue=v.replace(vt,EN_LABELS[vt]); return; }
+      const m=vt.match(/^حبة \(([\d.]+) ك\)$/); if(m){ t.nodeValue=`pcs (${m[1]} kg)`; return; } const m2=vt.match(/^([\d.,]+) ك$/); if(m2){ t.nodeValue=m2[1]+' kg'; return; } });
+    trNode(w.document.body); }catch(e){ console.warn('print-en',e); } }
   w.document.close();
 }
 function extraItemsList(){
