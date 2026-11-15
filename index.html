@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '15-11 · 10:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '15-11 · 18:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1649,12 +1649,12 @@ let CHEF=false; let PROD_DRAFT={chefs:[], drafts:{}};
 /* ===== 🗓 جدول الورديات + تأكيد كل واحد إنه شافه =====
    stock_settings: k='shift_sched' = {ver, times:{day:[from,to], night:[from,to]}, days:{sat:{day:{who,off},night:{who,off}}...}, people:[{name,email}], notes:[...]}
    كل تأكيد في صف لوحده k='shift_ack:<email>' = {ver, at, name, ok, note} — عشان تأكيدين في نفس اللحظة مايكتبوش فوق بعض */
-const SH_DAYS=[['sat','السبت'],['sun','الأحد'],['mon','الإتنين'],['tue','التلات'],['wed','الأربع'],['thu','الخميس'],['fri','الجمعة']];
-const SH_DEFAULT={ver:0, times:{day:['06:00','18:00'], night:['18:00','04:00']},
+const SH_DAYS=[['mon','الإتنين'],['tue','التلات'],['wed','الأربع'],['thu','الخميس'],['fri','الجمعة'],['sat','السبت'],['sun','الأحد']]; // الأسبوع بيبدأ الإتنين
+const SH_DEFAULT={ver:0, times:{day:['09:30','21:30'], night:['23:30','09:30']},
   days:{sat:{day:{who:'محمد'},night:{who:'مصطفى',off:'مهند'}}, sun:{day:{who:'محمد'},night:{who:'مهند'}}, mon:{day:{who:'مصطفى',off:'محمد'},night:{who:'مهند'}},
         tue:{day:{who:'محمد'},night:{who:'مهند'}}, wed:{day:{who:'محمد'},night:{who:'مهند'}}, thu:{day:{who:'محمد'},night:{who:'مهند'}}, fri:{day:{who:'محمد'},night:{who:'مهند'}}},
   people:[{name:'محمد',email:''},{name:'مهند',email:''},{name:'مصطفى',email:''}],
-  notes:['التسليم الساعة 6 المغرب وش لوش: الاستلامات اللي وصلت، والطلبات المعلقة، وبلاغات الفروع.','يوم الإجازة: مصطفى بيسجل من اللاب، ولازم حد موجود في المصنع يستلم ويوزن ويصوّر الفواتير.','ممنوع إجازتين ورا بعض، وممنوع الإجازة يوم الجمعة.']};
+  notes:['التسليم الساعة 9:30 الصبح وش لوش قبل الصرف: الإنتاج الجاهز، والناقص، وملاحظات الطلبيات.','يوم الإجازة: مصطفى بيسجل من اللاب، ولازم حد موجود في المصنع يستلم ويوزن ويصوّر الفواتير.','ممنوع إجازتين ورا بعض، وممنوع الإجازة يوم الجمعة.']};
 let SHIFT=null, SHIFT_ACKS={};
 const shMyEmail=()=>String((AUTH&&AUTH.user&&AUTH.user.email)||'').toLowerCase();
 async function shiftLoad(){
@@ -1667,8 +1667,9 @@ const shTime=t=>{ const [h,m]=String(t||'0:0').split(':').map(Number); const ap=
 const shHours=(a,b)=>{ const f=x=>{ const [h,m]=String(x).split(':').map(Number); return h*60+(m||0); }; let d=f(b)-f(a); if(d<=0) d+=1440; return Math.round(d/6)/10; };
 function shiftTableHtml(S0){
   const S1=S0||SHIFT||SH_DEFAULT, T=S1.times; const showNotes=isOwner(); // الملاحظات لصاحب النظام بس
-  const cell=c=>{ c=c||{}; return c.off?`<td style="background:#fff3c4;color:#6b4f00"><s style="opacity:.7;font-size:12px">${esc(c.off)} · إجازة</s><div style="font-weight:700">${esc(c.who||'—')}</div></td>`:`<td style="font-weight:700">${esc(c.who||'—')}</td>`; };
-  return `<div class="tblwrap" style="max-height:none"><table><thead><tr><th>اليوم</th><th>☀ الصبح<div class="hint">${shTime(T.day[0])} – ${shTime(T.day[1])} · ${shHours(T.day[0],T.day[1])} ساعة</div></th><th>☾ الليل<div class="hint">${shTime(T.night[0])} – ${shTime(T.night[1])} · ${shHours(T.night[0],T.night[1])} ساعة</div></th></tr></thead>
+  const tm=c=>c.t?`<div style="font-weight:600;font-size:12.5px;color:#8E1A20;margin-top:2px">⏰ ${esc(c.t)}</div>`:'';
+  const cell=c=>{ c=c||{}; return c.off?`<td style="background:#fff3c4;color:#6b4f00"><s style="opacity:.7;font-size:12px">${esc(c.off)} · إجازة</s><div style="font-weight:700">${esc(c.who||'—')}</div>${tm(c)}</td>`:`<td${c.t?' style="background:#FBF1F1"':''}><div style="font-weight:700">${esc(c.who||'—')}</div>${tm(c)}</td>`; };
+  return `<div class="tblwrap" style="max-height:none"><table data-nosort><thead><tr><th>اليوم</th><th>☀ الصبح<div class="hint">${shTime(T.day[0])} – ${shTime(T.day[1])} · ${shHours(T.day[0],T.day[1])} ساعة</div></th><th>☾ الليل<div class="hint">${shTime(T.night[0])} – ${shTime(T.night[1])} · ${shHours(T.night[0],T.night[1])} ساعة</div></th></tr></thead>
     <tbody>${SH_DAYS.map(([k,l])=>{ const D=(S1.days||{})[k]||{}; return `<tr><th>${l}</th>${cell(D.day)}${cell(D.night)}</tr>`; }).join('')}</tbody></table></div>
     ${showNotes&&(S1.notes||[]).filter(Boolean).length?`<div class="hint" style="margin-top:10px">ملاحظاتك (مش بتظهر لحد غيرك):</div><ul style="margin:10px 0 0;padding-inline-start:18px;line-height:1.9;font-size:13px">${S1.notes.filter(Boolean).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}`;
 }
@@ -1699,9 +1700,9 @@ function shiftEditModal(){
       <div>☀ الصبح: <input type="time" id="sh-d0" value="${E.times.day[0]}"> لـ <input type="time" id="sh-d1" value="${E.times.day[1]}"></div>
       <div>☾ الليل: <input type="time" id="sh-n0" value="${E.times.night[0]}"> لـ <input type="time" id="sh-n1" value="${E.times.night[1]}"></div></div>
     <h4 style="margin:14px 0 6px">الأيام</h4>
-    <div class="hint" style="margin-bottom:6px">«مين شغال» = اللي موجود فعلًا. لو حد إجازة، اختاره في «إجازة مين» وحط اللي بيغطي في «مين شغال».</div>
-    <div class="tblwrap" style="max-height:none"><table><thead><tr><th>اليوم</th><th>☀ مين شغال</th><th>إجازة مين</th><th>☾ مين شغال</th><th>إجازة مين</th></tr></thead><tbody>
-      ${SH_DAYS.map(([k,l])=>{ const D=E.days[k]||{day:{},night:{}}; return `<tr><th>${l}</th><td>${sel('sh-'+k+'-dw',(D.day||{}).who)}</td><td>${sel('sh-'+k+'-do',(D.day||{}).off,'—')}</td><td>${sel('sh-'+k+'-nw',(D.night||{}).who)}</td><td>${sel('sh-'+k+'-no',(D.night||{}).off,'—')}</td></tr>`; }).join('')}
+    <div class="hint" style="margin-bottom:6px">«مين شغال» = اللي موجود فعلًا. لو حد إجازة، اختاره في «إجازة مين» وحط اللي بيغطي في «مين شغال». لو وردية يوم معيّن ميعادها غير المعتاد، اكتبه في «ميعاد مختلف» (مثلًا: 2:00 ص – 12:00 م) — بيظهر للموظف بالأحمر تحت اسمه.</div>
+    <div class="tblwrap" style="max-height:none"><table data-nosort><thead><tr><th>اليوم</th><th>☀ مين شغال</th><th>إجازة مين</th><th>☾ مين شغال</th><th>إجازة مين</th></tr></thead><tbody>
+      ${SH_DAYS.map(([k,l])=>{ const D=E.days[k]||{day:{},night:{}}; return `<tr><th>${l}</th><td>${sel('sh-'+k+'-dw',(D.day||{}).who)}<input id="sh-${k}-dt" value="${esc((D.day||{}).t||'')}" placeholder="ميعاد مختلف (اختياري)" style="display:block;margin-top:4px;width:100%;font-size:12px;padding:3px 6px"></td><td>${sel('sh-'+k+'-do',(D.day||{}).off,'—')}</td><td>${sel('sh-'+k+'-nw',(D.night||{}).who)}<input id="sh-${k}-nt" value="${esc((D.night||{}).t||'')}" placeholder="ميعاد مختلف (اختياري)" style="display:block;margin-top:4px;width:100%;font-size:12px;padding:3px 6px"></td><td>${sel('sh-'+k+'-no',(D.night||{}).off,'—')}</td></tr>`; }).join('')}
     </tbody></table></div>
     <h4 style="margin:14px 0 6px">الأشخاص وحساباتهم على السيستم</h4>
     <div class="hint" style="margin-bottom:6px">كل واحد ليه إيميل هيطلعله الجدول أول ما يفتح السيستم لحد ما يأكّد إنه شافه.</div>
@@ -1718,7 +1719,8 @@ function shiftReadForm(){
   E.times={day:[g('sh-d0')||'06:00',g('sh-d1')||'18:00'], night:[g('sh-n0')||'18:00',g('sh-n1')||'04:00']};
   E.people=(E.people||[]).map((pp,i)=>({name:(g('sh-pn-'+i)||'').trim(), email:(g('sh-pe-'+i)||'').trim().toLowerCase()}));
   SH_DAYS.forEach(([k])=>{ const dw=g('sh-'+k+'-dw'), dof=g('sh-'+k+'-do'), nw=g('sh-'+k+'-nw'), nof=g('sh-'+k+'-no');
-    E.days[k]={day:{who:dw, ...(dof&&dof!==dw?{off:dof}:{})}, night:{who:nw, ...(nof&&nof!==nw?{off:nof}:{})}}; });
+    const dt=(g('sh-'+k+'-dt')||'').trim(), nt=(g('sh-'+k+'-nt')||'').trim();
+    E.days[k]={day:{who:dw, ...(dof&&dof!==dw?{off:dof}:{}), ...(dt?{t:dt}:{})}, night:{who:nw, ...(nof&&nof!==nw?{off:nof}:{}), ...(nt?{t:nt}:{})}}; });
   E.notes=g('sh-notes').split('\n').map(x=>x.trim()).filter(Boolean);
 }
 function shiftProblems(E){
@@ -8969,6 +8971,7 @@ function sortTableBy(table, col, dir){
 function bindTableSorting(root){
   (root||document).querySelectorAll('table').forEach(table=>{
     const head=table.tHead; if(!head || !head.rows.length) return;
+    if(table.dataset.nosort!==undefined) return; // جداول ترتيبها ثابت (زي أيام الأسبوع في جدول الورديات)
     const ths=[...head.rows[head.rows.length-1].cells];
     const key=_tableKey(table);
     ths.forEach((th,col)=>{
