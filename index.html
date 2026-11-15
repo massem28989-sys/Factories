@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '15-11 · 18:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '16-11 · 00:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5362,6 +5362,9 @@ function boHistOf(itemId, days){ const T=today(); const d=new Date(T+'T12:00:00'
   const byBr=new Map(); br.forEach((q,k)=>{ const b=k.split('|')[0]; (byBr.get(b)||byBr.set(b,[]).get(b)).push(q); });
   return {day:boMedian([...day.values()]), br:b=>boMedian(byBr.get(b)||[])}; }
 // صرف الطلبيات بيتسجل بتاريخ الطلبيات اللي فاتحها (مش بتاريخ الساعة) — عشان صرف طلبيات امبارح بعد نص الليل ما يتسجلش على النهارده
+// سطر اتظبط قبل كده من بلاغ فرق «اتحل» (الصرف بتاعه اتسجل على اللي الفرع استلمه) — الصرف العادي ما يلمسوش تاني
+function boSettledByReport(branch, itemId, name, D){ const R=(BO.shortages||[]).filter(r=>r.status==='resolved'&&r.branch===branch&&r.date===D&&(r.items||[]).some(it=>{ if(it.name===name) return true; const m=findMatchingLocalItem(it.name); return m&&m.id===itemId; }));
+  if(!R.length) return false; return S.moves.some(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.party===branch&&m.itemId===itemId&&m.date===D) || R.some(r=>(r.items||[]).some(it=>(it.name===name||((findMatchingLocalItem(it.name)||{}).id===itemId)) && !(+it.receivedQty>0))); }
 function boDispDate(){ const T=today(); return (BO.from && BO.from===BO.to && BO.from<=T) ? BO.from : T; }
 // ===== صرف اتعمل بعد نص الليل واتسجل على اليوم الجديد =====
 function midnightPlan(){ const out=[]; const byD=new Map(); const seen=new Set();
@@ -13190,6 +13193,8 @@ async function _act(a,d){
       const cf = sent>0 && cur>0 ? cur/sent : (convFactorOf(it.name)||1);
       const target=n2(rec*cf), diff=n2(target-cur); if(Math.abs(diff)<0.005) continue;
       plan.push({it, m, cur, target, diff}); }
+    { const nd=(r.items||[]).filter(it=>{ const m=findMatchingLocalItem(it.name); return m && (+it.sentQty||0)>0 && boDispTotal(r.branch, m.id, D)<0.0005; });
+      if(nd.length){ alert(`⛔ طلبية ${r.branch} يوم ${D} لسه ما اتصرفتش على السيستم في:\n${nd.slice(0,8).map(it=>'• '+boLabel(it.name)).join('\n')}\n\nاصرف الطلبية الأول من «طلبيات الفروع»، وبعدين ارجع حل البلاغ — عشان الصرف يتعدل على اللي الفرع استلمه، مش يتسجل مرتين.`); return; } }
     if(!plan.length){ if(!confirm(`مفيش حاجة تتعدل في الصرف${skip.length?` (${skip.join('، ')})`:''} — الصرف المتسجل مطابق للي الفرع استلمه.\n\nأعلّم البلاغ «اتحل»؟`)) return; return decideFactoryShortageReport(r.id,'resolved'); }
     const msg=`بلاغ ${r.branch} — يوم ${D}:\n\n${plan.map(x=>`• ${boLabel(x.it.name)}: الفرع استلم ${fmt(x.it.receivedQty)} بدل ${fmt(x.it.sentQty)} ← الصرف ${fmt(x.cur)} يبقى ${fmt(x.target)} ${x.m.unit||''} (${x.diff<0?`يرجع ${fmt(-x.diff)} للمخزن`:`يتصرف ${fmt(x.diff)} زيادة`})`).join('\n')}${skip.length?`\n\nمش هيتعدل: ${skip.join('، ')}`:''}\n\n• «OK»: أعدّل الصرف وفاتورة الفرع على كده، وأعلّم البلاغ «اتحل».\n• «Cancel»: ما أغيّرش حاجة.`;
     if(!confirm(msg)){ if(confirm('تعلّم البلاغ «اتحل» من غير ما تعدّل الصرف؟ (يعني الفرق اتعالج بطريقة تانية، زي إن الفرع هيستلم الناقص بكرة)')) return decideFactoryShortageReport(r.id,'resolved'); return; }
@@ -13560,12 +13565,13 @@ async function _act(a,d){
     if(conv===null) return toast('حدد معامل التحويل الأول — وحدة الفرع مختلفة عن وحدة المصنع',1);
 
     // بنصرف لكل فرع لوحده باسمه، بدل حركة واحدة مجمّعة. الكمية بتتحول لوحدة المصنع الأول
-    const perBranch = [];
+    const perBranch = []; let skippedRep=0;
     BO.orders.forEach(o=>{
       const line=(o.items||[]).find(x=>x.name===faroojName);
-      if(line && +line.qty>0) perBranch.push({branch:o.branch, qty:n2(+line.qty*conv)});
+      if(line && +line.qty>0){ if(boSettledByReport(o.branch, match.id, faroojName, boDispDate())){ skippedRep++; return; } perBranch.push({branch:o.branch, qty:n2(+line.qty*conv)}); }
     });
-    if(!perBranch.length) return toast('مفيش كميات مطلوبة للصنف ده',1);
+    if(!perBranch.length) return toast(skippedRep?'الصنف ده اتظبط قبل كده من بلاغات الفروق لكل الفروع — مفيش حاجة تتصرف':'مفيش كميات مطلوبة للصنف ده',1);
+    if(skippedRep) toast(`${skippedRep} فرع اتخطى — صرفه اتظبط قبل كده من بلاغ فرق`);
     { const T=today(); const dn=perBranch.filter(b=>S.moves.some(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.itemId===match.id&&m.party===b.branch&&m.date===T));
       if(dn.length && !confirm(`⚠ «${boLabel(faroojName)}» اتصرف النهارده قبل كده لـ${dn.length} فرع (${dn.slice(0,4).map(b=>b.branch).join('، ')}).\n\nلو صرفت تاني هيتخصم مرتين. تكمل برضه؟`)) return;
       const H=boHistOf(match.id,21); const big=perBranch.filter(b=>{ const md=H.br(b.branch); return md && b.qty>Math.max(3*md, md+5); });
@@ -13629,7 +13635,7 @@ async function _act(a,d){
     const P=ui.pre; if(!P) return; const names=P.rows.filter(r=>P.sel[r.name]).map(r=>r.name);
     if(!names.length) return toast('مفيش أصناف متعلّم عليها',1);
     const exclude=P.excl||{}; ui.modal=null; ui.pre=null;
-    let moveCount=0, autoCount=0; let failedLines=[]; const stampSet=new Set(); const allFails=[];
+    let moveCount=0, autoCount=0, skipRep=0; let failedLines=[]; const stampSet=new Set(); const allFails=[];
     for(const faroojName of names){
       const match = findMatchingLocalItem(faroojName);
       let total=0, autoAny=false, brN=0;
@@ -13637,6 +13643,7 @@ async function _act(a,d){
         const line=(o.items||[]).find(x=>x.name===faroojName);
         if(!line || !(+line.qty>0)) continue;
         if(exclude[faroojName+'|'+o.branch]) continue; // سطر اتشال من الفحص (مثلًا اتصرف قبل كده النهارده)
+        if(boSettledByReport(o.branch, match.id, faroojName, boDispDate())){ skipRep++; continue; } // اتظبط من بلاغ فرق — ما يتصرفش تاني
         const cf = convFactorOf(faroojName) || 1;
         const res = dispenseOut(match.id, n2(+line.qty*cf), boDispDate(), o.branch, 'صرف للفروع');
         if(res.error){ failedLines.push(`${faroojName} — ${o.branch}: ${res.error}`); allFails.push({branch:o.branch, itemId:match.id, itemName:match.name, qty:n2(+line.qty*cf), shortages:res.shortages, o, faroojName, bq:+line.qty}); continue; }
@@ -13654,7 +13661,7 @@ async function _act(a,d){
     await saveTx(); await saveMain();
     await boFlushOrders(stampSet);
     { const nc=await boSyncCatalogPrices(names); if(nc) setTimeout(()=>toast(`اتحدث سعر ${nc} صنف في كتالوج الفروع لسعر المصنع`),1500); }
-    toast(`تم تسجيل ${moveCount} حركة صرف${autoCount?` (${autoCount} صنف خصم خاماته تلقائي)`:''}${failedLines.length?` — ${failedLines.length} حركة اتخطت لعدم كفاية الرصيد`:''}`);
+    toast(`تم تسجيل ${moveCount} حركة صرف${autoCount?` (${autoCount} صنف خصم خاماته تلقائي)`:''}${failedLines.length?` — ${failedLines.length} حركة اتخطت لعدم كفاية الرصيد`:''}${skipRep?` — ${skipRep} سطر اتخطى لأنه اتظبط من بلاغ فرق`:''}`);
 
     return render();
   }
