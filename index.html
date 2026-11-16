@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '16-11 · 00:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '16-11 · 15:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -7632,6 +7632,7 @@ function smartOrderPanel(){
     return `<tr><td colspan="6" style="background:#F6FAF4;padding:8px 10px"><div class="hint" style="margin-bottom:4px">➕ أصناف تانية من <b>${esc(sup)}</b> هتخلص قبل الطلب الجاي منه — اطلبها بالمرة:</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${ex.slice(0,12).map(x=>`<button class="btn sm" data-act="so-add-extra" data-id="${x.it.id}" data-s="${esc(sup)}" title="يكفي ${x.daysLeft==null?'-':fmt(x.daysLeft)+' يوم'}">➕ ${esc(x.it.name)} · ${fmt(x.qty)} ${esc(x.it.unit||'')} <span class="hint">(يكفي ${x.daysLeft==null?'—':fmt(x.daysLeft)+' يوم'})</span></button>`).join('')}${ex.length>12?`<span class="hint">+${ex.length-12}</span>`:''}</div></td></tr>`; };
   const supHead = sup => `<tr class="catrow"><td colspan="6"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${sup?esc(sup):'<span style="color:var(--red)">من غير مورد — اختار المورد</span>'}
+      ${sup?`<button class="btn sm" data-act="so-sup-add" data-s="${esc(sup)}" style="font-weight:600">➕ ضيف أصناف من ${esc(sup)}</button>`:''}
       ${sup?`<span class="hint" style="font-weight:400">بنطلب منه كل ${own?`<input type="number" min="1" step="1" data-so-cyc="${esc(sup)}" value="${supCycle(sup)}" style="width:48px;text-align:center;padding:2px 4px">`:`<b>${supCycle(sup)}</b>`} يوم</span>`:''}</div></td></tr>`;
   const body = rows.map((r,i)=>{ const changed=(r.supplier||'')!==lastSup; const head = changed ? (lastSup!==null?extrasRow(lastSup):'')+supHead(r.supplier||'') : ''; lastSup=r.supplier||'';
     const dl = r.daysLeft==null ? '<span class="hint">—</span>' : `<b style="color:${r.daysLeft<1?'var(--red)':r.daysLeft<C.lead+1?'#B36B00':'var(--ink)'}">${r.daysLeft<1?'خلص تقريبًا':fmt(r.daysLeft)+' يوم'}</b>`;
@@ -7672,6 +7673,31 @@ function smartOrderBind(){
   document.querySelectorAll('[name="so-appr"]').forEach(x=>x.onchange=()=>sv('approve',x.value));
   const ab=$('#so-above'); if(ab) ab.onchange=()=>sv('above',Math.max(0,+ab.value||0));
   if(document.getElementById('so-add')) bindItemPicker('so-add',(it,typed)=>{ if(typed) return; if(!SO.extra.includes(it.id)) SO.extra.push(it.id); delete SO.off[it.id]; render(); setTimeout(()=>{ const q=document.querySelector(`[data-so-qty="${it.id}"]`); if(q){ q.focus(); q.select(); } },50); });
+}
+// ➕ إضافة أصناف كتير من مورد واحد مرة واحدة: كل أصناف المورد اللي مش في القايمة، بالكمية المقترحة، تعلّم وتضيف
+function soSupAddModal(){ const P=ui.soAdd; const SO=ui.so||(ui.so={extra:[], qty:{}, sup:{}, off:{}});
+  const inList=new Set(smartOrderList().map(r=>r.it.id)); const q=(P.q||'').trim();
+  const L=S.items.filter(it=>!inList.has(it.id) && !isUntracked(it.id) && !activeRecipeOf(it.id) && (P.all || lastSupplierOf(it.id)===P.sup) && (!q || it.name.includes(q)))
+    .map(it=>{ const r=smartOrderRow(it,true,P.sup)||{qty:0,use:0,daysLeft:null,book:calc(it).book}; if(P.qty[it.id]===undefined) P.qty[it.id]=r.qty>0?String(r.qty):''; return {it,r}; })
+    .sort((a,b)=>(a.r.daysLeft==null?999:a.r.daysLeft)-(b.r.daysLeft==null?999:b.r.daysLeft) || a.it.name.localeCompare(b.it.name,'ar'));
+  const n=Object.keys(P.sel).filter(id=>P.sel[id]).length;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:760px"><h3>➕ ضيف أصناف من ${esc(P.sup)}</h3><div class="pad" style="max-height:66vh;overflow:auto">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><input type="text" id="soa-q" placeholder="دوّر باسم الصنف…" value="${esc(q)}" style="flex:1;min-width:180px">
+      <label class="hint" style="white-space:nowrap"><input type="checkbox" id="soa-all" ${P.all?'checked':''}> كل الأصناف (مش بس اللي بنجيبها من ${esc(P.sup)})</label></div>
+    <div class="hint" style="margin-bottom:6px">اكتب الكمية قدام أي صنف وهيتعلّم لوحده. الأصناف مترتبة من اللي هيخلص الأول.</div>
+    ${L.length?`<table class="gridcols"><thead><tr><th style="width:30px"></th><th>الصنف</th><th class="n">الرصيد</th><th class="n">يكفي</th><th class="n">هنطلب</th></tr></thead><tbody>
+    ${L.map(({it,r})=>`<tr><td><input type="checkbox" data-soa-on="${it.id}" ${P.sel[it.id]?'checked':''}></td><td>${esc(it.name)}</td>
+      <td class="n">${fmt(r.book!=null?r.book:calc(it).book)} <span class="hint">${esc(it.unit||'')}</span></td>
+      <td class="n">${r.daysLeft==null?'<span class="hint">—</span>':`<b style="color:${r.daysLeft<1?'var(--red)':r.daysLeft<3?'#B36B00':'var(--ink)'}">${r.daysLeft<1?'خلص تقريبًا':fmt(r.daysLeft)+' يوم'}</b>`}</td>
+      <td class="n" style="white-space:nowrap"><input type="number" step="any" min="0" data-soa-qty="${it.id}" value="${esc(P.qty[it.id]||'')}" style="width:80px;text-align:center"> <span class="hint">${esc(it.unit||'')}</span></td></tr>`).join('')}</tbody></table>`
+      :`<div class="empty">${q?'مفيش صنف بالاسم ده':`كل أصناف ${esc(P.sup)} موجودة في القايمة — علّم «كل الأصناف» لو عايز صنف من مورد تاني`}</div>`}
+  </div><div class="foot"><button class="btn p" data-act="soa-apply" ${n?'':'disabled'}>ضيف ${n||''} صنف لطلب ${esc(P.sup)}</button><button class="btn" data-close="1">إلغاء</button></div></div></div>`; }
+function soSupAddBind(){ const P=ui.soAdd; const re=(focusId)=>{ ui.modal=soSupAddModal(); render(); soSupAddBind(); if(focusId){ const x=document.getElementById(focusId); if(x){ x.focus(); const v=x.value; x.value=''; x.value=v; } } };
+  const upd=()=>{ const n=Object.keys(P.sel).filter(id=>P.sel[id]).length; const b=document.querySelector('[data-act="soa-apply"]'); if(b){ b.disabled=!n; b.textContent=`ضيف ${n||''} صنف لطلب ${P.sup}`; } };
+  const q=$('#soa-q'); if(q) q.oninput=()=>{ P.q=q.value; clearTimeout(P._t); P._t=setTimeout(()=>re('soa-q'),250); };
+  const al=$('#soa-all'); if(al) al.onchange=()=>{ P.all=al.checked; re(); };
+  document.querySelectorAll('[data-soa-on]').forEach(x=>x.onchange=()=>{ P.sel[x.dataset.soaOn]=x.checked; upd(); });
+  document.querySelectorAll('[data-soa-qty]').forEach(x=>x.oninput=()=>{ const id=x.dataset.soaQty; P.qty[id]=x.value; P.sel[id]=+x.value>0; const c=document.querySelector(`[data-soa-on="${id}"]`); if(c) c.checked=P.sel[id]; upd(); });
 }
 function purchaseSuggestions(){
   const open = new Set(PURCHASE_REQUESTS.filter(r=>r.status==='pending'||r.status==='approved').map(r=>r.itemId));
@@ -12722,6 +12748,10 @@ async function _act(a,d){
     return render();
   }
   if((a==='pur-create-suggested'||a==='pur-create') && PR_BUSY) return toast('لسه بيتحفظ — استنى ثانية',1);
+  if(a==='so-sup-add'){ ui.soAdd={sup:d.s, q:'', all:false, sel:{}, qty:{}}; ui.modal=soSupAddModal(); render(); soSupAddBind(); setTimeout(()=>{ const q=$('#soa-q'); if(q) q.focus(); },50); return; }
+  if(a==='soa-apply'){ const P=ui.soAdd; if(!P) return; const SO=ui.so||(ui.so={extra:[], qty:{}, sup:{}, off:{}}); let n=0;
+    Object.keys(P.sel).filter(id=>P.sel[id]).forEach(id=>{ if(!item(id)) return; if(!SO.extra.includes(id)) SO.extra.push(id); SO.sup[id]=P.sup; if(+P.qty[id]>0) SO.qty[id]=String(P.qty[id]); delete SO.off[id]; n++; });
+    ui.modal=null; ui.soAdd=null; toast(`اتضاف ${n} صنف لطلب ${P.sup}`); return render(); }
   if(a==='so-add-extra'){ const SO=ui.so||(ui.so={extra:[], qty:{}, sup:{}, off:{}}); const r=smartOrderRow(item(d.id),true,d.s); if(!r) return;
     if(!SO.extra.includes(d.id)) SO.extra.push(d.id); SO.sup[d.id]=d.s; SO.qty[d.id]=String(r.qty); delete SO.off[d.id]; return render(); }
   if(a==='so-order'){
