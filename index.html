@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '16-11 · 15:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '17-11 · 13:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -7386,7 +7386,7 @@ let backupsLoaded = false;
 // بنستخدم نفس خادم Google اللي تطبيق الفروج شغال عليه، لكل المصانع. لو Supabase كله وقع أو الحساب اتقفل، النسخ دي بتفضل موجودة.
 const EXT_BK = (()=>{ const cfg = Object.values(BRANCH_APP_CONFIG||{})[0]; return cfg && cfg.gscriptUrl ? {url:cfg.gscriptUrl} : null; })();
 const EXT_CHUNK = 40000; // خلية Google Sheets حدها 50 ألف حرف، فبنقسّم النسخة على أجزاء أصغر من كده
-const EXT_KEEP = 14;
+const EXT_KEEP = 7; // آخر 7 أيام (النسخ اليومية في Supabase شغالة كمان) — كانت 14 وكانت بتتقّل سيرفر الفروع
 let EXT_LIST = []; let extLoaded = false; let EXT_BUSY = false;
 const extPrefix = () => 'fac_backup:'+FACTORY+':';
 async function extReq(params){
