@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '17-11 · 13:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '18-11 · 10:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -11446,17 +11446,24 @@ function pcModal(){
     <div class="foot">${L&&L.all.some(r=>Math.abs(r.diff)>=0.005)?`<button class="btn p" data-act="pc-apply"${L.errs.length?' disabled title="صلّح الأسطر الحمرا الأول"':''}>سجّل الجرد (${L.all.filter(r=>Math.abs(r.diff)>=0.005).length} فرق)</button>`:''}<button class="btn" data-close="1">قفل</button></div>
   </div></div>`;
 }
+// إعادة رسم شاشة الجرد من غير ما ترجع لفوق: نحفظ مكان السكرول لكل جزء بيسكرول ونرجّعه
+function pcRerender(){
+  const scr=()=>[document.scrollingElement, ...document.querySelectorAll('*')].filter(e=>e && (e.scrollTop>0 || e.scrollLeft!==0 || e.scrollHeight>e.clientHeight+2 || e.scrollWidth>e.clientWidth+2));
+  const before=scr().map(e=>[e.scrollTop,e.scrollLeft]);
+  ui.modal=pcModal(); render(); pcBind();
+  const after=scr(); before.forEach((v,i)=>{ const e=after[i]; if(e){ e.scrollTop=v[0]; e.scrollLeft=v[1]; } });
+}
 function pcBind(){
   const P=ui.pc; if(!P) return;
   const t=$('#pc-text'); if(t) t.oninput=()=>{ P.text=t.value; };
-  const dt=$('#pc-date'); if(dt) dt.onchange=()=>{ P.date=dt.value; if(P.rows.length){ ui.modal=pcModal(); render(); pcBind(); } };
-  const sc=$('#pc-scope'); if(sc) sc.onchange=()=>{ P.scope=sc.value; ui.modal=pcModal(); render(); pcBind(); };
-  document.querySelectorAll('[name="pc-mode"]').forEach(r=>r.onchange=()=>{ P.mode=r.value; ui.modal=pcModal(); render(); pcBind(); });
-  document.querySelectorAll('[name="pc-when"]').forEach(r=>r.onchange=()=>{ P.when=r.value; ui.modal=pcModal(); render(); pcBind(); });
-  document.querySelectorAll('[data-pcin]').forEach(c=>c.onchange=()=>{ P.incl=P.incl||{}; if(c.checked) P.incl[c.dataset.pcin]=1; else delete P.incl[c.dataset.pcin]; ui.modal=pcModal(); render(); pcBind(); });
+  const dt=$('#pc-date'); if(dt) dt.onchange=()=>{ P.date=dt.value; if(P.rows.length){ pcRerender(); } };
+  const sc=$('#pc-scope'); if(sc) sc.onchange=()=>{ P.scope=sc.value; pcRerender(); };
+  document.querySelectorAll('[name="pc-mode"]').forEach(r=>r.onchange=()=>{ P.mode=r.value; pcRerender(); });
+  document.querySelectorAll('[name="pc-when"]').forEach(r=>r.onchange=()=>{ P.when=r.value; pcRerender(); });
+  document.querySelectorAll('[data-pcin]').forEach(c=>c.onchange=()=>{ P.incl=P.incl||{}; if(c.checked) P.incl[c.dataset.pcin]=1; else delete P.incl[c.dataset.pcin]; pcRerender(); });
   const pd=$('#pc-predate'); if(pd) pd.onchange=()=>{ P.preDate=pd.value; };
-  document.querySelectorAll('[data-pcconv]').forEach(inp=>inp.onchange=async()=>{ const v=+inp.value; if(!(v>0)) return; const [id,u]=inp.dataset.pcconv.split('|'); S.unitConv=S.unitConv||{}; (S.unitConv[id]=S.unitConv[id]||{})[u]=v; await saveMain(); ui.modal=pcModal(); render(); pcBind(); });
-  document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; ui.modal=pcModal(); render(); pcBind(); });
+  document.querySelectorAll('[data-pcconv]').forEach(inp=>inp.onchange=async()=>{ const v=+inp.value; if(!(v>0)) return; const [id,u]=inp.dataset.pcconv.split('|'); S.unitConv=S.unitConv||{}; (S.unitConv[id]=S.unitConv[id]||{})[u]=v; await saveMain(); pcRerender(); });
+  document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; pcRerender(); });
 }
 /* ================= 📝 الإنتاج الفعلي — آخر اليوم تكتب المصنع عمل كام، والبرنامج يسجّل الفرق ================= */
 // ===== إنتاج تلقائي مالوش صرف: البرنامج بيصنّع وقت الصرف بقد الناقص بس، فلو الإنتاج التلقائي في يوم أكبر من كل اللي خرج من المنتج نفس اليوم
