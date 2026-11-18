@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '18-11 · 10:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '18-11 · 12:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1298,7 +1298,7 @@ function _mergeNames(kind, serverList, def){
 const STATE_KEYS=['suppliers','branches','boMap','boConv','boDone','inboxMap','boSeen','boHidden','boWeigh','boKgPer','untracked','cntGrp','cntLog','unitConv','locs','itemLoc','locEditors','boTblAdd','boTblDel','restrictDispatchTo','dispatchOnlyMode','allowedReasons','catSkip','blockNegative','recipeSince'];
 function stateSettings(){ const o={}; STATE_KEYS.forEach(k=>{ if(S[k]!==undefined) o[k]=S[k]; }); return o; }
 async function saveMain(){ BK.dirty++; _matchCache=new Map(); const r=await sset(KEY_MAIN,{items:S.items,recipes:S.recipes,period:S.period,locks:S.locks,suppliers:S.suppliers,branches:S.branches,boMap:S.boMap,boConv:S.boConv,boDone:S.boDone,inboxMap:S.inboxMap,boSeen:S.boSeen,boHidden:S.boHidden,boWeigh:S.boWeigh,boKgPer:S.boKgPer,untracked:S.untracked,cntGrp:S.cntGrp,cntLog:S.cntLog,unitConv:S.unitConv,catSkip:S.catSkip,blockNegative:!!S.blockNegative,recipeSince:S.recipeSince,locs:S.locs,itemLoc:S.itemLoc,boTblAdd:S.boTblAdd,boTblDel:S.boTblDel,restrictDispatchTo:S.restrictDispatchTo,dispatchOnlyMode:S.dispatchOnlyMode,allowedReasons:S.allowedReasons}); schedulePush(); return r; }
-async function saveTx(){ try{ const f=anchorHeal(); if(f) setTimeout(()=>toast(`🔒 ${f} تعديل في أيام قبل الجرد اتعوّض — الرصيد بعد الجرد ما اتغيرش`),400); }catch(e){ console.warn('anchorHeal',e); } BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
+async function saveTx(){ try{ const f=((window.__updStale&&window.__updStale())?0:anchorHeal()); if(f) setTimeout(()=>toast(`🔒 ${f} تعديل في أيام قبل الجرد اتعوّض — الرصيد بعد الجرد ما اتغيرش`),400); }catch(e){ console.warn('anchorHeal',e); } BK.dirty++; const r=await sset(KEY_TX,{moves:S.moves,counts:S.counts,runs:S.runs||[]}); schedulePush(); return r; }
  
 async function load(){
   if(DB_CONFIGURED){
@@ -1309,6 +1309,8 @@ async function load(){
       await fetchPurchaseRequests();
       await ingAltsLoad();
       await cntAnchorLoad();
+      // تعديل وصفة من جهاز تاني ممكن يكون غيّر خصم أيام قبل الجرد — نعوّضه أول ما نفتح، من غير ما نستنى أي حفظ
+      setTimeout(()=>{ try{ if(!VIEWER && (isOwner()||ROLE==='manager') && !(window.__updStale&&window.__updStale())){ const f=anchorHeal(); if(f){ saveTx(); toast(`🔒 ${f} تعديل في أيام قبل الجرد اتعوّض — الرصيد بعد الجرد رجع زي ما اتعدّ`); } } }catch(e){} }, 3000);
       await stdLoad();
       await exportSalesLoad();
       gsKeyLoad().then(()=>{ if(!GS_FKEY && BRANCH_APP) render(); });
@@ -1764,7 +1766,10 @@ const salePx=m=>(m&&m.sale!=null)?+m.sale:(EXPORT_SALES.m&&EXPORT_SALES.m[m.id]?
    CNT_ANCHOR = { itemId: [{d, q, at, excl:[moveIds], cid}] }  (آخر 12 جرد لكل صنف) */
 let CNT_ANCHOR=null;
 const ANCHOR_PARTY='تسوية جرد (تعويض تعديل قبل الجرد)';
-const mvTsA = m => { const id=String(m&&m.id||""); return /^m[0-9a-z]{12}$/.test(id) ? parseInt(id.slice(1,9),36) : 0; };
+// وقت الحركة بالنسبة للجرد: حركات التشغيلة بتاخد وقت التشغيلة نفسها (من رقمها) — لأن تعديل الوصفة بيعيد كتابة حركاتها بأرقام جديدة،
+// ولو أخدنا وقت الحركة الجديد كانت تشغيلة يوم الجرد بتتحسب كأنها بعد الجرد وبتتخصم مرتين (كباب لحم 18/11)
+const mvTsA = m => { const r=String(m&&m.runId||""); const rm=/^run([0-9a-z]{8})/.exec(r); if(rm) return parseInt(rm[1],36);
+  const id=String(m&&m.id||""); return /^m[0-9a-z]{12}$/.test(id) ? parseInt(id.slice(1,9),36) : 0; };
 async function cntAnchorLoad(){ if(!DB_CONFIGURED||!DB.on){ CNT_ANCHOR=CNT_ANCHOR||{}; return CNT_ANCHOR; }
   try{ const rows=await sb('stock_settings?'+fEq()+'&k=eq.cnt_anchor&select=v',{prefer:'return=representation'}); CNT_ANCHOR=(rows&&rows[0]&&rows[0].v)||{}; }catch(e){ if(CNT_ANCHOR===null) CNT_ANCHOR=null; } return CNT_ANCHOR; }
 let _anchorSaving=null;
@@ -1799,6 +1804,17 @@ function anchorHeal(){
   if(anchorsChanged) _anchorSaving=cntAnchorSave();
   return fixes; }
 let _anchorFixes=0;
+/* ===== 📱 الأجهزة ونسختها: كل جهاز بيبلّغ نسخته كل 3 دقايق — الأونر يشوف مين لسه على نسخة قديمة ===== */
+let DEV_ID=''; try{ DEV_ID=localStorage.getItem('devId')||''; if(!DEV_ID){ DEV_ID='d'+Math.random().toString(36).slice(2,10); localStorage.setItem('devId',DEV_ID); } }catch(e){ DEV_ID='d'+Math.random().toString(36).slice(2,10); }
+let DEVS=null, _devAt=0;
+function devKind(){ const u=navigator.userAgent||''; return /iPhone|iPad/.test(u)?'آيفون':/Android/.test(u)?'أندرويد':/Windows/.test(u)?'ويندوز':/Mac/.test(u)?'ماك':'جهاز'; }
+async function devBeat(){ if(!DB_CONFIGURED||!DB.on||VIEWER) return; try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'dev_seen:'+DEV_ID,v:{who:chgWho(),role:ROLE,build:APP_BUILD,at:Date.now(),kind:devKind(),old:!!(window.__updStale&&window.__updStale()==='old')}}]}); }catch(e){} }
+async function devLoad(){ if(!DB_CONFIGURED||!DB.on) return; _devAt=Date.now(); try{ const rows=await sb('stock_settings?'+fEq()+'&k=like.dev_seen*&select=k,v',{prefer:'return=representation'}); DEVS=(rows||[]).map(r=>({id:String(r.k).slice(9),...(r.v||{})})); }catch(e){} }
+function devStatus(){ const latest=window.__latestBuild||APP_BUILD; const now=Date.now();
+  const L=(DEVS||[]).filter(d=>d.at && now-d.at<36*3600*1000).sort((a,b)=>b.at-a.at);
+  return {latest, all:L, old:L.filter(d=>d.build!==latest)}; }
+setTimeout(()=>{ devBeat(); setInterval(devBeat, 3*60*1000); }, 6000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') devBeat(); });
 
 /* ===== 🧾 سجل التغييرات (وصفات وكارت الأصناف) — أي تعديل من أي شاشة أو جهاز بيتسجل وقت ما بيتحفظ على السيرفر ===== */
 let CHGLOG=null;
@@ -1920,6 +1936,11 @@ function controlPanel(){ if(!isOwner()) return ''; if(CHGLOG===null){ CHGLOG=[];
   if(D.unsent) R.push(row('', '📤',`${D.unsent} طلب شراء لسه ما اتبعتش للمورد`,'',go('purchase','افتح')));
   if(D.pur) R.push(row('warn','🛒',`${D.pur} طلب شراء محتاج موافقتك`,'',go('purchase','افتح')));
   if(D.inbox) R.push(row('', '🏭',`${D.inbox} استلام من مصنع تاني مستني`,'',go('inbox','افتح')));
+  { if(!DEVS || Date.now()-_devAt>2*60*1000){ if(!DEVS) DEVS=[]; devLoad().then(()=>render()); }
+    const ds=devStatus(); const ago=t=>{ const m=Math.round((Date.now()-t)/60000); return m<60?`من ${m} د`:`من ${Math.round(m/60)} س`; };
+    const lst=L=>L.slice(0,6).map(d=>`${esc(String(d.who||'?').split('@')[0])} (${esc(d.kind||'')}) — نسخة ${esc(d.build||'?')} · ${ago(d.at)}`).join('<br>');
+    if(ds.old.length) R.push(row('bad','📱',`${ds.old.length} جهاز لسه على نسخة قديمة — آخر نسخة ${esc(ds.latest)}`,lst(ds.old)+'<br>الجهاز ده بيتحدّث لوحده أول ما يتفتح ويفضى. لو فضل هنا، افتحه واعمل ريفريش.'));
+    else if(ds.all.length) R.push(row('', '📱',`كل الأجهزة على آخر نسخة (${ds.all.length} جهاز) ✓`,lst(ds.all))); }
   if(D.chg) R.push(row('', '🧾',`${D.chg} تعديل وصفات في آخر 7 أيام`,'',go('backups','السجل')));
   const V=D.V; const vc=V.net<0?'#A32D2D':'#2F7D4A';
   return `<div class="panel"><h2>🎛 لوحة المتابعة <em>${R.length?R.length+' بند':'كله تمام'}</em></h2><div class="pad">
@@ -14498,7 +14519,7 @@ window.__canAutoReload=()=>{ try{ const ae=document.activeElement; return !(PEND
     if(busy||shown||!CUR) return; busy=true;
     try{
       const r = await fetch(location.pathname + '?_v=' + Date.now(), {cache:'no-store'});
-      if(r.ok){ const m = (await r.text()).match(RX); if(m && m[1]){ window.__updEverOk=true; if(m[1]!==CUR){ pending=m[1]; window.__updPendingAt=window.__updPendingAt||Date.now(); if(tryApply()) return; show(m[1]); } else window.__updOkAt=Date.now(); } }
+      if(r.ok){ const m = (await r.text()).match(RX); if(m && m[1]){ window.__updEverOk=true; window.__latestBuild=m[1]; if(m[1]!==CUR){ pending=m[1]; window.__updPendingAt=window.__updPendingAt||Date.now(); if(tryApply()) return; show(m[1]); } else window.__updOkAt=Date.now(); } }
     }catch(e){} busy=false;
   }
   function show(v){
