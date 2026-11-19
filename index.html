@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-11 · 00:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '20-11 · 01:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -11427,46 +11427,81 @@ function pcGoLive(){ // أول يوم صرف للفروع اتسجل على ال
 function pcModal(){
   const P=ui.pc||(ui.pc={text:'',rows:[],scope:'cat',date:pcDefaultDate()});
   if(!P.mode){ const G=pcGoLive(); P.mode=G&&G.before&&!(S.moves||[]).some(m=>m.reason===PRE_REASON)?'pre':'settle'; P.preDate=G?G.pre:today(); }
+  if(!P.f) P.f='all'; if(!P.sort) P.sort='val';
   const L=P.rows.length?pcPlan(P):null; const opts=S.items.map(i=>`<option value="${esc(i.name)}">`).join('');
-  const kind=r=> Math.abs(r.diff)<0.005?'<span class="hint">مطابق</span>' : r.rec ? (r.diff>0?`<span class="chip g">إنتاج زيادة</span>`:`<span class="chip a">يقلّل إنتاج النهارده</span>`) : (r.diff<0&&P.mode==='pre')?`<span class="chip b">استهلاك قبل البرنامج</span>`:`<span class="chip ${r.diff>0?'b':'r'}">تسوية ${r.diff>0?'زيادة':'عجز'}</span>`;
-  const G=pcGoLive();
-  return `<div class="modal" data-close="1"><div class="box" style="max-width:900px">
-    <h3>📋 جرد بعد الصرف</h3>
-    <div class="pad" style="max-height:74vh;overflow:auto">
-      <div class="warnbar" style="margin-bottom:8px">⚠ استلام النهارده: سجّله في البرنامج عادي (قبل أو بعد الجرد). تحت كل صنف هتلاقي استلامات النهارده — علّم <b>«داخل في الجرد»</b> بس على الاستلام اللي وصل <b>قبل</b> ما تعد. اللي مش متعلّم بيتشال من الدفتري وقت المقارنة.</div>
-      <div class="hint" style="line-height:1.9;margin-bottom:8px">الزق القايمة زي ما هي (كل صنف في سطر: الاسم والكمية والوحدة). البرنامج هيقارن كل صنف بالدفتري:
-        <b>المنتجات اللي ليها وصفة</b> الفرق بيتسجل إنتاج (والخامات تتخصم) — <b>الخامات</b> الفرق اللي يفضل بيتسجل تسوية جرد. المنتجات بتتحسب الأول، فالخام بيتسوّى بعد ما إنتاجه يتخصم منه.</div>
-      <textarea id="pc-text" dir="rtl" rows="6" style="width:100%;font-size:14px;text-align:right" placeholder="كباب دجاج 3.87 كغ&#10;شاورما خام 200 كغ">${esc(P.text)}</textarea>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0">
-        <button class="btn p" data-act="pc-parse">حلّل القايمة</button>
-        <span class="hint">اليوم:</span><input type="date" id="pc-date" value="${esc(P.date)}">${P.date<today()?`<span class="hint" style="color:#8A4A0B">📅 جرد بتاريخ قديم — هيتقارن برصيد آخر يوم ${esc(P.date)} (من غير صرف وإنتاج الأيام اللي بعده)</span>`:'<span class="hint">اختار اليوم اللي الجرد <b>اتعمل</b> فيه فعلًا، مش يوم التسجيل · المنتج الجاهز (متبّل/صوص في الجردل) اكتبه <b>باسمه</b> في سطر لوحده — ما تجمعوش على الخام</span>'}
-        <span class="hint">الأصناف اللي مش في القايمة:</span>
-        <select id="pc-scope"><option value="cat"${P.scope==='cat'?' selected':''}>نفس أقسام القايمة = صفر</option><option value="none"${P.scope==='none'?' selected':''}>سيبها زي ما هي</option><option value="all"${P.scope==='all'?' selected':''}>كل الأصناف = صفر</option></select>
-      </div>
-      <div style="border:1px dashed #5F6B73;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.9">
-        <b>الجرد ده اتعمل إمتى؟</b>
-        <label style="display:block"><input type="radio" name="pc-when" value="end"${P.when!=='start'?' checked':''}> <b>آخر اليوم، بعد الصرف والإنتاج</b> — بيتقارن بالرصيد دلوقتي، وزيادة المنتجات بتتسجل إنتاج.</label>
-        <label style="display:block"><input type="radio" name="pc-when" value="start"${P.when==='start'?' checked':''}> <b>أول اليوم، قبل الصرف والإنتاج</b> — بيتقارن برصيد أول يوم ${esc(P.date||today())} (اختار اليوم فوق)، وإنتاج وصرف اليوم ده بيتخصموا من اللي اتعد.</label>
-      </div>
-      <div style="border:1px dashed #5F6B73;border-radius:10px;padding:8px 10px;margin-bottom:10px;line-height:1.9">
-        <b>الخامات اللي الفعلي بتاعها أقل من الدفتري:</b>
-        <label style="display:block"><input type="radio" name="pc-mode" value="pre"${P.mode==='pre'?' checked':''}> <b>استهلاك قبل بدء البرنامج</b> — الوارد متسجل من أول الشهر بس الصرف بدأ على البرنامج ${G?`يوم ${esc(G.first)}`:'متأخر'}، فاللي اتصرف قبل كده ما اتسجلش. هيتسجل بتاريخ <input type="date" id="pc-predate" value="${esc(P.preDate||'')}" style="padding:1px 4px"> ومش هيتحسب عجز ولا هالك.</label>
-        <label style="display:block"><input type="radio" name="pc-mode" value="settle"${P.mode==='settle'?' checked':''}> <b>تسوية جرد (عجز)</b> — الصنف ناقص فعلًا (هالك، فقد، أو صرف ما اتسجلش النهارده).</label>
-      </div>
-      <datalist id="pc-items">${opts}</datalist>
-      ${L?`<table class="gridcols"><thead><tr><th>اللي كتبته</th><th>الصنف في البرنامج</th><th class="n">الفعلي</th><th class="n">الدفتري</th><th class="n">الفرق</th><th>هيتسجل</th></tr></thead><tbody>
-        ${L.rows.map((r,i)=>{ const x=L.all.find(y=>!y.zero&&y.it&&r.it&&y.it.id===r.it.id&&y.raw===r.raw);
-          return `<tr><td style="font-size:12.5px">${esc(r.raw)}</td>
-          <td><input list="pc-items" data-pcname="${i}" value="${esc(r.it?r.it.name:'')}" style="width:220px"${r.err&&!r.it?' class="err"':''}>${r.err?`<div style="color:#A32D2D;font-size:11.5px">${esc(r.err)}</div>`:''}${r.need&&r.it?r.need.map(u=>`<div style="display:flex;gap:4px;align-items:center;font-size:12px;margin-top:3px">1 ${esc(u)} = <input type="number" step="any" min="0" data-pcconv="${esc(r.it.id)}|${esc(unitKey(u))}" style="width:70px"> ${esc(r.it.unit)}</div>`).join(''):''}${r.skip?`<div class="hint" style="font-size:11px">اتجمع مع «${esc(r.mergedInto)}»</div>`:''}${r.merged?`<div class="hint" style="font-size:11px">مجموع ${r.merged} سطر</div>`:''}${r.conv?`<div class="hint">${esc(r.conv)}</div>`:''}</td>
-          <td class="n">${x?fmt(x.actual):'—'}</td><td class="n">${x?fmt(x.book):'—'}${x?(()=>{ const D=P.date||today(); const ins=pcTodayIns(x.it, D);
-            if(ins.length) return P.when==='start' ? `<div style="font-size:11px;color:#8A4A0B">وارد اليوم ده ${fmt(n2(ins.reduce((t,m)=>t+(+m.qty||0),0)))} مش داخل — بيتضاف بعد الجرد</div>`
-              : ins.map(m=>`<label style="display:block;font-size:11px;white-space:nowrap;cursor:pointer"><input type="checkbox" data-pcin="${esc(m.id)}"${P.incl&&P.incl[m.id]?' checked':''}> وارد ${esc(m.party||'')} ${fmt(m.qty)} داخل في الجرد</label>`).join('');
-            return x.diff>0.005&&!x.rec?`<div style="font-size:11px;color:#A32D2D">مفيش وارد متسجل النهارده — لو استلمت، سجّل الاستلام الأول</div>`:''; })():''}${x&&x.afterProd?`<div class="hint" style="font-size:11px">بعد ${x.afterProd>0?'رجوع':'خصم'} ${fmt(Math.abs(x.afterProd))} للإنتاج</div>`:''}</td>
-          <td class="n">${x?`<b style="color:${x.diff>0.005?'#2E7D32':x.diff<-0.005?'#A32D2D':'inherit'}">${x.diff>0?'+':''}${fmt(x.diff)}</b>`:'—'}</td><td>${x?kind(x):''}</td></tr>`; }).join('')}
-        ${L.all.filter(r=>r.zero).length?`<tr class="catrow"><td colspan="6">مش في القايمة — هيتسجلوا صفر (${L.all.filter(r=>r.zero).length})</td></tr>`+L.all.filter(r=>r.zero).map(r=>`<tr><td class="hint">—</td><td>${esc(r.it.name)}</td><td class="n">0</td><td class="n">${fmt(r.book)}</td><td class="n"><b style="color:${r.diff>0?'#2E7D32':'#A32D2D'}">${r.diff>0?'+':''}${fmt(r.diff)}</b></td><td>${kind(r)}</td></tr>`).join(''):''}
-      </tbody></table>`:''}
+  const kind=r=> Math.abs(r.diff)<0.005?'<span class="hint">مطابق</span>' : r.rec ? (r.diff>0?`<span class="chip g">إنتاج من الجرد</span>`:`<span class="chip a">يقلّل إنتاج النهارده</span>`) : (r.diff<0&&P.mode==='pre')?`<span class="chip b">استهلاك قبل البرنامج</span>`:`<span class="chip ${r.diff>0?'b':'r'}">تسوية ${r.diff>0?'زيادة':'عجز'}</span>`;
+  const G=pcGoLive(); const D=P.date||today(); const old=D<today();
+  const price=it=>{ try{ return dispPrice(it.id, D)||0; }catch(e){ return +it.price||0; } };
+  const money=v=>`${v<0?'−':v>0?'+':''}${fmt(Math.abs(Math.round(v)))}`;
+  // صفوف العرض: كل سطر من القايمة + الأصناف اللي هتتصفّر
+  let V=[];
+  if(L){ L.rows.forEach((r,i)=>{ const x=r.it&&!r.err&&!r.skip?L.all.find(y=>!y.zero&&y.it&&y.it.id===r.it.id&&y.raw===r.raw):null;
+      V.push({i, r, x, val:x?n2(x.diff*price(x.it)):0, err:!!(r.err&&!r.skip)}); });
+    L.all.filter(z=>z.zero).forEach(z=>V.push({i:-1, r:null, x:z, zero:true, val:n2(z.diff*price(z.it))})); }
+  const has=v=>v.x&&Math.abs(v.x.diff)>=0.005;
+  const sum={n:V.filter(v=>v.x).length, ok:V.filter(v=>v.x&&!has(v)).length, short:V.filter(v=>has(v)&&v.x.diff<0&&!v.x.rec), over:V.filter(v=>has(v)&&v.x.diff>0&&!v.x.rec), prod:V.filter(v=>has(v)&&v.x.rec), err:V.filter(v=>v.err).length};
+  const sv=A=>A.reduce((t,v)=>t+v.val,0);
+  const F={all:v=>true, diff:v=>v.err||has(v), short:v=>has(v)&&v.x.diff<0&&!v.x.rec, over:v=>has(v)&&v.x.diff>0&&!v.x.rec, prod:v=>has(v)&&v.x.rec, err:v=>v.err};
+  const q=(P.q||'').trim(); let W=V.filter(F[P.f]||F.all).filter(v=>!q||((v.r&&v.r.raw)||'').includes(q)||(v.x&&v.x.it.name.includes(q)));
+  if(P.sort==='val') W=[...W].sort((a,b)=>(b.err-a.err)||(Math.abs(b.val)-Math.abs(a.val)));
+  const chip=(k,t,n,c)=>`<button class="pcf${P.f===k?' on':''}" data-pcf="${k}" style="${c?`--c:${c}`:''}">${t} <b>${n}</b></button>`;
+  const qtyTxt=r=>{ const m=String(r.raw||'').replace(/[٠-٩٫،]/g,c=>AR_DIG[c]); const k=m.search(/\d/); return k>0?m.slice(k).trim():m; };
+  const row=v=>{ const r=v.r, x=v.x;
+    if(v.zero) return `<tr class="pcz"><td class="hint">— مش في القايمة</td><td><b>${esc(x.it.name)}</b></td><td class="n">0</td><td class="n">${fmt(x.book)}</td><td class="n">${dl(x)}</td><td class="n">${money(v.val)}</td><td>${kind(x)}</td><td></td></tr>`;
+    const conv=r.it&&r.parts&&r.parts.length===1&&r.parts[0].unit&&!r.err?(()=>{ const u=r.parts[0].unit; const m=/× ([\d.,]+) =/.exec(r.conv||''); return m?`<div class="pcconv">1 ${esc(u)} = <input type="number" step="any" min="0" data-pcf2="${v.i}" value="${esc(m[1].replace(/,/g,''))}"> ${esc(r.it.unit)}</div>`:''; })():'';
+    const book=x?`${fmt(x.book)}${(()=>{ const ins=pcTodayIns(x.it, D); if(ins.length) return P.when==='start'?`<div class="pcs" style="color:#8A4A0B">وارد ${fmt(n2(ins.reduce((t,m)=>t+(+m.qty||0),0)))} بيتضاف بعد الجرد</div>`
+        : ins.map(m=>`<label class="pcs pcin"><input type="checkbox" data-pcin="${esc(m.id)}"${P.incl&&P.incl[m.id]?' checked':''}> وارد ${esc(m.party||'')} ${fmt(m.qty)} داخل في الجرد</label>`).join('');
+        return x.diff>0.005&&!x.rec?`<div class="pcs" style="color:#A32D2D">مفيش وارد متسجل — لو استلمت سجّله الأول</div>`:''; })()}${x.afterProd?`<div class="pcs hint">بعد ${x.afterProd>0?'رجوع':'خصم'} ${fmt(Math.abs(x.afterProd))} للإنتاج</div>`:''}`:'—';
+    return `<tr class="${v.err?'pce':Math.abs(v.val)>=200?'pcbig':''}">
+      <td><input class="pcq" data-pcq="${v.i}" value="${esc(qtyTxt(r))}" title="الكمية زي ما اتعدّت — مثلًا 26 كرتونه أو 63 كرتونه + 3 باكت">${conv}${r.conv&&!conv?`<div class="pcs hint">${esc(r.conv)}</div>`:''}</td>
+      <td><input list="pc-items" class="pcn${r.err&&!r.it?' err':''}" data-pcname="${v.i}" value="${esc(r.it?r.it.name:r.name||'')}">${r.err?`<div class="pcs" style="color:#A32D2D">${esc(r.err)}</div>`:''}${r.need&&r.it?r.need.map(u=>`<div class="pcconv">1 ${esc(u)} = <input type="number" step="any" min="0" data-pcconv="${esc(r.it.id)}|${esc(unitKey(u))}"> ${esc(r.it.unit)}</div>`).join(''):''}${r.skip?`<div class="pcs hint">اتجمع مع «${esc(r.mergedInto)}»</div>`:''}${r.merged?`<div class="pcs hint">مجموع ${r.merged} سطر</div>`:''}</td>
+      <td class="n"><b>${x?fmt(x.actual):'—'}</b>${x?`<div class="pcs hint">${esc(x.it.unit)}</div>`:''}</td><td class="n">${book}</td><td class="n">${x?dl(x):'—'}</td><td class="n">${x?money(v.val):''}</td><td>${x?kind(x):''}</td>
+      <td><button class="pcx" data-pcdel="${v.i}" title="شيل السطر">✕</button></td></tr>`; };
+  function dl(x){ return `<b style="color:${x.diff>0.005?'#2E7D32':x.diff<-0.005?'#A32D2D':'inherit'}">${x.diff>0?'+':''}${fmt(x.diff)}</b>`; }
+  const settings=`<div class="pcset">
+      <label>📅 يوم الجرد <input type="date" id="pc-date" value="${esc(P.date)}"></label>
+      <label>⏱ اتعمل <select id="pc-when2"><option value="end"${P.when!=='start'?' selected':''}>آخر اليوم (بعد الصرف والإنتاج)</option><option value="start"${P.when==='start'?' selected':''}>أول اليوم (قبل الصرف)</option></select></label>
+      <label>العجز في الخامات <select id="pc-mode2"><option value="settle"${P.mode!=='pre'?' selected':''}>تسوية جرد (عجز)</option><option value="pre"${P.mode==='pre'?' selected':''}>استهلاك قبل بدء البرنامج</option></select>${P.mode==='pre'?` <input type="date" id="pc-predate" value="${esc(P.preDate||'')}">`:''}</label>
+      <label>الأصناف اللي مش في القايمة <select id="pc-scope"><option value="cat"${P.scope==='cat'?' selected':''}>نفس الأقسام = صفر</option><option value="none"${P.scope==='none'?' selected':''}>سيبها زي ما هي</option><option value="all"${P.scope==='all'?' selected':''}>كل الأصناف = صفر</option></select></label>
     </div>
-    <div class="foot">${L&&L.all.some(r=>Math.abs(r.diff)>=0.005)?`<button class="btn p" data-act="pc-apply"${L.errs.length?' disabled title="صلّح الأسطر الحمرا الأول"':''}>سجّل الجرد (${L.all.filter(r=>Math.abs(r.diff)>=0.005).length} فرق)</button>`:''}<button class="btn" data-close="1">قفل</button></div>
+    ${old?`<div class="pcdate">📅 جرد يوم <b>${esc(P.date)}</b> — بيتقارن برصيد آخر اليوم ده، من غير صرف وإنتاج الأيام اللي بعده</div>`:''}`;
+  const paste=`<textarea id="pc-text" dir="rtl" rows="${L?4:10}" style="width:100%;font-size:15px;text-align:right;line-height:1.7" placeholder="الزق القايمة هنا — كل صنف في سطر: الاسم والكمية والوحدة&#10;شاورما 840 ك&#10;بطاطا كرينكل 63 كرتونه + 3 باكت&#10;زيت زيتون 26 كرتونه (20)">${esc(P.text)}</textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button class="btn p" data-act="pc-parse">${L?'🔄 حلّل القايمة من جديد':'حلّل القايمة'}</button><span class="hint">الرقم بين قوسين في آخر السطر = الكرتونة/العبوة فيها كام</span></div>`;
+  return `<div class="modal pcmodal" data-close="1"><div class="box">
+    <style>.pcmodal .box{max-width:min(1500px,97vw)!important;width:97vw;height:94vh;max-height:94vh!important;display:flex;flex-direction:column;overflow:hidden!important}
+      .pcmodal h3{display:flex;align-items:center;gap:12px}.pcbody{flex:1;overflow:auto;padding:12px 16px}
+      .pcset{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:13.5px;margin-bottom:8px}.pcset label{display:flex;gap:6px;align-items:center;white-space:nowrap}.pcset select,.pcset input{font-size:13.5px;padding:4px 6px}
+      .pcdate{background:#FFF4E5;border:1px solid #F0C27B;border-radius:8px;padding:6px 10px;margin-bottom:8px;font-size:13.5px}
+      .pcsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0}.pcsum div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}.pcsum b{display:block;font-size:20px}.pcsum small{color:#6b7280}
+      .pctools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 8px}.pcf{border:1px solid var(--line);background:#fff;border-radius:20px;padding:4px 12px;cursor:pointer;font:inherit;font-size:13px}.pcf.on{background:var(--c,#8F1D1D);border-color:var(--c,#8F1D1D);color:#fff}
+      table.pct{width:100%;border-collapse:collapse;font-size:14.5px}table.pct th{position:sticky;top:-12px;background:#F7F1EE;z-index:2;padding:8px;font-size:13px;border-bottom:2px solid #E4D3CE;text-align:right}table.pct th.n,table.pct td.n{text-align:left;white-space:nowrap}
+      table.pct td{padding:7px 8px;border-bottom:1px solid #EFE6E2;vertical-align:top}table.pct tr:hover td{background:#FFFBF7}
+      tr.pce td{background:#FDECEC}tr.pcbig td{background:#FFF6EC}tr.pcz td{color:#555;background:#FAFAFA}
+      .pcq{width:170px;font-size:15px;padding:5px 7px;font-weight:700}.pcn{width:260px;font-size:14px;padding:5px 7px}.pcs{font-size:11.5px;margin-top:2px}.pcin{display:block;white-space:nowrap;cursor:pointer}
+      .pcconv{display:flex;gap:4px;align-items:center;font-size:12px;margin-top:4px;color:#555}.pcconv input{width:72px;padding:3px 5px;font-weight:700}
+      .pcx{border:0;background:none;color:#A32D2D;cursor:pointer;font-size:15px;padding:2px 6px}.pcadd{display:flex;gap:6px;margin:10px 0 4px}.pcadd input{flex:1;font-size:15px;padding:6px 8px}
+      @media (max-width:800px){.pcq{width:110px}.pcn{width:170px}}</style>
+    <h3>📋 جرد بعد الصرف ${L?`<span class="hint" style="font-weight:400;font-size:13px">${sum.n} صنف</span>`:''}</h3>
+    <div class="pcbody">
+      ${settings}
+      ${L?`<details${P.showPaste?' open':''} id="pc-pastebox" style="margin-bottom:6px"><summary style="cursor:pointer;color:#8F1D1D;font-weight:700">✏️ القايمة اللي اتلزقت (افتحها لو عايز تعدّل كتير مرة واحدة)</summary>${paste}</details>`:`<div class="warnbar" style="margin-bottom:8px">⚠ سجّل استلامات اليوم في البرنامج عادي. بعد التحليل هتلاقي تحت كل صنف استلاماته — علّم <b>«داخل في الجرد»</b> على اللي وصل <b>قبل</b> ما تعد.</div>${paste}`}
+      ${L?`<div class="pcsum">
+        <div><small>مطابق</small><b>${sum.ok}</b></div>
+        <div style="border-color:#E8B4B4"><small>عجز (${sum.short.length} صنف)</small><b style="color:#A32D2D">${money(sv(sum.short))}</b><small>درهم</small></div>
+        <div style="border-color:#B9DCBB"><small>زيادة (${sum.over.length} صنف)</small><b style="color:#2E7D32">${money(sv(sum.over))}</b><small>درهم</small></div>
+        <div><small>إنتاج من الجرد</small><b>${sum.prod.length}</b><small>صنف جاهز</small></div>
+        <div style="border-color:#8F1D1D"><small>صافي التسوية</small><b>${money(sv(sum.short)+sv(sum.over))}</b><small>درهم</small></div>
+        ${sum.err?`<div style="border-color:#A32D2D;background:#FDECEC"><small>محتاج تصليح</small><b style="color:#A32D2D">${sum.err}</b><small>سطر</small></div>`:''}
+      </div>
+      <div class="pctools">${chip('all','الكل',V.length)}${chip('diff','الفروق بس',V.filter(F.diff).length)}${chip('short','عجز',sum.short.length,'#A32D2D')}${chip('over','زيادة',sum.over.length,'#2E7D32')}${chip('prod','إنتاج',sum.prod.length,'#1F5F99')}${sum.err?chip('err','أخطاء',sum.err,'#A32D2D'):''}
+        <input id="pc-q" placeholder="🔎 دوّر على صنف" value="${esc(P.q||'')}" style="margin-inline-start:auto;padding:5px 8px;width:200px">
+        <select id="pc-sort"><option value="val"${P.sort==='val'?' selected':''}>رتّب: الأكبر قيمة الأول</option><option value="list"${P.sort==='list'?' selected':''}>رتّب: زي القايمة</option></select></div>
+      <datalist id="pc-items">${opts}</datalist>
+      <table class="pct"><thead><tr><th style="width:190px">الكمية اللي اتعدّت</th><th>الصنف في البرنامج</th><th class="n">الفعلي</th><th class="n">الدفتري</th><th class="n">الفرق</th><th class="n">القيمة (درهم)</th><th>هيتسجل</th><th></th></tr></thead>
+        <tbody>${W.map(row).join('')||`<tr><td colspan="8" class="hint" style="text-align:center;padding:20px">مفيش أصناف في الفلتر ده</td></tr>`}</tbody></table>
+      <div class="pcadd"><input id="pc-addline" placeholder="➕ ضيف صنف نسيته — مثلًا: كبه 46 باكت"><button class="btn" data-act="pc-addline">ضيف</button></div>`:''}
+    </div>
+    <div class="foot">${L&&L.all.some(r=>Math.abs(r.diff)>=0.005)?`<button class="btn p" data-act="pc-apply"${L.errs.length?' disabled title="صلّح الأسطر الحمرا الأول"':''} style="font-size:15px;padding:8px 18px">✅ سجّل الجرد (${L.all.filter(r=>Math.abs(r.diff)>=0.005).length} فرق)</button>`:''}<button class="btn" data-close="1">قفل</button>${L&&L.errs.length?`<span style="color:#A32D2D;align-self:center">صلّح ${L.errs.length} سطر أحمر الأول</span>`:''}</div>
   </div></div>`;
 }
 // إعادة رسم شاشة الجرد من غير ما ترجع لفوق: نحفظ مكان السكرول لكل جزء بيسكرول ونرجّعه
@@ -11486,8 +11521,26 @@ function pcBind(){
   document.querySelectorAll('[data-pcin]').forEach(c=>c.onchange=()=>{ P.incl=P.incl||{}; if(c.checked) P.incl[c.dataset.pcin]=1; else delete P.incl[c.dataset.pcin]; pcRerender(); });
   const pd=$('#pc-predate'); if(pd) pd.onchange=()=>{ P.preDate=pd.value; };
   document.querySelectorAll('[data-pcconv]').forEach(inp=>inp.onchange=async()=>{ const v=+inp.value; if(!(v>0)) return; const [id,u]=inp.dataset.pcconv.split('|'); S.unitConv=S.unitConv||{}; (S.unitConv[id]=S.unitConv[id]||{})[u]=v; await saveMain(); pcRerender(); });
-  document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; pcRerender(); });
+  document.querySelectorAll('[data-pcname]').forEach(inp=>inp.onchange=()=>{ const r=P.rows[+inp.dataset.pcname]; const it=S.items.find(i=>i.name===inp.value.trim())||pcMatch(inp.value); r.itemId=it?it.id:''; pcSyncText(); pcRerender(); });
+  // تعديل الكمية من الجدول: نحلّل السطر تاني بنفس الصنف اللي اخترته
+  document.querySelectorAll('[data-pcq]').forEach(inp=>inp.onchange=()=>{ const i=+inp.dataset.pcq, r=P.rows[i]; if(!r) return; const keep=r.itemId;
+    const nr=pcParse(`${r.name||'x'} ${inp.value}`)[0]; if(!nr) return toast('اكتب رقم ووحدة — مثلًا 26 كرتونه',1); nr.itemId=keep||nr.itemId; P.rows[i]=nr; pcSyncText(); pcRerender(); });
+  // معامل التحويل (الكرتونة فيها كام): بيتحفظ للصنف — ولو هو عبوة كارت الصنف بيتعدّل في الكارت كمان
+  document.querySelectorAll('[data-pcf2]').forEach(inp=>inp.onchange=async()=>{ const v=+inp.value; if(!(v>0)) return; const i=+inp.dataset.pcf2, r=P.rows[i]; if(!r||!r.parts||!r.parts[0]) return;
+    r.parts[0].f=v; r.raw=r.raw.replace(/\s*\(\s*[\d.,]+\s*\)\s*$/,'')+` (${v})`; const it=item(r.itemId);
+    if(it && it.packUnit && unitKey(it.packUnit)===unitKey(r.parts[0].unit) && +it.packSize!==v){ it.packSize=v; toast(`📦 ${it.name}: العبوة بقت ${fmt(v)} ${it.unit} في كارت الصنف كمان`); }
+    pcSyncText(); await saveMain(); pcRerender(); });
+  document.querySelectorAll('[data-pcdel]').forEach(b=>b.onclick=()=>{ P.rows.splice(+b.dataset.pcdel,1); pcSyncText(); pcRerender(); });
+  document.querySelectorAll('[data-pcf]').forEach(b=>b.onclick=()=>{ P.f=b.dataset.pcf; pcRerender(); });
+  const so=$('#pc-sort'); if(so) so.onchange=()=>{ P.sort=so.value; pcRerender(); };
+  const qq=$('#pc-q'); if(qq){ qq.oninput=()=>{ P.q=qq.value; clearTimeout(window.__pcq); window.__pcq=setTimeout(()=>{ pcRerender(); const e=$('#pc-q'); if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); } },350); }; }
+  const w2=$('#pc-when2'); if(w2) w2.onchange=()=>{ P.when=w2.value; pcRerender(); };
+  const m2=$('#pc-mode2'); if(m2) m2.onchange=()=>{ P.mode=m2.value; pcRerender(); };
+  const pb=$('#pc-pastebox'); if(pb) pb.ontoggle=()=>{ P.showPaste=pb.open; };
+  const ad=$('#pc-addline'); if(ad) ad.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); act('pc-addline',{}); } };
 }
+// القايمة المكتوبة = نفس الأسطر اللي في الجدول (عشان «حلّل من جديد» ما يرجّعش التعديلات)
+function pcSyncText(){ const P=ui.pc; if(!P) return; P.text=P.rows.map(r=>r.raw).join('\n'); }
 /* ================= 📝 الإنتاج الفعلي — آخر اليوم تكتب المصنع عمل كام، والبرنامج يسجّل الفرق ================= */
 // ===== إنتاج تلقائي مالوش صرف: البرنامج بيصنّع وقت الصرف بقد الناقص بس، فلو الإنتاج التلقائي في يوم أكبر من كل اللي خرج من المنتج نفس اليوم
 // (صرف لأي جهة + دخل في منتجات تانية) يبقى الزيادة دي جاية من صرف اتمسح أو اتقلل قبل النسخة دي — ومالهاش أي لازمة =====
@@ -13446,6 +13499,7 @@ async function _act(a,d){
     ui.pc={text:rows.map(r=>r.raw).join('\n'), rows, scope:'none', date:P.D, when:'end', mode:'settle', fromCnt:true}; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:pcDefaultDate()}; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-parse'){ const P=ui.pc; P.text=($('#pc-text')||{}).value||P.text; P.rows=pcParse(P.text); if(!P.rows.length) return toast('مش لاقي أسطر فيها اسم وكمية',1); ui.modal=pcModal(); render(); pcBind(); return; }
+  if(a==='pc-addline'){ const P=ui.pc; const e=$('#pc-addline'); const t=(e&&e.value||'').trim(); if(!t) return; const nr=pcParse(t); if(!nr.length) return toast('اكتب الاسم والكمية — مثلًا: كبه 46 باكت',1); P.rows.push(...nr); pcSyncText(); P.f='all'; pcRerender(); return; }
   if(a==='pc-apply'){
     const P=ui.pc; const L=pcPlan(P); if(L.errs.length) return toast('صلّح الأسطر الحمرا الأول',1);
     const D=P.date||today(); const ch=L.all.filter(r=>Math.abs(r.diff)>=0.005);
