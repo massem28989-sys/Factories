@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-11 · 03:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '19-11 · 10:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12207,10 +12207,15 @@ function enName(n){ const parts=String(n||'').split(/\s+-\s+|\s*–\s*/).map(x=>
 function enUnit(u){ const s=String(u||'').trim(); const M=[[/^(كيلو|كجم|كغ|ك)$/,'kg'],[/^(حبه|حبة|حبات|قطعة|قطعه)$/,'pcs'],[/^(باكت|باكيت|باكو|باك)$/,'pkt'],[/^(علبة|علبه)$/,'box'],[/^(لتر)$/,'L'],[/^(كرتون|كرتونة|كرتونه)$/,'ctn'],[/^(جالون)$/,'gal'],[/^(سطل)$/,'bucket'],[/^(صحن)$/,'plate'],[/^(كيس)$/,'bag'],[/^(صينية|صينيه|صاج)$/,'tray'],[/^(رول)$/,'roll'],[/^(شوال)$/,'sack']];
   for(const [r,v] of M) if(r.test(s)) return v; return s; }
 // 🏷 الاستيكرات: كل رقم في الصنف الواحد اتكرر كام مرة — عشان تطبع من كل رقم العدد الصح من غير ما تعد بإيدك
+// أقصى وزن للكيس الواحد: الكمية الأكبر بتتقسم أكياس (مسحب 50 ك = 20 + 20 + 10) وكل كيس ليه استيكر
+const STK_PACK=[[/مسحب|boneless chicken/i,20]];
+function stkPack(c){ const t=String(c.label||'')+' '+String(c.name||''); const e=STK_PACK.find(([re])=>re.test(t)); return e&&!c.pk?e[1]:0; }
 function boStickers(cols, brs, byBranch, cell, UIEN){
-  const rows=cols.map(c=>{ const cnt=new Map(); brs.forEach(b=>{ const v=((byBranch.get(b)||new Map()).get(c.name)||{}).qty||0; if(v>0){ const x=cell(c,v); cnt.set(x,(cnt.get(x)||0)+1); } });
+  const rows=cols.map(c=>{ const cnt=new Map(); const mx=stkPack(c); const add=x=>cnt.set(x,(cnt.get(x)||0)+1);
+    brs.forEach(b=>{ const v=((byBranch.get(b)||new Map()).get(c.name)||{}).qty||0; if(v>0){ let x=cell(c,v);
+      if(mx>0 && x>mx){ while(x>mx+1e-9){ add(mx); x=n2(x-mx); } if(x>0) add(x); } else add(x); } });
     const L=[...cnt.entries()].sort((a,b)=>a[0]-b[0]); const n=L.reduce((t,e)=>t+e[1],0); if(!n) return '';
-    return `<tr><td class="br" style="white-space:nowrap">${esc(c.label)} <small style="color:#888;font-weight:400">${esc(c.unit||'')}</small></td><td class="c"><b>${n}</b></td><td>${L.map(([v,k])=>`<span class="stk"><b>${fmtP(v)}</b> <span style="color:#8F1D1D">←</span> ${k} ${UIEN?(k>1?'labels':'label'):'استيكر'}</span>`).join('')}</td></tr>`; }).join('');
+    return `<tr><td class="br" style="white-space:nowrap">${esc(c.label)} <small style="color:#888;font-weight:400">${esc(c.unit||'')}</small>${mx?`<small style="display:block;color:#8F1D1D;font-weight:400">${UIEN?`max ${mx} per bag`:`الكيس أقصى ${mx}`}</small>`:''}</td><td class="c"><b>${n}</b></td><td>${L.map(([v,k])=>`<span class="stk"><b>${fmtP(v)}</b> <span style="color:#8F1D1D">←</span> ${k} ${UIEN?(k>1?'labels':'label'):'استيكر'}</span>`).join('')}</td></tr>`; }).join('');
   return rows?`<h3 style="margin:14px 0 6px;font-size:14px">🏷 ${UIEN?'Stickers — how many of each quantity':'الاستيكرات — كل رقم هيتطبع كام مرة'}</h3>
     <table class="ls stkt"><thead><tr><th style="width:22%">${UIEN?'Item':'الصنف'}</th><th style="width:9%">${UIEN?'Stickers':'العدد'}</th><th>${UIEN?'Quantity (bold) ← how many labels':'الكمية (بالتقيل) ← تطبع منها كام استيكر'}</th></tr></thead><tbody>${rows}</tbody></table>`:'';
 }
