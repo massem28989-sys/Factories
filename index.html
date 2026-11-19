@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-11 · 12:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '19-11 · 12:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12280,7 +12280,7 @@ function stkPrint(test){ const P=ui.stk; const rows=stkCollect(P.keys); if(!rows
       <div class="dt"><b>Production Date:</b> ${dmy(P.d)}</div><div class="dt"><b>Expiry Date:</b> ${exp}</div>${logo?`<img src="${logo}">`:''}</div>`; } }); });
   w.document.open(); w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
     @page{size:50mm 80mm;margin:0}*{box-sizing:border-box;margin:0}body{font-family:"Times New Roman",Cairo,serif;color:#000}
-    html,body{margin:0;padding:0}.lb{width:49.4mm;height:78.6mm;margin:0.3mm;padding:3mm 3mm 2mm;border:0.4mm solid #000;position:relative;page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;overflow:hidden;text-align:center}.lb:last-child{page-break-after:auto;break-after:auto}
+    html,body{margin:0;padding:0}.lb{width:49.4mm;height:78.6mm;margin:0.3mm;padding:3mm 2.5mm 2mm;position:relative;page-break-after:always;break-after:page;page-break-inside:avoid;break-inside:avoid;overflow:hidden;text-align:center}.lb:last-child{page-break-after:auto;break-after:auto}
     .t{font-weight:700;font-size:11pt;margin-top:1mm}.s{font-weight:700;font-size:8pt}hr{border:0;border-top:0.3mm solid #000;margin:1.5mm 4mm}
     .in{font-size:9pt}.nm{font-size:15pt;margin-top:2.5mm;line-height:1.1}.ar{font-size:10pt;font-family:Cairo,Arial,sans-serif;direction:rtl}.q{font-size:20pt;font-weight:700;margin:2mm 0 1.5mm;direction:ltr}
     .dt{font-size:8pt;text-align:left;margin:1.6mm 0 0 1mm}img{position:absolute;right:2mm;bottom:2mm;width:15mm;height:15mm;object-fit:contain}
