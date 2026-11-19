@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-11 · 12:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '20-11 · 00:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -11382,6 +11382,8 @@ const isLiterUnit=u=>/^(لتر|ل|l|ltr|liter|litre)$/i.test(String(u||'').trim(
 function bookAt(it, D){ let q=+it.opening||0; for(const m of S.moves){ if(m.itemId!==it.id || !(m.date<D)) continue; q+= m.dir==='in'?(+m.qty||0):-(+m.qty||0); } return n2(q); }
 // وارد اليوم (شراء/استلام) للصنف — الجرد غالبًا بيتعمل قبل الاستلام، فاللي مش متعلّم «داخل في الجرد» بيتشال من الدفتري وقت المقارنة
 function pcTodayIns(it, D){ return S.moves.filter(m=>m.itemId===it.id&&m.dir==='in'&&!m.runId&&m.date===D&&!/تسوية/.test(m.party||'')); }
+// تاريخ الجرد الافتراضي: الجرد بيتعمل آخر الليل، فلو فتحت الشاشة بعد 12 بالليل (لحد 6 الصبح) يبقى جرد امبارح — مش يوم جديد
+function pcDefaultDate(){ const n=new Date(); if(n.getHours()<6){ const y=new Date(n); y.setDate(y.getDate()-1); return y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0'); } return today(); }
 function pcBook(it, P){ const D=P.date||today(); if(P.when==='start') return bookAt(it, D);
   const ex=pcTodayIns(it, D).filter(m=>!(P.incl&&P.incl[m.id])).reduce((t,m)=>t+(+m.qty||0),0);
   // جرد بتاريخ قديم (اتعمل امبارح واتسجل النهارده): بيتقارن برصيد آخر اليوم ده بس — من غير صرف/إنتاج الأيام اللي بعده
@@ -11423,7 +11425,7 @@ function pcGoLive(){ // أول يوم صرف للفروع اتسجل على ال
   const x=new Date(first+'T12:00:00'); x.setDate(x.getDate()-1); return {first, pre:ymdLocal(x), before};
 }
 function pcModal(){
-  const P=ui.pc||(ui.pc={text:'',rows:[],scope:'cat',date:today()});
+  const P=ui.pc||(ui.pc={text:'',rows:[],scope:'cat',date:pcDefaultDate()});
   if(!P.mode){ const G=pcGoLive(); P.mode=G&&G.before&&!(S.moves||[]).some(m=>m.reason===PRE_REASON)?'pre':'settle'; P.preDate=G?G.pre:today(); }
   const L=P.rows.length?pcPlan(P):null; const opts=S.items.map(i=>`<option value="${esc(i.name)}">`).join('');
   const kind=r=> Math.abs(r.diff)<0.005?'<span class="hint">مطابق</span>' : r.rec ? (r.diff>0?`<span class="chip g">إنتاج زيادة</span>`:`<span class="chip a">يقلّل إنتاج النهارده</span>`) : (r.diff<0&&P.mode==='pre')?`<span class="chip b">استهلاك قبل البرنامج</span>`:`<span class="chip ${r.diff>0?'b':'r'}">تسوية ${r.diff>0?'زيادة':'عجز'}</span>`;
@@ -13442,7 +13444,7 @@ async function _act(a,d){
       .map(x=>{ const parts=parseQtyExpr(P.vals[x.it.id]); return {raw:x.it.name+' '+String(P.vals[x.it.id]).trim(), name:x.it.name, qty:parts[0].qty, unit:parts[0].unit, parts, itemId:x.it.id}; });
     if(!rows.length) return toast('اكتب الفعلي لصنف واحد على الأقل',1);
     ui.pc={text:rows.map(r=>r.raw).join('\n'), rows, scope:'none', date:P.D, when:'end', mode:'settle', fromCnt:true}; ui.modal=pcModal(); render(); pcBind(); return; }
-  if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:today()}; ui.modal=pcModal(); render(); pcBind(); return; }
+  if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:pcDefaultDate()}; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-parse'){ const P=ui.pc; P.text=($('#pc-text')||{}).value||P.text; P.rows=pcParse(P.text); if(!P.rows.length) return toast('مش لاقي أسطر فيها اسم وكمية',1); ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-apply'){
     const P=ui.pc; const L=pcPlan(P); if(L.errs.length) return toast('صلّح الأسطر الحمرا الأول',1);
@@ -13475,7 +13477,7 @@ async function _act(a,d){
     markAutoRuns(); await saveTx();
     await logOp(g, `${made} منتج اتسجل له إنتاج زيادة · ${cut} تشغيلة اتقللت · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج (${preD})`:''}`);
     toast(`الجرد اتسجل ✓ — ${made} إنتاج زيادة · ${cut} تقليل · ${set} تسوية${pre?` · ${pre} استهلاك قبل البرنامج`:''}`);
-    const back=P.fromCnt; ui.pc={text:'',rows:[],scope:P.scope,date:today(),when:P.when}; ui.modal=back?cntModal():null; render(); if(back) cntBind(); return; }
+    const back=P.fromCnt; ui.pc={text:'',rows:[],scope:P.scope,date:pcDefaultDate(),when:P.when}; ui.modal=back?cntModal():null; render(); if(back) cntBind(); return; }
   if(a==='midnight-fix'){
     const MP=midnightPlan(); if(!MP.length) return toast('مفيش صرف بعد نص الليل');
     if(!confirm(MP.map(x=>`• ${x.moves.length} حركة صرف (${x.branches} فرع) متسجلة يوم ${x.D} وهي من طلبيات يوم ${x.prev} ← هتتنقل ليوم ${x.prev}`).join('\n')+'\n\nالإنتاج التلقائي بتاعها هيتنقل معاها، وفواتير الفروع مش هتتغير. هناخد نسخة احتياطية الأول. تكمل؟')) return;
