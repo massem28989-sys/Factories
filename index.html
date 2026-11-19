@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '19-11 · 10:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '19-11 · 12:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5586,7 +5586,7 @@ function viewBranchOrders(){
         <div style="font-weight:700;margin-bottom:6px">② اطبع</div>
         <div class="hint" style="margin-bottom:6px">بعد ما تخلص التعديل</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          <button class="btn sm p" data-act="bo-print" data-v="sheet">🖨️ شيت التحضير (كل الفروع)</button>
+          <button class="btn sm p" data-act="bo-print" data-v="sheet">🖨️ شيت التحضير (كل الفروع)</button><button class="btn sm p" data-act="stk-open" title="اطبع الاستيكرات 50×80 على طابعة الاستيكرات مباشرة">🏷 اطبع الاستيكرات</button>
           <button class="btn sm p" data-act="bo-print" data-v="branches">🖨️ إذن تسليم لكل فرع</button><button class="btn sm" data-act="bo-print" data-v="branches" data-lang="en" title="Delivery notes in English">🖨️ Delivery notes (EN)</button>
         </div>
       </div>
@@ -12210,25 +12210,82 @@ function enUnit(u){ const s=String(u||'').trim(); const M=[[/^(كيلو|كجم|�
 // أقصى وزن للكيس الواحد: الكمية الأكبر بتتقسم أكياس (مسحب 50 ك = 20 + 20 + 10) وكل كيس ليه استيكر
 const STK_PACK=[[/مسحب|boneless chicken/i,20]];
 function stkPack(c){ const t=String(c.label||'')+' '+String(c.name||''); const e=STK_PACK.find(([re])=>re.test(t)); return e&&!c.pk?e[1]:0; }
-function boStickers(cols, brs, byBranch, cell, UIEN){
-  const rows=cols.map(c=>{ const cnt=new Map(); const mx=stkPack(c); const add=x=>cnt.set(x,(cnt.get(x)||0)+1);
+function stkCount(cols, brs, byBranch, cell){
+  return cols.map(c=>{ const cnt=new Map(); const mx=stkPack(c); const add=x=>cnt.set(x,(cnt.get(x)||0)+1);
     brs.forEach(b=>{ const v=((byBranch.get(b)||new Map()).get(c.name)||{}).qty||0; if(v>0){ let x=cell(c,v);
       if(mx>0 && x>mx){ while(x>mx+1e-9){ add(mx); x=n2(x-mx); } if(x>0) add(x); } else add(x); } });
-    const L=[...cnt.entries()].sort((a,b)=>a[0]-b[0]); const n=L.reduce((t,e)=>t+e[1],0); if(!n) return '';
-    return `<tr><td class="br" style="white-space:nowrap">${esc(c.label)} <small style="color:#888;font-weight:400">${esc(c.unit||'')}</small>${mx?`<small style="display:block;color:#8F1D1D;font-weight:400">${UIEN?`max ${mx} per bag`:`الكيس أقصى ${mx}`}</small>`:''}</td><td class="c"><b>${n}</b></td><td>${L.map(([v,k])=>`<span class="stk"><b>${fmtP(v)}</b> <span style="color:#8F1D1D">←</span> ${k} ${UIEN?(k>1?'labels':'label'):'استيكر'}</span>`).join('')}</td></tr>`; }).join('');
+    const L=[...cnt.entries()].sort((a,b)=>a[0]-b[0]); return {c, mx, L, n:L.reduce((t,e)=>t+e[1],0)}; }).filter(r=>r.n>0);
+}
+function boStickers(cols, brs, byBranch, cell, UIEN){
+  const rows=stkCount(cols,brs,byBranch,cell).map(({c,mx,L,n})=>`<tr><td class="br" style="white-space:nowrap">${esc(c.label)} <small style="color:#888;font-weight:400">${esc(c.unit||'')}</small>${mx?`<small style="display:block;color:#8F1D1D;font-weight:400">${UIEN?`max ${mx} per bag`:`الكيس أقصى ${mx}`}</small>`:''}</td><td class="c"><b>${n}</b></td><td>${L.map(([v,k])=>`<span class="stk"><b>${fmtP(v)}</b> <span style="color:#8F1D1D">←</span> ${k} ${UIEN?(k>1?'labels':'label'):'استيكر'}</span>`).join('')}</td></tr>`).join('');
   return rows?`<h3 style="margin:14px 0 6px;font-size:14px">🏷 ${UIEN?'Stickers — how many of each quantity':'الاستيكرات — كل رقم هيتطبع كام مرة'}</h3>
     <table class="ls stkt"><thead><tr><th style="width:22%">${UIEN?'Item':'الصنف'}</th><th style="width:9%">${UIEN?'Stickers':'العدد'}</th><th>${UIEN?'Quantity (bold) ← how many labels':'الكمية (بالتقيل) ← تطبع منها كام استيكر'}</th></tr></thead><tbody>${rows}</tbody></table>`:'';
 }
 // استيكرات الصوصات بالوزن الفعلي اللي هيتبعت: صوصات الضربات = مجموع الضربات بالكيلو، والباقي = الكمية × وزن الوحدة
-function naderStickers(UIEN){ const M=naderModel(); if(!M) return '';
+function naderStkData(UIEN){ const M=naderModel(); if(!M) return null;
   const isKg=u=>/كيلو|كجم|كغ|kg|kilo/i.test(String(u||'')); const W=new Map(), cols=[];
-  M.bCols.forEach(c=>cols.push({label:c.r.label,name:c.r.name,unit:UIEN?'kg':'كيلو'}));
-  M.pCols.forEach(c=>{ const k=boKgPerUnit(c.r.name); const conv=!isKg(c.u)&&k; cols.push({label:c.r.label,name:c.r.name,unit:conv?(UIEN?'kg':'كيلو'):c.u}); });
+  M.bCols.forEach(c=>cols.push({label:c.r.label,name:c.r.name,unit:UIEN?'kg':'كيلو',kg:1}));
+  M.pCols.forEach(c=>{ const k=boKgPerUnit(c.r.name); const conv=!isKg(c.u)&&k; cols.push({label:c.r.label,name:c.r.name,unit:conv?(UIEN?'kg':'كيلو'):c.u,kg:conv||isKg(c.u)?1:0}); });
   M.per.forEach(x=>{ const m=new Map();
     M.bCols.forEach(c=>{ const v=x.cells[c.i]; if(v&&v.q) m.set(c.r.name,{qty:v.p?n2(v.p.sum):(v.kg||v.q)}); });
     M.pCols.forEach(c=>{ const q=(x.cells[c.i]||{}).q; if(q){ const k=boKgPerUnit(c.r.name); m.set(c.r.name,{qty:(!isKg(c.u)&&k)?n2(q*k):q}); } });
     W.set(x.branch,m); });
-  return boStickers(cols,[...W.keys()],W,(c,v)=>v,UIEN); }
+  return {cols, brs:[...W.keys()], W}; }
+function naderStickers(UIEN){ const D=naderStkData(UIEN); return D?boStickers(D.cols,D.brs,D.W,(c,v)=>v,UIEN):''; }
+function boByBranch(){ const byBranch=new Map();
+  BO.orders.forEach(o=>{ const m=byBranch.get(o.branch)||new Map(); (o.items||[]).forEach(it=>{ if(!(+it.qty>0)) return; const k=it.name; const cur=m.get(k)||{name:it.name,unit:it.unit,qty:0}; cur.qty=n2(cur.qty+(+it.qty||0)); m.set(k,cur); }); byBranch.set(o.branch,m); });
+  return byBranch; }
+function boSheetCols(LIST, branches, byBranch){
+  const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[]; if(!R.length) return null;
+  const isKg = u => !u || /كيلو|كجم|كغ|kg|kilo/i.test(String(u));
+  const cols=[]; R.forEach(e=>e.names.forEach(n=>{ const u=(BO.totals[n]||{}).unit||''; const pk=(e.pcsKg>0 && isKg(u))?+e.pcsKg:0;
+    cols.push({label:e.label,name:n,unit:pk?'حبة':u,pk,kg:!pk&&isKg(u)?1:0}); }));
+  const brs=branches.filter(b=>cols.some(c=>((byBranch.get(b)||new Map()).get(c.name)||{}).qty>0));
+  return {cols, brs, cell:(c,v)=> c.pk ? Math.round(v/c.pk) : v}; }
+/* ===== 🏷 طباعة الاستيكرات مباشرة من السيستم (50×80 مم) — من غير برنامج الطابعة ===== */
+let STK_EXP=null; // أيام الصلاحية لكل صنف
+async function stkExpLoad(){ if(STK_EXP) return; STK_EXP={}; try{ if(DB_CONFIGURED&&DB.on){ const r=await sb('stock_settings?'+fEq()+'&k=eq.stk_exp&select=v'); if(r&&r[0]&&r[0].v) STK_EXP=r[0].v; } }catch(e){} try{ Object.assign(STK_EXP, JSON.parse(localStorage.getItem('stkExp')||'{}'), STK_EXP); }catch(e){} }
+async function stkExpSave(){ try{ localStorage.setItem('stkExp',JSON.stringify(STK_EXP)); }catch(e){} try{ if(DB_CONFIGURED&&DB.on&&!VIEWER) await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'stk_exp',v:STK_EXP}]}); }catch(e){} }
+const STK_SHEETS=[['meat','اللحوم'],['appet','المقبلات'],['veg','الخضروات'],['nader','الصوصات']];
+function stkCollect(keys){ const byBranch=boByBranch(); const branches=[...byBranch.keys()]; const out=[];
+  const T={meat:MEAT_TABLE,appet:APPET_TABLE,veg:VEG_TABLE};
+  keys.forEach(k=>{ let D;
+    if(k==='nader'){ const N=naderStkData(false); if(!N) return; D={cols:N.cols,brs:N.brs,cell:(c,v)=>v}; stkCount(D.cols,D.brs,N.W,D.cell).forEach(r=>out.push({k,...r})); return; }
+    D=boSheetCols(T[k]||[],branches,byBranch); if(!D) return; stkCount(D.cols,D.brs,byBranch,D.cell).forEach(r=>out.push({k,...r})); });
+  return out; }
+function stkModal(){ const P=ui.stk; const rows=stkCollect(P.keys); const tot=rows.reduce((t,r)=>t+r.n,0);
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🏷 اطبع الاستيكرات</h3><div class="pad" style="max-height:66vh;overflow:auto">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px">${STK_SHEETS.map(([k,l])=>`<label style="white-space:nowrap"><input type="checkbox" data-stk-k="${k}" ${P.keys.includes(k)?'checked':''}> ${l}</label>`).join('')}
+      <label style="margin-inline-start:auto;white-space:nowrap">تاريخ الإنتاج <input type="date" id="stk-d" value="${esc(P.d)}"></label></div>
+    ${rows.length?`<table class="gridcols"><thead><tr><th>الصنف</th><th class="n">الاستيكرات</th><th class="n">الصلاحية (أيام)</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td><b>${esc(r.c.label)}</b> <span class="hint">${r.L.map(([v,k])=>`<b>${fmtP(v)}</b>${k>1?` (${k})`:''}`).join(' · ')}</span></td><td class="n"><b>${r.n}</b></td>
+      <td class="n"><input type="number" min="0" step="1" data-stk-exp="${esc(r.c.label)}" value="${esc(String(STK_EXP[r.c.label]??2))}" style="width:64px;text-align:center"></td></tr>`).join('')}</tbody></table>`
+    :'<p class="hint">مفيش أصناف في الجداول اللي اخترتها لليوم ده.</p>'}
+    <div class="hint" style="margin-top:8px">الاستيكر مقاس 50×80 مم. أول مرة: في نافذة الطباعة اختار طابعة الاستيكرات، والمقاس 50×80، والهوامش «لا شيء».</div></div>
+    <div class="pad" style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--line)"><button class="btn" data-close="1">قفل</button><button class="btn" data-act="stk-print" data-t="1" ${tot?'':'disabled'} title="اطبع أول استيكر بس عشان تتأكد من المقاس">🧪 استيكر تجربة</button><button class="btn p" data-act="stk-print" ${tot?'':'disabled'}>🖨️ اطبع ${tot} استيكر</button></div></div></div>`; }
+function stkBind(){ const P=ui.stk; const re=()=>{ ui.modal=stkModal(); render(); stkBind(); };
+  document.querySelectorAll('[data-stk-k]').forEach(x=>x.onchange=()=>{ const k=x.dataset.stkK; P.keys=x.checked?[...new Set([...P.keys,k])]:P.keys.filter(z=>z!==k); re(); });
+  const d=document.getElementById('stk-d'); if(d) d.onchange=()=>{ P.d=d.value||P.d; };
+  document.querySelectorAll('[data-stk-exp]').forEach(x=>x.onchange=()=>{ const v=Math.max(0,Math.round(+x.value||0)); STK_EXP[x.dataset.stkExp]=v; stkExpSave(); }); }
+function stkPrint(test){ const P=ui.stk; const rows=stkCollect(P.keys); if(!rows.length) return toast('مفيش استيكرات',1);
+  const w=window.open('','_blank'); if(!w){ toast('المتصفح منع فتح نافذة الطباعة — اسمح بالـ popups',1); return; }
+  const logo=FACTORY_LOGOS[FACTORY]||''; const dmy=iso=>{ const [y,m,d]=String(iso).split('-'); return `${d}-${m}-${y}`; };
+  const addD=(iso,n)=>{ const t=new Date(iso+'T12:00:00'); t.setDate(t.getDate()+n); return t.toISOString().slice(0,10); };
+  const UM=[[/حب/,'PCS'],[/علب/,'BOX'],[/جالون|جلن/,'GALLON'],[/كرتون/,'CTN'],[/باك|باكيت/,'PKT'],[/سطل/,'BUCKET'],[/لتر/,'L'],[/صحن|طبق/,'PLATE'],[/ربط/,'BUNCH']];
+  const U=c=>c.kg?'KG':c.pk?'PCS':((UM.find(([re])=>re.test(String(c.unit||'')))||[])[1]||String(c.unit||''));
+  let h='';
+  rows.forEach(r=>{ const en=EN_LABELS[r.c.label]||''; const exp=dmy(addD(P.d, +(STK_EXP[r.c.label]??2)));
+    r.L.forEach(([v,k])=>{ for(let i=0;i<k;i++){ if(test&&h) return; h+=`<div class="lb"><div class="t">Farooj Abu Alabd</div><div class="s">Central kitchen</div><hr>
+      <div class="in">Item Name: الصنف</div><div class="nm">${esc(en||r.c.label)}</div>${en?`<div class="ar">${esc(r.c.label)}</div>`:''}<div class="q">${fmtP(v)} ${esc(U(r.c))}</div><hr>
+      <div class="dt"><b>Production Date:</b> ${dmy(P.d)}</div><div class="dt"><b>Expiry Date:</b> ${exp}</div>${logo?`<img src="${logo}">`:''}</div>`; } }); });
+  w.document.open(); w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Labels</title><style>
+    @page{size:50mm 80mm;margin:0}*{box-sizing:border-box;margin:0}body{font-family:"Times New Roman",Cairo,serif;color:#000}
+    .lb{width:50mm;height:80mm;padding:3mm 3mm 2mm;border:0.4mm solid #000;position:relative;page-break-after:always;break-after:page;overflow:hidden;text-align:center}
+    .t{font-weight:700;font-size:11pt;margin-top:1mm}.s{font-weight:700;font-size:8pt}hr{border:0;border-top:0.3mm solid #000;margin:1.5mm 4mm}
+    .in{font-size:9pt}.nm{font-size:15pt;margin-top:2.5mm;line-height:1.1}.ar{font-size:10pt;font-family:Cairo,Arial,sans-serif;direction:rtl}.q{font-size:20pt;font-weight:700;margin:2mm 0 1.5mm;direction:ltr}
+    .dt{font-size:8pt;text-align:left;margin:1.6mm 0 0 1mm}img{position:absolute;right:2mm;bottom:2mm;width:15mm;height:15mm;object-fit:contain}
+    @media screen{body{background:#ddd;display:flex;flex-wrap:wrap;gap:4mm;padding:4mm}.lb{background:#fff}}
+  </style></head><body>${h}<script>setTimeout(()=>print(),400)<\/script></body></html>`); w.document.close(); }
 function boPrint(kind, lang){
   const EN = lang==='en' && kind==='branches';
   const UIEN = EN || LANG==='en'; // واجهة البرنامج إنجليزي ← شيتات التحضير كمان بتطلع إنجليزي
@@ -13629,6 +13686,8 @@ async function _act(a,d){
   if(a==='bo-br-add'){ const n=prompt('اسم الفرع زي ما بيظهر في طلبيات الفروج بالظبط:'); if(!n||!n.trim()) return; if(!S.boSeen) S.boSeen={}; S.boSeen[n.trim()]=S.boSeen[n.trim()]||''; if(S.boHidden) delete S.boHidden[n.trim()]; await saveMain(); ui.modal=boBranchesModal(); return render(); }
   if(a==='bo-range-toggle'){ BO.showRange=!BO.showRange; return render(); }
   if(a==='bo-print'){ return boPrint(d.v, d.lang); }
+  if(a==='stk-open'){ if(!BO.orders.length) return toast('مفيش طلبيات — اختار اليوم الأول',1); stkExpLoad().then(()=>{ ui.stk={keys:['meat','appet','veg','nader'], d:today()}; ui.modal=stkModal(); render(); stkBind(); }); return; }
+  if(a==='stk-print'){ return stkPrint(!!d.t); }
   if(a==='bo-recv'){ ui.modal=boRecvModal(); return render(); }
   if(a==='bo-recv-refresh'){ await fetchReceiptMarks(); await fetchFactoryShortageReports(); ui.modal=boRecvModal(); return render(); }
   if(a==='bo-fetch'){
