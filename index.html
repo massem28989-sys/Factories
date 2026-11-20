@@ -1039,7 +1039,7 @@ let _trNameKey=''; function _trNamesRe(){ let key=''; try{ key=((S&&S.items)||[]
     const AL='\\u0621-\\u063A\\u0640-\\u065F\\u0671-\\u06D3';
     _trNameRe = ns.length ? new RegExp('(?<!['+AL+'])(?:'+ns.map(x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')(?!['+AL+'])','g') : null; _trNameAt=Date.now(); } return _trNameRe; }
 // عناوين الجداول المختصرة (جدول اللحوم، المقبلات، الخضار، ضربات الصوص) — مش أسامي أصناف كاملة، فبتتترجم
-const EN_LABELS={"أفخاد": "Afkhad", "افخاد دجاج": "Afkhad", "بصل": "Onion", "بطاطا فريش": "Fresh potato", "بهارات بطاطا مشوية": "Roast potato spice", "بيواز": "Biwaz", "تبولة": "Tabbouleh", "جوانح": "Wings", "حمص": "Hummus", "خس": "Lettuce", "دجاج مخلى": "Boneless whole chicken", "دجاج مسحب": "Boneless chicken", "رمان": "Pomegranate", "ريش": "Lamb chops", "سطل احمر": "Red bucket", "سطل وايت": "White bucket", "سلطه دايت": "Low-carb salad", "سماق": "Sumac", "سمبوسة": "Sambosa", "سمبوسه": "Sambosa", "صحن حمص": "Hummus plate", "صغيرة": "Small", "صوص بطاطا حارة": "Spicy potato sauce", "صوص ثوم": "Garlic sauce", "صوص ثوم دبي": "Garlic sauce Dubai", "صوص حريقة": "Hareqa sauce", "صوص ساندوتش": "Sandwich sauce", "صوص سبايسي": "Spicy sauce", "صوص سبايسي دبي": "Spicy sauce Dubai", "صوص سطل أبيض": "White bucket sauce", "صوص سطل أحمر": "Red bucket sauce", "صوص طحينة": "Tahini sauce", "صوص كوكتيل دجاج": "Chicken cocktail sauce", "صوص ميكس": "Mix sauce", "صوص وردي": "Pink sauce", "صوص وردي دبي": "Pink sauce Dubai", "طاووق": "Tawooq", "طماطم": "Tomato", "فتوش": "Fattoush", "فتولة": "Fatola", "فتوله": "Fatola", "فروج بالعظم": "Chicken with bone", "فروج كامل": "Whole chicken", "فروج مخلي": "Boneless whole chicken", "فلفل أخضر حار": "Green chili", "كباب دجاج": "Chicken kabab", "كباب لحم": "Meat kabab", "كبيرة": "Large", "لحم عرايس": "Arayes meat", "ليمون": "Lemon", "متبل": "Mutabal", "ملح": "Salt", "ميكس جبن": "Mix cheese", "ناجتس": "Nuggets", "وسط": "Medium"};
+const EN_LABELS={"جوانح فرن": "Wings Oven", "أفخاد": "Afkhad", "افخاد دجاج": "Afkhad", "بصل": "Onion", "بطاطا فريش": "Fresh potato", "بهارات بطاطا مشوية": "Roast potato spice", "بيواز": "Biwaz", "تبولة": "Tabbouleh", "جوانح": "Wings", "حمص": "Hummus", "خس": "Lettuce", "دجاج مخلى": "Boneless whole chicken", "دجاج مسحب": "Boneless chicken", "رمان": "Pomegranate", "ريش": "Lamb chops", "سطل احمر": "Red bucket", "سطل وايت": "White bucket", "سلطه دايت": "Low-carb salad", "سماق": "Sumac", "سمبوسة": "Sambosa", "سمبوسه": "Sambosa", "صحن حمص": "Hummus plate", "صغيرة": "Small", "صوص بطاطا حارة": "Spicy potato sauce", "صوص ثوم": "Garlic sauce", "صوص ثوم دبي": "Garlic sauce Dubai", "صوص حريقة": "Hareqa sauce", "صوص ساندوتش": "Sandwich sauce", "صوص سبايسي": "Spicy sauce", "صوص سبايسي دبي": "Spicy sauce Dubai", "صوص سطل أبيض": "White bucket sauce", "صوص سطل أحمر": "Red bucket sauce", "صوص طحينة": "Tahini sauce", "صوص كوكتيل دجاج": "Chicken cocktail sauce", "صوص ميكس": "Mix sauce", "صوص وردي": "Pink sauce", "صوص وردي دبي": "Pink sauce Dubai", "طاووق": "Tawooq", "طماطم": "Tomato", "فتوش": "Fattoush", "فتولة": "Fatola", "فتوله": "Fatola", "فروج بالعظم": "Chicken with bone", "فروج كامل": "Whole chicken", "فروج مخلي": "Boneless whole chicken", "فلفل أخضر حار": "Green chili", "كباب دجاج": "Chicken kabab", "كباب لحم": "Meat kabab", "كبيرة": "Large", "لحم عرايس": "Arayes meat", "ليمون": "Lemon", "متبل": "Mutabal", "ملح": "Salt", "ميكس جبن": "Mix cheese", "ناجتس": "Nuggets", "وسط": "Medium"};
 function trText(t){
   const v=t.nodeValue; if(!v || !/[\u0600-\u06FF]/.test(v)) return;
   const p=t.parentElement; if(p && p.closest('.iname,[data-notr],script,style,textarea')) return;
@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '20-11 · 02:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '21-11 · 01:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12322,23 +12322,27 @@ function enUnit(u){ const s=String(u||'').trim(); const M=[[/^(كيلو|كجم|�
   for(const [r,v] of M) if(r.test(s)) return v; return s; }
 // 🏷 الاستيكرات: كل رقم في الصنف الواحد اتكرر كام مرة — عشان تطبع من كل رقم العدد الصح من غير ما تعد بإيدك
 // أقصى وزن للكيس الواحد: الكمية الأكبر بتتقسم أكياس (مسحب 50 ك = 20 + 20 + 10) وكل كيس ليه استيكر
-const STK_PACK=[[/مسحب|boneless chicken/i,20]];
+const STK_PACK=[[/مسحب|boneless chicken/i,20],[/طاووق|طاووك|tawo+q|tawook/i,10]];
 function stkPack(c){ const t=String(c.label||'')+' '+String(c.name||''); const e=STK_PACK.find(([re])=>re.test(t)); return e&&!c.pk?e[1]:0; }
 // أصناف بتتطبع «بالواحدة»: الإجمالي كله ÷ 1 = عدد الاستيكرات، كل استيكر = 1، ومن غير اسم فرع (الحمص والتبولة والفتوش… وصوص السطل)
-const STK_ONE=/حمص|تبول|فتوش|فتول|سطل\s*[اأ]بيض|سطل\s*[اأ]حمر|white\s*sauce|red\s*sauce|hummus|tabbouleh|fattoush/i;
+const STK_ONE=/صحن\s*حمص|تبول|فتوش|فتول|^\s*متبل\s*$|سطل\s*[اأ]بيض|سطل\s*[اأ]حمر/;
+function stkOne(c){ return STK_ONE.test(String(c.label||'')) || /white\s*sauce|red\s*sauce/i.test(String(c.name||'')); }
+// الحمص الصغير: العلبة 0.08 — أي كمية بتتقسم علب 0.08 (0.240 = 3 استيكر 0.08)، ما عدا 0.5 بتتطبع زي ما هي
+function stkHummus(c){ return /^\s*حمص\s*$/.test(String(c.label||'')); }
+function stkHummusSplit(x){ x=n2(x); if(Math.abs(x-0.5)<0.001) return [0.5]; const n=Math.max(1,Math.round(x/0.08)); return Array(n).fill(0.08); }
 // الصوصات بتتعبّى في عبوات 15 و7.5 و4 كيلو: الوزن بيتقسم على أقل عدد عبوات بالظبط (11.5 = 7.5 + 4، و19 = 15 + 4)
 const STK_SAUCE_PACKS=[15,7.5,4];
 function stkSplit(x, P){ x=n2(x); let best=null;
   for(let a=Math.floor(x/P[0]+1e-9); a>=0; a--) for(let b=Math.floor((x-a*P[0])/P[1]+1e-9); b>=0; b--){ const r=n2(x-a*P[0]-b*P[1]); const c=Math.round(r/P[2]); if(Math.abs(c*P[2]-r)<0.01){ const n=a+b+c; if(!best||n<best.n) best={n,L:[...Array(a).fill(P[0]),...Array(b).fill(P[1]),...Array(c).fill(P[2])]}; } }
   if(best) return best.L;
   const L=[]; let r=x; for(const q of P){ while(r>=q-1e-9){ L.push(q); r=n2(r-q); } } if(r>0.01) L.push(r); return L; }
-function stkOne(c){ return STK_ONE.test(String(c.label||'')+' '+String(c.name||'')); }
 function stkCount(cols, brs, byBranch, cell){
   return cols.map(c=>{ const cnt=new Map(); const mx=stkPack(c); const add=x=>cnt.set(x,(cnt.get(x)||0)+1); const B=[]; const one=stkOne(c);
     if(one){ let t=0; brs.forEach(b=>{ const v=((byBranch.get(b)||new Map()).get(c.name)||{}).qty||0; if(v>0) t+=cell(c,v); }); t=n2(t);
       const k=Math.floor(t+1e-9), rem=n2(t-k); if(k>0) cnt.set(1,k); if(rem>0.0001) cnt.set(rem,(cnt.get(rem)||0)+1); }
     else brs.forEach(b=>{ const v=((byBranch.get(b)||new Map()).get(c.name)||{}).qty||0; if(v>0){ let x=cell(c,v);
-      if(c.packs){ stkSplit(x,c.packs).forEach(q=>{ add(q); B.push({v:q,b}); }); }
+      if(stkHummus(c)){ stkHummusSplit(x).forEach(q=>{ add(q); B.push({v:q,b}); }); }
+      else if(c.packs){ stkSplit(x,c.packs).forEach(q=>{ add(q); B.push({v:q,b}); }); }
       else if(mx>0 && x>mx){ while(x>mx+1e-9){ add(mx); B.push({v:mx,b}); x=n2(x-mx); } if(x>0){ add(x); B.push({v:x,b}); } } else { add(x); B.push({v:x,b}); } } });
     const L=[...cnt.entries()].sort((a,b)=>a[0]-b[0]); return {c, mx, one, B, L, n:L.reduce((t,e)=>t+e[1],0)}; }).filter(r=>r.n>0);
 }
@@ -12365,8 +12369,9 @@ function boSheetCols(LIST, branches, byBranch){
   const R=LIST.length?boAppetResolve(LIST).filter(e=>e.names.length):[]; if(!R.length) return null;
   const isKg = u => !u || /كيلو|كجم|كغ|kg|kilo/i.test(String(u));
   const cols=[]; R.forEach(e=>e.names.forEach(n=>{ const u=(BO.totals[n]||{}).unit||''; const pk=(e.pcsKg>0 && isKg(u))?+e.pcsKg:0;
-    const pcs=/ريش|lamb\s*chops/i.test(e.label+' '+n); // الريش الفروع بتطلبها بالحبة حتى لو الصنف متسجل بالكيلو
-    cols.push({label:e.label,name:n,unit:(pk||pcs)?'حبة':u,pk,kg:!pk&&!pcs&&isKg(u)?1:0}); }));
+    const oven=/جوانح|wing/i.test(e.label) && /فرن|oven/i.test(n); // جوانح الفرن: بالحبة وباسمها عشان ما تتلخبطش مع الجوانح المتبلة
+    const pcs=oven || /ريش|lamb\s*chops/i.test(e.label+' '+n); // الريش الفروع بتطلبها بالحبة حتى لو الصنف متسجل بالكيلو
+    cols.push({label:oven?'جوانح فرن':e.label,name:n,unit:(pk||pcs)?'حبة':u,pk,kg:!pk&&!pcs&&isKg(u)?1:0}); }));
   const brs=branches.filter(b=>cols.some(c=>((byBranch.get(b)||new Map()).get(c.name)||{}).qty>0));
   return {cols, brs, cell:(c,v)=> c.pk ? Math.round(v/c.pk) : v}; }
 /* ===== 🏷 طباعة الاستيكرات مباشرة من السيستم (50×80 مم) — من غير برنامج الطابعة ===== */
