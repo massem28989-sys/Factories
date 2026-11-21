@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '21-11 · 11:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '21-11 · 12:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -11483,6 +11483,43 @@ function pcGoLive(){ // أول يوم صرف للفروع اتسجل على ال
   const first=ds[0]; const before=S.moves.some(m=>m.dir==='in'&&!m.runId&&m.date<first);
   const x=new Date(first+'T12:00:00'); x.setDate(x.getDate()-1); return {first, pre:ymdLocal(x), before};
 }
+// 🔎 «ليه الفرق؟»: من آخر جرد للصنف لحد يوم الجرد ده — دخل إيه، اتصرف لمين، الإنتاج سحب كام، تالف — والمفروض يكون كام
+function pcWhy(itId, D){ const it=item(itId); if(!it) return null;
+  const A=((CNT_ANCHOR||{})[itId]||[]).filter(a=>a.d<D).sort((x,y)=>x.d.localeCompare(y.d)||((x.at||0)-(y.at||0))); const a=A[A.length-1]||null;
+  let base, from, fromTxt; if(a){ base=+a.q||0; from=a.d; fromTxt=`آخر جرد ${a.d.slice(8,10)}/${a.d.slice(5,7)}`; } else { base=+it.opening||0; from=''; fromTxt='رصيد أول الشهر'; }
+  const inWin=m=>{ if(m.itemId!==itId || m.date>D) return false; if(m.party===ANCHOR_PARTY||m.note===ANCHOR_PARTY) return false;
+    if(!a) return true; if(m.date>a.d) return true; if(m.date<a.d) return false; return !a.past && a.at && mvTsA(m)>a.at && !isSettleParty(m.party); };
+  const M=S.moves.filter(inWin); const runName=id=>{ const r=(S.runs||[]).find(x=>x.id===id); return r?r.name:'إنتاج'; };
+  const g={rcv:new Map(), prodIn:new Map(), disp:new Map(), prodOut:new Map(), waste:0, settle:0, other:new Map()};
+  const add=(mp,k,q)=>mp.set(k,(mp.get(k)||0)+q);
+  M.forEach(m=>{ const q=+m.qty||0; const p=String(m.party||''), r=String(m.reason||'');
+    if(isSettleParty(p)){ g.settle+=m.dir==='in'?q:-q; return; }
+    if(m.dir==='in'){ if(m.runId) add(g.prodIn,runName(m.runId),q); else add(g.rcv,p||'وارد',q); return; }
+    if(r==='صرف للفروع') add(g.disp,p,q); else if(m.runId) add(g.prodOut,runName(m.runId),q); else if(/تالف|هالك|waste/i.test(p+' '+r)) g.waste+=q; else add(g.other,p||r||'منصرف',q); });
+  const sm=mp=>[...mp.values()].reduce((t,v)=>t+v,0);
+  const tot={rcv:n2(sm(g.rcv)), prodIn:n2(sm(g.prodIn)), disp:n2(sm(g.disp)), prodOut:n2(sm(g.prodOut)), waste:n2(g.waste), other:n2(sm(g.other)), settle:n2(g.settle)};
+  const exp=n2(base+tot.rcv+tot.prodIn-tot.disp-tot.prodOut-tot.waste-tot.other+tot.settle);
+  return {it, base, from, fromTxt, g, tot, exp, days:a?Math.max(1,Math.round((new Date(D)-new Date(a.d))/864e5)):null}; }
+function pcWhyHtml(x, D){ const W=pcWhy(x.it.id, D); if(!W) return ''; const u=esc(x.it.unit); const f=v=>fmt(n2(v));
+  const top=(mp,n)=>[...mp.entries()].sort((a,b)=>b[1]-a[1]).slice(0,n).map(([k,v])=>`${esc(String(k).replace(/^\s*FAE\s*-\s*/i,''))} <b>${f(v)}</b>`).join(' · ');
+  const L=[]; const line=(sign,lbl,v,det,c)=>{ if(Math.abs(v)<0.005) return; L.push(`<tr><td style="width:24px;text-align:center;font-weight:800;color:${c||'#555'}">${sign}</td><td style="white-space:nowrap">${lbl}</td><td class="n"><b>${f(v)}</b> ${u}</td><td class="hint" style="font-size:12px">${det||''}</td></tr>`); };
+  L.push(`<tr><td></td><td style="white-space:nowrap"><b>${W.fromTxt}</b></td><td class="n"><b>${f(W.base)}</b> ${u}</td><td></td></tr>`);
+  line('+','وارد',W.tot.rcv,top(W.g.rcv,4),'#2E7D32'); line('+','إنتاج',W.tot.prodIn,top(W.g.prodIn,4),'#2E7D32');
+  line('−','صرف للفروع',W.tot.disp,`${W.g.disp.size} فرع — أكبرهم: ${top(W.g.disp,5)}`,'#A32D2D'); line('−','دخل في إنتاج',W.tot.prodOut,top(W.g.prodOut,5),'#A32D2D');
+  line('−','تالف',W.tot.waste,'','#A32D2D'); line('−','منصرف تاني',W.tot.other,top(W.g.other,4),'#A32D2D'); line('±','تسويات',W.tot.settle,'','#555');
+  const diff=n2(x.actual-W.exp);
+  L.push(`<tr style="border-top:2px solid #E4D3CE"><td></td><td><b>= المفروض يكون</b></td><td class="n"><b>${f(W.exp)}</b> ${u}</td><td class="hint" style="font-size:12px">${Math.abs(W.exp-x.book)>0.05?`(الدفتري ${f(x.book)} — الفرق بينهم تعديلات بعد الجرد اللي فات)`:''}</td></tr>`);
+  L.push(`<tr><td></td><td><b>اتعدّ</b></td><td class="n"><b>${f(x.actual)}</b> ${u}</td><td><b style="color:${diff<0?'#A32D2D':'#2E7D32'}">${diff>0?'+':''}${f(diff)} ${u}</b></td></tr>`);
+  // تلميحات: الفرق ده غالبًا جاي منين
+  const H=[]; const big=Math.abs(diff);
+  if(diff>0 && W.tot.rcv===0) H.push('مفيش أي وارد من آخر جرد — <b>غالبًا استلام ما اتسجلش</b>.');
+  if(diff<0 && W.tot.disp>0 && big>=W.tot.disp*0.1) H.push(`النقص ${f(big)} = <b>${Math.round(big/W.tot.disp*100)}% من الصرف</b> — راجع الصرف لكل فرع بـ «🔎 تتبّع صنف مع الفروع» (صرف من غير ما يتسجل، أو فرع استلم زيادة).`);
+  if(diff<0 && W.tot.prodOut>0 && big>=W.tot.prodOut*0.05) H.push(`النقص = <b>${Math.round(big/W.tot.prodOut*100)}% من اللي دخل الإنتاج</b> — ممكن الوصفة بتخصم أقل من الحقيقي (${top(W.g.prodOut,2)}).`);
+  if(diff>0 && W.tot.prodOut>0 && big>=W.tot.prodOut*0.05) H.push(`الزيادة = <b>${Math.round(big/W.tot.prodOut*100)}% من اللي دخل الإنتاج</b> — ممكن الوصفة بتخصم أكتر من الحقيقي، أو المطبخ استخدم بديل.`);
+  if(!H.length && big>0) H.push(W.days&&W.days<=1?'الفرق صغير/عادي ليوم واحد — غالبًا عد أو وزن.':'مفيش سبب واضح من الحركة — اعد الصنف تاني قبل ما تسجّل.');
+  return `<div style="background:#FBF7F5;border:1px solid #EADBD6;border-radius:10px;padding:10px 12px;margin:4px 0 6px"><div style="font-weight:700;margin-bottom:6px">🔎 ليه الفرق؟ — ${esc(x.it.name)} من ${W.fromTxt}${W.days?` (${W.days} يوم)`:''}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13.5px">${L.join('')}</table>
+    <div style="margin-top:8px;font-size:13px;line-height:1.7">${H.map(h=>`💡 ${h}`).join('<br>')}</div></div>`; }
 function pcModal(){
   const P=ui.pc||(ui.pc={text:'',rows:[],scope:'cat',date:pcDefaultDate()});
   if(!P.mode){ const G=pcGoLive(); P.mode=G&&G.before&&!(S.moves||[]).some(m=>m.reason===PRE_REASON)?'pre':'settle'; P.preDate=G?G.pre:today(); }
@@ -11514,8 +11551,8 @@ function pcModal(){
     return `<tr class="${v.err?'pce':Math.abs(v.val)>=200?'pcbig':''}">
       <td><input class="pcq" data-pcq="${v.i}" value="${esc(qtyTxt(r))}" title="الكمية زي ما اتعدّت — مثلًا 26 كرتونه أو 63 كرتونه + 3 باكت">${conv}${r.conv&&!conv?`<div class="pcs hint">${esc(r.conv)}</div>`:''}</td>
       <td><input list="pc-items" class="pcn${r.err&&!r.it?' err':''}" data-pcname="${v.i}" value="${esc(r.it?r.it.name:r.name||'')}">${r.err?`<div class="pcs" style="color:#A32D2D">${esc(r.err)}</div>`:''}${r.need&&r.it?r.need.map(u=>`<div class="pcconv">1 ${esc(u)} = <input type="number" step="any" min="0" data-pcconv="${esc(r.it.id)}|${esc(unitKey(u))}"> ${esc(r.it.unit)}</div>`).join(''):''}${r.skip?`<div class="pcs hint">اتجمع مع «${esc(r.mergedInto)}»</div>`:''}${r.merged?`<div class="pcs hint">مجموع ${r.merged} سطر</div>`:''}</td>
-      <td class="n"><b>${x?fmt(x.actual):'—'}</b>${x?`<div class="pcs hint">${esc(x.it.unit)}</div>`:''}</td><td class="n">${book}</td><td class="n">${x?dl(x):'—'}</td><td class="n">${x?money(v.val):''}</td><td>${x?kind(x):''}</td>
-      <td><button class="pcx" data-pcdel="${v.i}" title="شيل السطر">✕</button></td></tr>`; };
+      <td class="n"><b>${x?fmt(x.actual):'—'}</b>${x?`<div class="pcs hint">${esc(x.it.unit)}</div>`:''}</td><td class="n">${book}</td><td class="n">${x?dl(x):'—'}${x&&Math.abs(x.diff)>=0.005&&!x.rec?`<div><button class="pcwhy" data-pcwhy="${esc(x.it.id)}">${P.why&&P.why[x.it.id]?'▲ اقفل':'🔎 ليه؟'}</button></div>`:''}</td><td class="n">${x?money(v.val):''}</td><td>${x?kind(x):''}</td>
+      <td><button class="pcx" data-pcdel="${v.i}" title="شيل السطر">✕</button></td></tr>${x&&P.why&&P.why[x.it.id]?`<tr><td colspan="8" style="background:#fff">${pcWhyHtml(x,D)}</td></tr>`:''}`; };
   function dl(x){ return `<b style="color:${x.diff>0.005?'#2E7D32':x.diff<-0.005?'#A32D2D':'inherit'}">${x.diff>0?'+':''}${fmt(x.diff)}</b>`; }
   const settings=`<div class="pcset">
       <label>📅 يوم الجرد <input type="date" id="pc-date" value="${esc(P.date)}"></label>
@@ -11538,7 +11575,7 @@ function pcModal(){
       tr.pce td{background:#FDECEC}tr.pcbig td{background:#FFF6EC}tr.pcz td{color:#555;background:#FAFAFA}
       .pcq{width:170px;font-size:15px;padding:5px 7px;font-weight:700}.pcn{width:260px;font-size:14px;padding:5px 7px}.pcs{font-size:11.5px;margin-top:2px}.pcin{display:block;white-space:nowrap;cursor:pointer}
       .pcconv{display:flex;gap:4px;align-items:center;font-size:12px;margin-top:4px;color:#555}.pcconv input{width:72px;padding:3px 5px;font-weight:700}
-      .pcx{border:0;background:none;color:#A32D2D;cursor:pointer;font-size:15px;padding:2px 6px}.pcadd{display:flex;gap:6px;margin:10px 0 4px}.pcadd input{flex:1;font-size:15px;padding:6px 8px}
+      .pcx{border:0;background:none;color:#A32D2D;cursor:pointer;font-size:15px;padding:2px 6px}.pcwhy{margin-top:4px;border:1px solid #D9C3BD;background:#fff;border-radius:14px;padding:2px 9px;font:inherit;font-size:12px;cursor:pointer;color:#8F1D1D}.pcadd{display:flex;gap:6px;margin:10px 0 4px}.pcadd input{flex:1;font-size:15px;padding:6px 8px}
       @media (max-width:800px){.pcq{width:110px}.pcn{width:170px}}</style>
     <h3>📋 جرد بعد الصرف ${L?`<span class="hint" style="font-weight:400;font-size:13px">${sum.n} صنف</span>`:''}</h3>
     <div class="pcbody">
@@ -11591,6 +11628,7 @@ function pcBind(){
     pcSyncText(); await saveMain(); pcRerender(); });
   document.querySelectorAll('[data-pcdel]').forEach(b=>b.onclick=()=>{ P.rows.splice(+b.dataset.pcdel,1); pcSyncText(); pcRerender(); });
   document.querySelectorAll('[data-pcf]').forEach(b=>b.onclick=()=>{ P.f=b.dataset.pcf; pcRerender(); });
+  document.querySelectorAll('[data-pcwhy]').forEach(b=>b.onclick=()=>{ P.why=P.why||{}; const k=b.dataset.pcwhy; P.why[k]=!P.why[k]; pcRerender(); });
   const so=$('#pc-sort'); if(so) so.onchange=()=>{ P.sort=so.value; pcRerender(); };
   const qq=$('#pc-q'); if(qq){ qq.oninput=()=>{ P.q=qq.value; clearTimeout(window.__pcq); window.__pcq=setTimeout(()=>{ pcRerender(); const e=$('#pc-q'); if(e){ e.focus(); e.setSelectionRange(e.value.length,e.value.length); } },350); }; }
   const w2=$('#pc-when2'); if(w2) w2.onchange=()=>{ P.when=w2.value; pcRerender(); };
