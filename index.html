@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '21-11 · 13:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '22-11 · 00:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8631,6 +8631,9 @@ function prAwaitingPanel(){
       <td style="text-align:end;white-space:nowrap">${isOwner()?`<button class="btn sm" data-act="pr-edit" data-k="${g.key}">✏️</button>`:''} ${prWaButton(g.key,g.supplier)} <button class="btn p" data-act="pr-receive" data-k="${g.key}">استلام ←</button>${isOwner() && g.rs.some(r=>+r.receivedQty>0)?` <button class="btn sm" data-act="pr-close" data-k="${g.key}" title="الباقي مش هييجي">✖ إقفال الباقي</button>`:''}
         ${g.rs[0].sentToSupplierAt?`<div class="hint" style="margin-top:3px">✓ اتبعت للمورد ${new Date(g.rs[0].sentToSupplierAt).toLocaleDateString(LANG==='en'?'en-GB':'ar-EG')}</div>`:''}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
+// صنف بيتطلب بالعدد (حبة/قطعة) والمخزن بالوزن (كيلو): بيتسجل العدد للمتابعة، والوارد بالوزن الفعلي وسعر الكيلو
+function prByWeight(r){ const it=item(r.itemId)||{}; const U=String(r.orderUnit||''), B=String(r.unit||it.unit||'');
+  return !!U && U!==B && /حب|قطع|pc|pcs/i.test(U) && /كيلو|كجم|كغ|kg|KG|جرام/i.test(B); }
 function prReceiveModal(key){
   const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && r.status==='approved'); if(!rs.length) return null;
   const sup=rs[0].supplier||'';
@@ -8650,12 +8653,13 @@ function prReceiveModal(key){
           return `<tr data-prr="${r.id}">
             <td><div class="iname">${esc(r.itemName)}</div>${size!==1?`<div class="hint">1 ${esc(U)} = ${fmt(size)} ${esc(r.unit||'')}</div>`:''}</td>
             <td class="n">${fmtP(remain)} ${esc(U)}${+r.receivedQty>0?`<div class="hint" style="color:var(--amber,#b07800)">وصل قبل كده ${fmt(n2(r.receivedQty/size))}${prLinkedInfo(r)}</div>`:''}</td>
-            <td class="n"><input type="number" min="0" step="any" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:80px;text-align:center"> <span class="hint">${esc(U)}</span></td>
+            <td class="n"><input type="number" min="0" step="any" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:80px;text-align:center"> <span class="hint">${esc(U)}</span>
+              ${prByWeight(r)?`<div style="margin-top:6px;background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:5px 6px"><label class="hint" style="display:block;margin-bottom:3px;color:#8A4A0B">⚖️ الوزن الفعلي (${esc(r.unit||'كيلو')})</label><input type="number" min="0" step="any" data-prw="${r.id}" placeholder="مثلًا 14.05" style="width:90px;text-align:center;font-weight:700"></div>`:''}</td>
             <td><select data-prfrom="${r.id}" style="max-width:150px" title="لو الصنف ده جه من مكان تاني غير مورد الطلب (زي المخزن الرئيسي)">
               <option value="${esc(r.supplier||sup)}">${esc(r.supplier||sup||'—')}</option>
               ${[...new Set([...S.suppliers, ...(S.branches||[]).filter(b=>/مخزن/.test(b))])].filter(x=>x&&x!==(r.supplier||sup)).sort((a,b)=>a.localeCompare(b,'ar')).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}
             </select></td>
-            <td class="n"><input type="number" min="0" step="any" data-prp="${r.id}" value="${pr||''}" style="width:84px;text-align:center"></td>
+            <td class="n"><input type="number" min="0" step="any" data-prp="${r.id}" value="${(prByWeight(r)?n2(+it.price||0):pr)||''}" style="width:84px;text-align:center">${prByWeight(r)?`<div class="hint">للـ${esc(r.unit||'كيلو')}</div>`:''}</td>
             <td class="n" data-prt="${r.id}">${money(remain*pr)}</td></tr>`; }).join('')}</tbody>
         <tfoot><tr><td colspan="5" style="text-align:end"><b>إجمالي الفاتورة</b></td><td class="n"><b id="prr-total">—</b></td></tr></tfoot>
       </table></div>
@@ -8669,20 +8673,23 @@ function prReceiveModal(key){
 }
 function prReceiveBind(){
   const upd=()=>{ let tot=0; document.querySelectorAll('[data-prr]').forEach(tr=>{ const id=tr.dataset.prr;
-      const q=+(tr.querySelector(`[data-prq="${id}"]`)||{}).value||0, p=+(tr.querySelector(`[data-prp="${id}"]`)||{}).value||0;
+      const w=tr.querySelector(`[data-prw="${id}"]`); const q=w?(+w.value||0):(+(tr.querySelector(`[data-prq="${id}"]`)||{}).value||0), p=+(tr.querySelector(`[data-prp="${id}"]`)||{}).value||0;
       const c=tr.querySelector(`[data-prt="${id}"]`); if(c) c.textContent=money(q*p); tot+=q*p; });
     const t=document.getElementById('prr-total'); if(t) t.textContent=money(tot); };
-  document.querySelectorAll('[data-prq],[data-prp]').forEach(i=>i.oninput=upd); upd();
+  document.querySelectorAll('[data-prq],[data-prp],[data-prw]').forEach(i=>i.oninput=upd); upd();
 }
 async function prReceiveSave(key){
   const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && r.status==='approved'); if(!rs.length) return;
   const date=($('#prr-date')||{}).value||today(); const party=rs[0].supplier||'';
   const lines=rs.map(r=>{ const size=+r.orderSize||1; const q=+((document.querySelector(`[data-prq="${r.id}"]`)||{}).value||0); const p=+((document.querySelector(`[data-prp="${r.id}"]`)||{}).value||0);
     const from=((document.querySelector(`[data-prfrom="${r.id}"]`)||{}).value)||party;
-    return {r, qtyBase:n2(q*size), priceBase:size?p/size:p, q, U:r.orderUnit||r.unit, from}; }).filter(l=>l.qtyBase>0 && item(l.r.itemId));
+    const wEl=document.querySelector(`[data-prw="${r.id}"]`); if(wEl){ const w=+wEl.value||0; return {r, qtyBase:n2(w), priceBase:p, q, U:r.orderUnit||r.unit, from, byW:true, cnt:q}; }
+    return {r, qtyBase:n2(q*size), priceBase:size?p/size:p, q, U:r.orderUnit||r.unit, from}; });
+  const noW=lines.filter(l=>l.byW && l.cnt>0 && !(l.qtyBase>0)); if(noW.length) return toast(`اكتب الوزن الفعلي لـ ${noW.map(l=>l.r.itemName).join('، ')} — بيتسجل بالكيلو مش بالعدد`,1);
+  lines.splice(0,lines.length,...lines.filter(l=>l.qtyBase>0 && item(l.r.itemId)));
   if(!lines.length) return toast('مفيش ولا صنف كميته أكبر من صفر',1);
   const miss=rs.length-lines.length;
-  if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${fmtP(l.q)} ${l.U}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
+  if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${l.byW?`${fmtP(l.cnt)} ${l.U} = ${fmtP(l.qtyBase)} ${l.r.unit||'كيلو'}`:`${fmtP(l.q)} ${l.U}`}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
     (miss?`\n\n${miss} صنف ما وصلش — طلبه هيفضل مفتوح.`:'')+'\n\nتأكيد؟')) return;
   const btn=document.querySelector('[data-act="pr-receive-save"]'); if(btn){ btn.disabled=true; btn.textContent='بيسجّل…'; }
   SUBMITTING++;
@@ -8701,6 +8708,7 @@ async function prReceiveSave(key){
     // نربط كل حركة بطلبها بالظبط (مش أي طلب لنفس الصنف)
     const at=new Date().toISOString(); let closed=0;
     for(const [ix,l] of lines.entries()){ const r=l.r; r.receivedQty=n2((+r.receivedQty||0)+l.qtyBase); (r.moveIds=r.moveIds||[]).push(moves[ix].id); r.linkedMoveId=moves[ix].id;
+      if(l.byW){ r.receivedCnt=n2((+r.receivedCnt||0)+l.cnt); r.receivedQty=n2((+r.receivedCnt)*(+r.orderSize||1)); (r.weights=r.weights||[]).push({cnt:l.cnt,kg:l.qtyBase,date}); }
       if(r.receivedQty >= (+r.qty||0)*0.98){ r.status='fulfilled'; r.fulfilledAt=at; closed++; } }
     await savePurchaseRequests();
     toast(`اتسجّل وارد ${moves.length} صنف — اتقفل ${closed} من ${rs.length} طلب`+invMsg);
