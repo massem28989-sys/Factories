@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '21-11 · 01:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '21-11 · 11:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12355,7 +12355,7 @@ function boStickers(cols, brs, byBranch, cell, UIEN){
 function naderStkData(UIEN){ const M=naderModel(); if(!M) return null;
   const isKg=u=>/كيلو|كجم|كغ|kg|kilo/i.test(String(u||'')); const W=new Map(), cols=[];
   M.bCols.forEach(c=>cols.push({label:c.r.label,name:c.r.name,unit:UIEN?'kg':'كيلو',kg:1,packs:STK_SAUCE_PACKS}));
-  M.pCols.forEach(c=>{ const k=boKgPerUnit(c.r.name); const conv=!isKg(c.u)&&k; cols.push({label:c.r.label,name:c.r.name,unit:conv?(UIEN?'kg':'كيلو'):c.u,kg:conv||isKg(c.u)?1:0,packs:(conv||isKg(c.u))?STK_SAUCE_PACKS:null}); });
+  M.pCols.forEach(c=>{ const k=boKgPerUnit(c.r.name); const conv=!isKg(c.u)&&k; cols.push({label:c.r.label,name:c.r.name,unit:conv?(UIEN?'kg':'كيلو'):c.u,kg:conv||isKg(c.u)?1:0}); }); // صوصات الكمية (الطحينة، الكوكتيل، الساندوتش…) بتتطبع بالكمية المطلوبة زي ما هي — من غير تقسيم عبوات
   M.per.forEach(x=>{ const m=new Map();
     M.bCols.forEach(c=>{ const v=x.cells[c.i]; if(v&&v.q) m.set(c.r.name,{qty:v.p?n2(v.p.sum):(v.kg||v.q)}); });
     M.pCols.forEach(c=>{ const q=(x.cells[c.i]||{}).q; if(q){ const k=boKgPerUnit(c.r.name); m.set(c.r.name,{qty:(!isKg(c.u)&&k)?n2(q*k):q}); } });
