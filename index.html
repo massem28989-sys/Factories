@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '21-11 · 13:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '21-11 · 13:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -10319,6 +10319,84 @@ function varcPrint(){ const P=ui.varc; const D=varData(P.from,P.to); const f=v=>
     <h3>الفروق حسب السبب</h3><table><tr><th>السبب</th><th class="n">عدد</th><th class="n">عجز</th><th class="n">زيادة</th><th class="n">الصافي</th></tr>${D.by.map(g=>`<tr><td>${g.k==='none'?'لسه ما اتحددش السبب':esc(VAR_CAUSE_LBL[g.k]||g.k)}</td><td class="n">${g.n}</td><td class="n">${g.sh?f(g.sh):'—'}</td><td class="n">${g.ov?f(g.ov):'—'}</td><td class="n"><b>${f(g.sh+g.ov)}</b></td></tr>`).join('')}</table>
     <h3>أكبر الفروق</h3><table><tr><th>اليوم</th><th>الصنف</th><th class="n">الفرق</th><th class="n">درهم</th><th>السبب</th><th>ملاحظة</th></tr>${top.map(r=>`<tr><td>${esc(r.m.date)}</td><td>${esc(r.it.name)}</td><td class="n">${r.q>0?'+':''}${fmt(r.q)} ${esc(r.it.unit)}</td><td class="n">${f(r.v)}</td><td>${r.c?esc(VAR_CAUSE_LBL[r.c]||r.c):'—'}</td><td>${esc(r.note||'')}</td></tr>`).join('')}</table>
     <div class="sig"><div>مدير المصنع</div><div>المراجعة</div><div>الإدارة</div></div><script>setTimeout(()=>print(),400)<\/script></body></html>`); w.document.close(); }
+
+/* ===== 📋 قايمة الجرد اليومي الثابتة: الأصناف الأساسية كل يوم — بتتملي من الشاشة على طول أو تتطبع ورقة فاضية ===== */
+const CNT_DAILY_DEFAULT=`شاورما | ك
+صدر | ك
+افخاد | ك
+لحم زوره | ك
+فخد | ك
+ليه | ك
+جوانح دجاج | ك
+ريش | ك
+فروج كامل | حبة (1.1)
+دجاج مسحب | ك
+طاووق | ك
+كباب لحم | ك
+كباب دجاج | ك
+فروج بالعظم | حبة (1.1)
+فروج مخلى | ك
+Afkhad | ك
+Lamb chops | ك
+جوانح ابو العبد | ك
+Wings Oven | ك
+pink sauce - صوص وردي | ك
+pink sauce dubai - صوص وردي دبي | ك
+Garlic Sauce - صوص ثوم | ك
+Garlic Sauce Dubai- صوص ثوم دبي | ك
+Spicy sauce - صوص سبايسي | ك
+Spicy sauce dubai - صوص سبايسي دبي | ك
+Cocktail Sauce - صوص كوكتيل دجاج | ك
+sandwich sauce - صوص كوكتيل ساندوش | ك
+Tahina Suace - صوص طحينة | ك
+Hareqa Sauce - صوص حريقه | ك
+صوص سطل ابيض مع ذره | باكت
+صوص سطل احمر مع ذره | باكت
+زيت دوار الشمس العلياء | كرتونه + لتر
+زيت عافيه 9 لتر | جالون
+زيت زيتون | كرتونه (20) + لتر
+كاتشب جالون | جالون (5) + ك
+طحينة موني | TIN + ك
+بيض مبستر | طبق + حبة
+بيض - EGG | كرتونه + حبة
+بطاطا | كرتونه + باكت
+بطاطا كرينكل | كرتونه + باكت
+لامب ويستون كاميمبيرت بيتس | كرتونه + حبة
+ناجتس | ك
+Onion Rings - MCCN | ك
+ذره | كرتونه + باكت
+جبن موتزاريلا العقاد | كرتونه + باكت
+كعكه | كرتونه + باكيت
+كبه | باكت
+ورق سمبوسه | حبة`;
+let CNT_DAILY=null;
+async function cdLoad(){ if(CNT_DAILY!=null) return CNT_DAILY; CNT_DAILY=CNT_DAILY_DEFAULT; try{ if(DB_CONFIGURED&&DB.on){ const r=await sb('stock_settings?'+fEq()+'&k=eq.cnt_daily&select=v',{prefer:'return=representation'}); if(r&&r[0]&&r[0].v&&r[0].v.text) CNT_DAILY=r[0].v.text; } }catch(e){} return CNT_DAILY; }
+async function cdSave(t){ CNT_DAILY=t; if(DB_CONFIGURED&&DB.on&&!VIEWER) await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'cnt_daily',v:{text:t,by:chgWho(),at:Date.now()}}]}); }
+function cdParse(t){ return String(t||'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{ const [n,u]=l.split('|').map(x=>(x||'').trim()); if(!n) return null;
+  const units=(u||'ك').split('+').map(x=>x.trim()).filter(Boolean).map(x=>{ const m=/^(.*?)\s*\(\s*([\d.]+)\s*\)\s*$/.exec(x); return m?{u:m[1].trim(),f:m[2]}:{u:x,f:''}; }); return {name:n, units, vals:units.map(()=>'')}; }).filter(Boolean); }
+function cdLine(r){ const parts=r.units.map((x,i)=>({x,v:String(r.vals[i]??'').trim()})); const any=parts.some(p=>p.v!=='');
+  if(!any) return null; const nz=parts.filter(p=>p.v!==''&&+p.v!==0); const use=nz.length?nz:[parts.find(p=>p.v!=='')];
+  return `${r.name} ${use.map(p=>`${p.v} ${p.x.u}${p.x.f?` (${p.x.f})`:''}`).join(' + ')}`; }
+function cdForm(P){ const T=P.tpl; const empty=T.filter(r=>!r.vals.some(v=>String(v).trim()!=='')).length;
+  return `<div class="pcdate" style="background:#EEF5FF;border-color:#B7CDEB">📋 <b>قايمة الجرد اليومي</b> — اكتب العدد في كل خانة. الكراتين المقفولة في «كرتونه»، والمفتوح في الخانة اللي جنبها. الصنف اللي مش موجود اكتبله <b>0</b>.</div>
+    <div style="overflow:auto"><table class="pct"><thead><tr><th>الصنف</th><th>الكمية</th></tr></thead><tbody>
+    ${T.map((r,i)=>`<tr${r.vals.some(v=>String(v).trim()!=='')?'':' style="background:#FFFBF2"'}><td><b>${esc(r.name)}</b></td><td style="white-space:nowrap">${r.units.map((x,j)=>`${j?'<span style="margin:0 6px;color:#999">+</span>':''}<input class="cdv" type="number" step="any" min="0" inputmode="decimal" data-cd="${i}|${j}" value="${esc(String(r.vals[j]??''))}" style="width:86px;font-size:15px;font-weight:700;padding:5px 6px"> <span class="hint">${esc(x.u)}${x.f?` (${esc(x.f)})`:''}</span>`).join('')}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px"><button class="btn p" data-act="cd-go">✅ احسب الفروق (${T.length-empty} من ${T.length})</button>
+      ${empty?`<label style="font-size:13px"><input type="checkbox" id="cd-zero"> الخانات الفاضية = صفر (${empty} صنف)</label>`:''}
+      <button class="btn" data-act="cd-cancel" style="margin-inline-start:auto">رجوع</button></div>`; }
+function cdPrint(){ cdLoad().then(t=>{ const T=cdParse(t); const w=window.open('','_blank'); if(!w) return toast('المتصفح منع فتح نافذة الطباعة',1);
+  w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>ورقة الجرد اليومي</title><style>@page{size:A4;margin:10mm}body{font-family:Cairo,Arial,sans-serif;font-size:12.5px;color:#111}h1{font-size:18px;margin:0;color:#8F1D1D}.top{display:flex;gap:30px;margin:6px 0 10px}.top span{border-bottom:1px solid #777;min-width:140px;display:inline-block}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:5px 6px;text-align:right}th{background:#F3E8E5}td.b{width:110px}.u{color:#555;font-size:11px}tr{page-break-inside:avoid}</style></head><body>
+    <h1>ورقة الجرد اليومي — ${esc(FACTORY)}</h1><div class="top">التاريخ: <span></span> اللي جرد: <span></span> الساعة: <span></span></div>
+    <table><tr><th style="width:30px">#</th><th>الصنف</th><th colspan="2">الكمية (المقفول + المفتوح)</th></tr>
+    ${T.map((r,i)=>`<tr><td>${i+1}</td><td><b>${esc(r.name)}</b></td>${r.units.map(x=>`<td class="b"><span class="u">${esc(x.u)}</span></td>`).join('')}${r.units.length<2?'<td class="b" style="background:#f4f4f4"></td>':''}</tr>`).join('')}</table>
+    <p style="font-size:11px;color:#555;margin-top:8px">الخام بالوزن الفعلي مش رقم الفاتورة · الكراتين المفتوحة تتعد باكت/حبة · الجاهز لبكره يتعد باسمه · اللي برا المخزن (الستيشن) يتعد في مكانه · الصنف المش موجود = 0</p>
+    <script>setTimeout(()=>print(),400)<\/script></body></html>`); w.document.close(); }); }
+function cdEditModal(t){ return `<div class="modal" data-close="1"><div class="box" style="max-width:640px"><h3>✏️ عدّل قايمة الجرد اليومي</h3><div class="pad">
+  <p class="hint">سطر لكل صنف: <b>الاسم | الوحدات</b>. لو الصنف بيتعد كراتين + فك: <code>بطاطا | كرتونه + باكت</code>. ولو الكرتونة فيها رقم معين: <code>زيت زيتون | كرتونه (20) + لتر</code>.</p>
+  <textarea id="cd-edit" dir="rtl" rows="20" style="width:100%;font-size:14px;line-height:1.7">${esc(t)}</textarea></div>
+  <div class="foot"><button class="btn p" data-act="cd-save">حفظ</button><button class="btn" data-act="cd-reset">رجّع القايمة الأصلية</button><button class="btn" data-close="1">قفل</button></div></div></div>`; }
 /* ================= مقارنة الصرف الفعلي (استيراد شيت مبيعات/صرف مجمّع) ================= */
 // الشيت المتوقع: تاريخ | اسم الصنف | الوحدة | الكمية — كل سطر عملية واحدة، ومفيش عمود فرع،
 // فبنجمع كل الأسطر بنفس اسم الصنف عشان نطلع الإجمالي الفعلي، ونقارنه بالمطلوب والمسجل عندنا
@@ -11638,7 +11716,8 @@ function pcModal(){
     <h3>📋 جرد بعد الصرف ${L?`<span class="hint" style="font-weight:400;font-size:13px">${sum.n} صنف</span>`:''}</h3>
     <div class="pcbody">
       ${settings}
-      ${L?`<details${P.showPaste?' open':''} id="pc-pastebox" style="margin-bottom:6px"><summary style="cursor:pointer;color:#8F1D1D;font-weight:700">✏️ القايمة اللي اتلزقت (افتحها لو عايز تعدّل كتير مرة واحدة)</summary>${paste}</details>`:`<div class="warnbar" style="margin-bottom:8px">⚠ سجّل استلامات اليوم في البرنامج عادي. بعد التحليل هتلاقي تحت كل صنف استلاماته — علّم <b>«داخل في الجرد»</b> على اللي وصل <b>قبل</b> ما تعد.</div>${paste}`}
+      ${P.tpl&&!L?cdForm(P):''}${!P.tpl&&!L?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn p" data-act="cd-start" style="font-size:15px;padding:9px 16px">📋 ابدأ بقايمة الجرد اليومي</button><button class="btn" data-act="cd-print">🖨️ اطبع ورقة الجرد فاضية</button><button class="btn sm" data-act="cd-edit">✏️ عدّل القايمة</button><span class="hint" style="align-self:center">أو الزق قايمة تحت</span></div>`:''}
+      ${P.tpl&&!L?'':(L?`<details${P.showPaste?' open':''} id="pc-pastebox" style="margin-bottom:6px"><summary style="cursor:pointer;color:#8F1D1D;font-weight:700">✏️ القايمة اللي اتلزقت (افتحها لو عايز تعدّل كتير مرة واحدة)</summary>${paste}</details>`:`<div class="warnbar" style="margin-bottom:8px">⚠ سجّل استلامات اليوم في البرنامج عادي. بعد التحليل هتلاقي تحت كل صنف استلاماته — علّم <b>«داخل في الجرد»</b> على اللي وصل <b>قبل</b> ما تعد.</div>${paste}`)}
       ${L?`<div class="pcsum">
         <div><small>مطابق</small><b>${sum.ok}</b></div>
         <div style="border-color:#E8B4B4"><small>عجز (${sum.short.length} صنف)</small><b style="color:#A32D2D">${money(sv(sum.short))}</b><small>درهم</small></div>
@@ -11686,6 +11765,8 @@ function pcBind(){
     pcSyncText(); await saveMain(); pcRerender(); });
   document.querySelectorAll('[data-pcdel]').forEach(b=>b.onclick=()=>{ P.rows.splice(+b.dataset.pcdel,1); pcSyncText(); pcRerender(); });
   document.querySelectorAll('[data-pcf]').forEach(b=>b.onclick=()=>{ P.f=b.dataset.pcf; pcRerender(); });
+  document.querySelectorAll('[data-cd]').forEach(x=>x.oninput=()=>{ const [i,j]=x.dataset.cd.split('|').map(Number); if(P.tpl&&P.tpl[i]) P.tpl[i].vals[j]=x.value; });
+  document.querySelectorAll('[data-cd]').forEach(x=>x.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const all=[...document.querySelectorAll('[data-cd]')]; const k=all.indexOf(x); if(all[k+1]) all[k+1].focus(); } });
   document.querySelectorAll('[data-pccause]').forEach(x=>x.onchange=()=>{ P.cause=P.cause||{}; P.cause[x.dataset.pccause]=x.value; });
   document.querySelectorAll('[data-pcwhy]').forEach(b=>b.onclick=()=>{ P.why=P.why||{}; const k=b.dataset.pcwhy; P.why[k]=!P.why[k]; pcRerender(); });
   const so=$('#pc-sort'); if(so) so.onchange=()=>{ P.sort=so.value; pcRerender(); };
@@ -13677,6 +13758,17 @@ async function _act(a,d){
     if(!rows.length) return toast('اكتب الفعلي لصنف واحد على الأقل',1);
     ui.pc={text:rows.map(r=>r.raw).join('\n'), rows, scope:'none', date:P.D, when:'end', mode:'settle', fromCnt:true}; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-open'){ if(!ui.pc) ui.pc={text:'',rows:[],scope:'cat',date:pcDefaultDate()}; ui.modal=pcModal(); render(); pcBind(); return; }
+  if(a==='cd-start'){ const t=await cdLoad(); const P=ui.pc; P.tpl=cdParse(t); pcRerender(); return; }
+  if(a==='cd-cancel'){ ui.pc.tpl=null; pcRerender(); return; }
+  if(a==='cd-print'){ return cdPrint(); }
+  if(a==='cd-edit'){ const t=await cdLoad(); ui.cdBack=true; ui.modal=cdEditModal(t); return render(); }
+  if(a==='cd-save'){ const v=($('#cd-edit')||{}).value||''; const T=cdParse(v); if(!T.length) return toast('القايمة فاضية',1); const bad=T.filter(r=>!pcMatch(r.name)).map(r=>r.name); if(bad.length) return toast('مش لاقي في الأصناف: '+bad.slice(0,4).join('، '),1); await cdSave(v); toast(`اتحفظت قايمة الجرد اليومي (${T.length} صنف) ✓`); ui.modal=pcModal(); render(); pcBind(); return; }
+  if(a==='cd-reset'){ const e=$('#cd-edit'); if(e) e.value=CNT_DAILY_DEFAULT; return; }
+  if(a==='cd-go'){ const P=ui.pc; const z=$('#cd-zero'); const T=P.tpl||[];
+    const empty=T.filter(r=>!r.vals.some(v=>String(v).trim()!==''));
+    if(empty.length && !(z&&z.checked)) return toast(`فيه ${empty.length} صنف فاضي (${empty.slice(0,3).map(r=>r.name).join('، ')}…) — اكتب الرقم أو 0، أو علّم «الفاضي = صفر»`,1);
+    if(z&&z.checked) empty.forEach(r=>r.vals[0]='0');
+    P.text=T.map(cdLine).filter(Boolean).join('\n'); P.rows=pcParse(P.text); P.tpl=null; P.f='all'; ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='pc-parse'){ const P=ui.pc; P.text=($('#pc-text')||{}).value||P.text; P.rows=pcParse(P.text); if(!P.rows.length) return toast('مش لاقي أسطر فيها اسم وكمية',1); ui.modal=pcModal(); render(); pcBind(); return; }
   if(a==='itr-open'){ const t=today(); ui.itr=ui.itr||{id:'',from:t.slice(0,8)+'01',to:t,only:false}; ui.modal=itrModal(); render(); itrBind(); return; }
   if(a==='itr-run'){ return itrRun(); }
