@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '22-11 · 13:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '22-11 · 13:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1768,7 +1768,7 @@ function shiftAckModal(){
   const em=shMyEmail(); const me=(SHIFT.people||[]).find(pp=>(pp.email||'').toLowerCase()===em)||{};
   return `<div class="modal"><div class="box" style="max-width:640px"><h3>🗓 جدول ورديات جديد${me.name?` — ${esc(me.name)}`:''}</h3><div class="pad">
     <div class="hint" style="margin-bottom:8px">صاحب النظام نشر جدول ورديات جديد. راجعه وأكّد إنك شفته.</div>
-    ${shiftTableHtml(null,0)}<div style="height:12px"></div>${shiftTableHtml(null,1)}
+    ${shiftTableHtml(null,0)}
     <label class="f" style="margin-top:12px">عندك ملاحظة أو مش هتقدر؟ (اختياري)</label><textarea id="sh-ack-note" rows="2" style="width:100%"></textarea>
   </div><div class="foot"><button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button><button class="btn" data-act="sh-ack-note">✋ ابعت الملاحظة</button><button class="btn" data-act="sh-later">بعدين</button></div></div></div>`;
 }
