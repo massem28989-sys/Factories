@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '22-11 · 13:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '22-11 · 13:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1699,7 +1699,7 @@ function shiftAckStatusHtml(){
 function shiftViewModal(){
   const own=isOwner()&&!VIEWER;
   return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🗓 جدول الورديات</h3><div class="pad">
-    ${SHIFT&&SHIFT.ver?shiftTableHtml(null,null,true):'<div class="empty">لسه مفيش جدول منشور.</div>'}
+    ${SHIFT&&SHIFT.ver?shiftTableHtml(null,own?null:0,own):'<div class="empty">لسه مفيش جدول منشور.</div>'}
     ${SHIFT&&SHIFT.ver?`<div class="hint" style="margin-top:8px">آخر نشر: ${esc(new Date(SHIFT.ver).toLocaleString('ar-EG'))}</div>`:''}
     ${own?shiftAckStatusHtml():''}
   </div><div class="foot">${own?`<button class="btn p" data-act="sh-edit">✏️ عدّل الجدول</button>`:''}${!own&&shiftNeedsAck()?`<button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
