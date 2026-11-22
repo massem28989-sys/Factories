@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '22-11 · 13:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '22-11 · 14:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1687,6 +1687,25 @@ function shiftTableHtml(S0,off,nav){
     <tbody>${W.map(w=>{ const D=shEff(S1,w); return `<tr${w.today?' style="outline:2px solid #8E1A20;outline-offset:-2px"':''}><th style="white-space:nowrap">${w.l} <span style="font-weight:600;color:#666">${w.dm}</span>${w.today?'<div class="hint" style="color:#8E1A20">النهارده</div>':''}${D.note?`<div><span class="chip a" style="font-size:11px">${esc(D.note)}</span></div>`:''}</th>${cell(D.day)}${cell(D.night)}</tr>`; }).join('')}</tbody></table></div>
     ${showNotes&&(S1.notes||[]).filter(Boolean).length?`<div class="hint" style="margin-top:10px">ملاحظاتك (مش بتظهر لحد غيرك):</div><ul style="margin:10px 0 0;padding-inline-start:18px;line-height:1.9;font-size:13px">${S1.notes.filter(Boolean).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}`;
 }
+async function shiftHistLoad(){
+  const H={}, A={};
+  try{ (await sb('stock_settings?'+fEq()+'&k=like.'+encodeURIComponent('shift_hist:*')+'&select=k,v',{prefer:'return=representation'})||[]).forEach(r=>{ if(r.v&&r.v.ver) H[r.v.ver]=r.v; }); }catch(e){}
+  try{ (await sb('stock_settings?'+fEq()+'&k=like.'+encodeURIComponent('shift_ackh:*')+'&select=k,v',{prefer:'return=representation'})||[]).forEach(r=>{ const v=r.v||{}; (A[v.ver]=A[v.ver]||[]).push(v); }); }catch(e){}
+  if(SHIFT&&SHIFT.ver&&!H[SHIFT.ver]) H[SHIFT.ver]=SHIFT; // النسخة الحالية (اتنشرت قبل ما السجل يبدأ)
+  Object.values(SHIFT_ACKS||{}).forEach(v=>{ if(v&&v.ver&&H[v.ver]){ const L=(A[v.ver]=A[v.ver]||[]); if(!L.some(x=>x.name===v.name)) L.push(v); } });
+  ui.shHist={list:Object.values(H).sort((a,b)=>b.ver-a.ver), acks:A};
+}
+function shiftHistModal(){
+  const Hs=ui.shHist||{list:[],acks:{}}; const sel=ui.shHistSel;
+  const fmt=t=>new Date(t).toLocaleString('ar-EG',{weekday:'long',day:'numeric',month:'numeric',hour:'numeric',minute:'2-digit'});
+  if(sel){ const V=Hs.list.find(x=>x.ver===sel); if(V){ const W=shWeek(ui.shWk||0); return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🗂 نسخة ${esc(fmt(V.ver))}</h3><div class="pad">${shiftTableHtml(V,null,true)}
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${(Hs.acks[V.ver]||[]).map(a=>`<span class="chip ${a.ok===false?'r':'g'}" title="${esc(a.note||'')}">${a.ok===false?'✋':'✓'} ${esc(a.name)} · ${esc(fmt(a.at))}${a.note?' · '+esc(a.note.slice(0,50)):''}</span>`).join('')||'<span class="hint">محدش أكّد النسخة دي</span>'}</div>
+    </div><div class="foot"><button class="btn" data-act="sh-hist-back">↩ السجل</button><button class="btn" data-close="1">قفل</button></div></div></div>`; } }
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🗂 سجل الجداول اللي اتنشرت</h3><div class="pad">
+    <div class="hint" style="margin-bottom:8px">كل مرة تنشر جدول بيتحفظ هنا بتاريخه ومين أكّده. السجل بدأ من نسخة 22-11، والنسخ اللي قبل كده ماكانتش بتتحفظ.</div>
+    ${Hs.list.length?`<div class="tblwrap" style="max-height:none"><table data-nosort><thead><tr><th>اتنشر</th><th>مين أكّد</th><th></th></tr></thead><tbody>${Hs.list.map(V=>{ const L=Hs.acks[V.ver]||[]; return `<tr><td style="white-space:nowrap">${esc(fmt(V.ver))}${V.ver===(SHIFT||{}).ver?' <span class="chip g">الحالي</span>':''}</td><td>${L.map(a=>`${a.ok===false?'✋':'✓'} ${esc(a.name)}`).join('، ')||'—'}</td><td><button class="btn sm" data-act="sh-hist-open" data-v="${V.ver}">اعرض</button></td></tr>`; }).join('')}</tbody></table></div>`:'<div class="empty">لسه مفيش.</div>'}
+  </div><div class="foot"><button class="btn" data-act="sh-open">↩ الجدول</button><button class="btn" data-close="1">قفل</button></div></div></div>`;
+}
 function shiftAckStatusHtml(){
   if(!SHIFT||!SHIFT.ver) return '';
   return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${(SHIFT.people||[]).filter(x=>x.name).map(pp=>{ const a=pp.email?SHIFT_ACKS[pp.email.toLowerCase()]:null;
@@ -1702,7 +1721,7 @@ function shiftViewModal(){
     ${SHIFT&&SHIFT.ver?shiftTableHtml(null,own?null:0,own):'<div class="empty">لسه مفيش جدول منشور.</div>'}
     ${SHIFT&&SHIFT.ver?`<div class="hint" style="margin-top:8px">آخر نشر: ${esc(new Date(SHIFT.ver).toLocaleString('ar-EG'))}</div>`:''}
     ${own?shiftAckStatusHtml():''}
-  </div><div class="foot">${own?`<button class="btn p" data-act="sh-edit">✏️ عدّل الجدول</button>`:''}${!own&&shiftNeedsAck()?`<button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
+  </div><div class="foot">${own?`<button class="btn p" data-act="sh-edit">✏️ عدّل الجدول</button><button class="btn" data-act="sh-hist">🗂 السجل</button>`:''}${!own&&shiftNeedsAck()?`<button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
 }
 function shiftEditModal(){
   const E=ui.shE; const names=(E.people||[]).map(x=>x.name).filter(Boolean);
@@ -1748,7 +1767,7 @@ function shEditCommitWeek(E){ // يسجل أيام الأسبوع اللي بي�
   const W=shWeek(ui.shEWk||0); E.dated=E.dated||{}; const cl=o=>JSON.stringify({day:(o||{}).day||{},night:(o||{}).night||{}});
   if(E._base){ SH_DAYS.forEach(([k])=>{ const D=E.days[k]||{}; E._tpl[k]={day:D.day||{},night:D.night||{}}; }); E._base=false; }
   W.forEach(w=>{ const D=E.days[w.k]||{}; if(!D.note && cl(D)===cl(E._tpl[w.k])) delete E.dated[w.ds]; else E.dated[w.ds]=D; });
-  const cut=shYmd(new Date(Date.now()-70*864e5)); Object.keys(E.dated).forEach(x=>{ if(x<cut) delete E.dated[x]; }); Object.keys(E.weeks||{}).forEach(x=>{ if(x<cut) delete E.weeks[x]; });
+  const cut=shYmd(new Date(Date.now()-400*864e5)); Object.keys(E.dated).forEach(x=>{ if(x<cut) delete E.dated[x]; }); Object.keys(E.weeks||{}).forEach(x=>{ if(x<cut) delete E.weeks[x]; });
 }
 function shiftProblems(E){
   // إجازتين ورا بعض: إجازة الصبح وإجازة الليل في نفس اليوم، أو إجازة ليل يوم وصبح اليوم اللي بعده
@@ -12884,9 +12903,12 @@ async function _act(a,d){
     S.dispatchOnlyMode=false; await saveMain(); toast('اتلغى القيد — اختيارات الصرف رجعت'); return render(); }
   if(a==='fix-factory-party'){ const L=wrongFactoryParty(); if(!L.length) return; if(!confirm(`${L.length} حركة منصرف سببها «${[...new Set(L.map(m=>m.reason))].join('، ')}» بس متسجلة لمصنع تاني كجهة. هتتشال الجهة منها (السبب والكمية زي ما هم). تكمل؟`)) return;
     const g=await guardBulk('تصحيح جهة حركات اتسجلت لمصنع'); if(!g) return; L.forEach(m=>{ m.party=''; }); await saveTx(); await logOp(g, L.length+' حركة'); toast(`اتصلحت ${L.length} حركة ✓`); if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{}); return render(); }
-  if(a==='sh-open'){ await shiftLoad(); if(isOwner() && !(USERS_LIST&&USERS_LIST.length)) { try{ await usersLoad(); }catch(e){} } ui.modal=shiftViewModal(); return render(); }
+  if(a==='sh-open'){ ui.shHistSel=null; await shiftLoad(); if(isOwner() && !(USERS_LIST&&USERS_LIST.length)) { try{ await usersLoad(); }catch(e){} } ui.modal=shiftViewModal(); return render(); }
   if(a==='sh-edit'){ if(!isOwner()) return; ui.shE=JSON.parse(JSON.stringify(SHIFT&&SHIFT.ver?SHIFT:SH_DEFAULT)); ui.shE._tpl=JSON.parse(JSON.stringify(ui.shE.days||{})); ui.shEWk=ui.shWk||0; shEditLoadWeek(ui.shE); ui.modal=shiftEditModal(); return render(); }
-  if(a==='sh-wk'){ ui.shWk=d.d==='0'?0:(ui.shWk||0)+(+d.d); ui.modal=shiftViewModal(); return render(); }
+  if(a==='sh-hist'){ if(!isOwner()) return; await shiftHistLoad(); ui.shHistSel=null; ui.modal=shiftHistModal(); return render(); }
+  if(a==='sh-hist-open'){ ui.shHistSel=+d.v; ui.shWk=0; ui.modal=shiftHistModal(); return render(); }
+  if(a==='sh-hist-back'){ ui.shHistSel=null; ui.modal=shiftHistModal(); return render(); }
+  if(a==='sh-wk'){ ui.shWk=d.d==='0'?0:(ui.shWk||0)+(+d.d); ui.modal=ui.shHistSel?shiftHistModal():shiftViewModal(); return render(); }
   if(a==='sh-ewk'){ shiftReadForm(); shEditCommitWeek(ui.shE); ui.shEWk=(ui.shEWk||0)+(+d.d); shEditLoadWeek(ui.shE); ui._shForce=false; ui.modal=shiftEditModal(); return render(); }
   if(a==='sh-p-add'){ shiftReadForm(); ui.shE.people.push({name:'',email:''}); ui.modal=shiftEditModal(); return render(); }
   if(a==='sh-p-del'){ shiftReadForm(); ui.shE.people.splice(+d.i,1); ui.modal=shiftEditModal(); return render(); }
@@ -12894,12 +12916,12 @@ async function _act(a,d){
   if(a==='sh-save'){ if(!isOwner()||VIEWER) return; shiftReadForm(); const E=ui.shE; E.people=E.people.filter(pp=>pp.name);
     const probs=shiftProblems(E); if(probs.length && !ui._shForce){ ui._shForce=true; const w=document.getElementById('sh-warn'); if(w) w.innerHTML=`<div style="color:var(--red);line-height:1.8">⚠ ${probs.map(esc).join('<br>⚠ ')}<br><b>دوس «احفظ وانشر» تاني لو متأكد.</b></div>`; return; }
     ui._shForce=false; shEditCommitWeek(E); const V=JSON.parse(JSON.stringify(E)); V.days=V._tpl; delete V._tpl; delete V._base; V.ver=Date.now(); ui.shWk=ui.shEWk||0;
-    try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_sched',v:V}]}); SHIFT=V; ui.shE=null; toast('✓ الجدول اتنشر — كل واحد هيطلعله أول ما يفتح السيستم لحد ما يأكّد'); ui.modal=shiftViewModal(); return render(); }
+    try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_sched',v:V},{factory:FACTORY,k:'shift_hist:'+V.ver,v:V}]}); SHIFT=V; ui.shE=null; toast('✓ الجدول اتنشر — كل واحد هيطلعله أول ما يفتح السيستم لحد ما يأكّد'); ui.modal=shiftViewModal(); return render(); }
     catch(e){ return toast('ماتحفظش: '+e.message,1); } }
   if(a==='sh-ack' || a==='sh-ack-note'){ const em=shMyEmail(); if(!em||!SHIFT) return; const note=((document.getElementById('sh-ack-note')||{}).value||'').trim();
     if(a==='sh-ack-note' && !note) return toast('اكتب الملاحظة الأول',1);
     const me=(SHIFT.people||[]).find(pp=>(pp.email||'').toLowerCase()===em)||{}; const v={ver:SHIFT.ver, at:new Date().toISOString(), name:me.name||em, ok:a==='sh-ack', note};
-    try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_ack:'+em,v}]}); SHIFT_ACKS[em]=v; ui.modal=null; toast(a==='sh-ack'?'✓ اتسجل إنك أكّدت الجدول':'✓ الملاحظة وصلت لصاحب النظام'); return render(); }
+    try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_ack:'+em,v},{factory:FACTORY,k:'shift_ackh:'+SHIFT.ver+':'+em,v}]}); SHIFT_ACKS[em]=v; ui.modal=null; toast(a==='sh-ack'?'✓ اتسجل إنك أكّدت الجدول':'✓ الملاحظة وصلت لصاحب النظام'); return render(); }
     catch(e){ return toast('ماتحفظش: '+e.message,1); } }
   if(a==='sh-later'){ ui._shLater=true; ui.modal=null; return render(); }
   if(a==='mv-day-clear'){ ui.mvDay=''; return render(); }
