@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '22-11 · 00:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '22-11 · 13:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1651,6 +1651,16 @@ let CHEF=false; let PROD_DRAFT={chefs:[], drafts:{}};
 /* ===== 🗓 جدول الورديات + تأكيد كل واحد إنه شافه =====
    stock_settings: k='shift_sched' = {ver, times:{day:[from,to], night:[from,to]}, days:{sat:{day:{who,off},night:{who,off}}...}, people:[{name,email}], notes:[...]}
    كل تأكيد في صف لوحده k='shift_ack:<email>' = {ver, at, name, ok, note} — عشان تأكيدين في نفس اللحظة مايكتبوش فوق بعض */
+const SH_MON=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+const shYmd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function shWeek(off){ // أيام الأسبوع (إتنين→أحد) بالتواريخ، off=0 الأسبوع الحالي
+  const n=new Date(); if(n.getHours()<6) n.setDate(n.getDate()-1); // وردية الليل بعد نص الليل تابعة لليوم اللي قبله
+  const m=new Date(n.getFullYear(),n.getMonth(),n.getDate()); m.setDate(m.getDate()-((m.getDay()+6)%7)+7*(off||0));
+  return SH_DAYS.map(([k,l],i)=>{ const d=new Date(m); d.setDate(m.getDate()+i); return {k,l,d,ds:shYmd(d),dm:`${d.getDate()}/${d.getMonth()+1}`,today:shYmd(d)===shYmd(n)}; });
+}
+const shWkTitle=W=>{ const a=W[0].d,b=W[6].d; return a.getMonth()===b.getMonth()?`${a.getDate()} – ${b.getDate()} ${SH_MON[b.getMonth()]}`:`${a.getDate()} ${SH_MON[a.getMonth()]} – ${b.getDate()} ${SH_MON[b.getMonth()]}`; };
+const shWkName=o=>o===0?'الأسبوع ده':o===1?'الأسبوع الجاي':o===-1?'الأسبوع اللي فات':o>1?`بعد ${o} أسابيع`:`من ${-o} أسابيع`;
+const shEff=(S,w)=>((S.dated||{})[w.ds])||((S.days||{})[w.k])||{}; // تعديل اليوم ده بالتاريخ، وإلا الجدول الثابت
 const SH_DAYS=[['mon','الإتنين'],['tue','التلات'],['wed','الأربع'],['thu','الخميس'],['fri','الجمعة'],['sat','السبت'],['sun','الأحد']]; // الأسبوع بيبدأ الإتنين
 const SH_DEFAULT={ver:0, times:{day:['09:30','21:30'], night:['23:30','09:30']},
   days:{sat:{day:{who:'محمد'},night:{who:'مصطفى',off:'مهند'}}, sun:{day:{who:'محمد'},night:{who:'مهند'}}, mon:{day:{who:'مصطفى',off:'محمد'},night:{who:'مهند'}},
@@ -1667,12 +1677,14 @@ async function shiftLoad(){
 }
 const shTime=t=>{ const [h,m]=String(t||'0:0').split(':').map(Number); const ap=h<12?'ص':'م'; const hh=((h+11)%12)+1; return `${hh}${m?':'+String(m).padStart(2,'0'):''} ${ap}`; };
 const shHours=(a,b)=>{ const f=x=>{ const [h,m]=String(x).split(':').map(Number); return h*60+(m||0); }; let d=f(b)-f(a); if(d<=0) d+=1440; return Math.round(d/6)/10; };
-function shiftTableHtml(S0){
+function shiftTableHtml(S0,off,nav){
   const S1=S0||SHIFT||SH_DEFAULT, T=S1.times; const showNotes=isOwner(); // الملاحظات لصاحب النظام بس
+  off=off==null?(ui.shWk||0):off; const W=shWeek(off); const wn=((S1.weeks||{})[W[0].ds]||{}).note||'';
   const tm=c=>c.t?`<div style="font-weight:600;font-size:12.5px;color:#8E1A20;margin-top:2px">⏰ ${esc(c.t)}</div>`:'';
   const cell=c=>{ c=c||{}; return c.off?`<td style="background:#fff3c4;color:#6b4f00"><s style="opacity:.7;font-size:12px">${esc(c.off)} · إجازة</s><div style="font-weight:700">${esc(c.who||'—')}</div>${tm(c)}</td>`:`<td${c.t?' style="background:#FBF1F1"':''}><div style="font-weight:700">${esc(c.who||'—')}</div>${tm(c)}</td>`; };
-  return `<div class="tblwrap" style="max-height:none"><table data-nosort><thead><tr><th>اليوم</th><th>☀ الصبح<div class="hint">${shTime(T.day[0])} – ${shTime(T.day[1])} · ${shHours(T.day[0],T.day[1])} ساعة</div></th><th>☾ الليل<div class="hint">${shTime(T.night[0])} – ${shTime(T.night[1])} · ${shHours(T.night[0],T.night[1])} ساعة</div></th></tr></thead>
-    <tbody>${SH_DAYS.map(([k,l])=>{ const D=(S1.days||{})[k]||{}; return `<tr><th>${l}</th>${cell(D.day)}${cell(D.night)}</tr>`; }).join('')}</tbody></table></div>
+  return `<div class="tblwrap" style="max-height:none"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">${nav?`<button class="btn sm" data-act="sh-wk" data-d="-1" title="الأسبوع اللي قبله">▶</button>`:''}<div style="font-weight:800;font-size:15px">${shWkName(off)} · ${shWkTitle(W)}</div>${nav?`<button class="btn sm" data-act="sh-wk" data-d="1" title="الأسبوع اللي بعده">◀</button>${off?`<button class="btn sm" data-act="sh-wk" data-d="0">النهارده</button>`:''}`:''}${wn?`<span class="chip a">${esc(wn)}</span>`:''}</div>
+    <table data-nosort><thead><tr><th>اليوم</th><th>☀ الصبح<div class="hint">${shTime(T.day[0])} – ${shTime(T.day[1])} · ${shHours(T.day[0],T.day[1])} ساعة</div></th><th>☾ الليل<div class="hint">${shTime(T.night[0])} – ${shTime(T.night[1])} · ${shHours(T.night[0],T.night[1])} ساعة</div></th></tr></thead>
+    <tbody>${W.map(w=>{ const D=shEff(S1,w); return `<tr${w.today?' style="outline:2px solid #8E1A20;outline-offset:-2px"':''}><th style="white-space:nowrap">${w.l} <span style="font-weight:600;color:#666">${w.dm}</span>${w.today?'<div class="hint" style="color:#8E1A20">النهارده</div>':''}${D.note?`<div><span class="chip a" style="font-size:11px">${esc(D.note)}</span></div>`:''}</th>${cell(D.day)}${cell(D.night)}</tr>`; }).join('')}</tbody></table></div>
     ${showNotes&&(S1.notes||[]).filter(Boolean).length?`<div class="hint" style="margin-top:10px">ملاحظاتك (مش بتظهر لحد غيرك):</div><ul style="margin:10px 0 0;padding-inline-start:18px;line-height:1.9;font-size:13px">${S1.notes.filter(Boolean).map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}`;
 }
 function shiftAckStatusHtml(){
@@ -1687,7 +1699,7 @@ function shiftAckStatusHtml(){
 function shiftViewModal(){
   const own=isOwner()&&!VIEWER;
   return `<div class="modal" data-close="1"><div class="box" style="max-width:720px"><h3>🗓 جدول الورديات</h3><div class="pad">
-    ${SHIFT&&SHIFT.ver?shiftTableHtml():'<div class="empty">لسه مفيش جدول منشور.</div>'}
+    ${SHIFT&&SHIFT.ver?shiftTableHtml(null,null,true):'<div class="empty">لسه مفيش جدول منشور.</div>'}
     ${SHIFT&&SHIFT.ver?`<div class="hint" style="margin-top:8px">آخر نشر: ${esc(new Date(SHIFT.ver).toLocaleString('ar-EG'))}</div>`:''}
     ${own?shiftAckStatusHtml():''}
   </div><div class="foot">${own?`<button class="btn p" data-act="sh-edit">✏️ عدّل الجدول</button>`:''}${!own&&shiftNeedsAck()?`<button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button>`:''}<button class="btn" data-close="1">قفل</button></div></div></div>`;
@@ -1701,10 +1713,13 @@ function shiftEditModal(){
     <div style="display:flex;gap:16px;flex-wrap:wrap">
       <div>☀ الصبح: <input type="time" id="sh-d0" value="${E.times.day[0]}"> لـ <input type="time" id="sh-d1" value="${E.times.day[1]}"></div>
       <div>☾ الليل: <input type="time" id="sh-n0" value="${E.times.night[0]}"> لـ <input type="time" id="sh-n1" value="${E.times.night[1]}"></div></div>
-    <h4 style="margin:14px 0 6px">الأيام</h4>
+    <h4 style="margin:14px 0 6px">الأيام بالتاريخ</h4>
+    ${(()=>{ const o=ui.shEWk||0, W=shWeek(o); return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px"><button class="btn sm" data-act="sh-ewk" data-d="-1">▶</button><b>${shWkName(o)} · ${shWkTitle(W)}</b><button class="btn sm" data-act="sh-ewk" data-d="1">◀</button>
+      <input id="sh-wnote" value="${esc(((E.weeks||{})[W[0].ds]||{}).note||'')}" placeholder="ملاحظة الأسبوع (مثلًا: العرض: بيع 23–26)" style="flex:1;min-width:200px"></div>
+      <div class="hint" style="margin-bottom:6px">التعديل هنا بيتسجل للأسبوع ده بس بتواريخه. الأسابيع اللي ماتعدلتش بتاخد الجدول الثابت. <label style="white-space:nowrap"><input type="checkbox" id="sh-base"> وخلّي الأسبوع ده هو الجدول الثابت للأسابيع اللي مالهاش تعديل</label></div>`; })()}
     <div class="hint" style="margin-bottom:6px">«مين شغال» = اللي موجود فعلًا. لو حد إجازة، اختاره في «إجازة مين» وحط اللي بيغطي في «مين شغال». لو وردية يوم معيّن ميعادها غير المعتاد، اكتبه في «ميعاد مختلف» (مثلًا: 2:00 ص – 12:00 م) — بيظهر للموظف بالأحمر تحت اسمه.</div>
     <div class="tblwrap" style="max-height:none"><table data-nosort><thead><tr><th>اليوم</th><th>☀ مين شغال</th><th>إجازة مين</th><th>☾ مين شغال</th><th>إجازة مين</th></tr></thead><tbody>
-      ${SH_DAYS.map(([k,l])=>{ const D=E.days[k]||{day:{},night:{}}; return `<tr><th>${l}</th><td>${sel('sh-'+k+'-dw',(D.day||{}).who)}<input id="sh-${k}-dt" value="${esc((D.day||{}).t||'')}" placeholder="ميعاد مختلف (اختياري)" style="display:block;margin-top:4px;width:100%;font-size:12px;padding:3px 6px"></td><td>${sel('sh-'+k+'-do',(D.day||{}).off,'—')}</td><td>${sel('sh-'+k+'-nw',(D.night||{}).who)}<input id="sh-${k}-nt" value="${esc((D.night||{}).t||'')}" placeholder="ميعاد مختلف (اختياري)" style="display:block;margin-top:4px;width:100%;font-size:12px;padding:3px 6px"></td><td>${sel('sh-'+k+'-no',(D.night||{}).off,'—')}</td></tr>`; }).join('')}
+      ${shWeek(ui.shEWk||0).map(({k,l,dm})=>{ const D=E.days[k]||{day:{},night:{}}; return `<tr><th style="white-space:nowrap">${l} <span style="color:#666">${dm}</span><input id="sh-${k}-note" value="${esc(D.note||'')}" placeholder="ملاحظة (عرض…)" style="display:block;margin-top:4px;width:110px;font-size:12px;padding:3px 6px"></th><td>${sel('sh-'+k+'-dw',(D.day||{}).who)}<input id="sh-${k}-dt" value="${esc((D.day||{}).t||'')}" placeholder="ميعاد مختلف (اختياري)" style="display:block;margin-top:4px;width:100%;font-size:12px;padding:3px 6px"></td><td>${sel('sh-'+k+'-do',(D.day||{}).off,'—')}</td><td>${sel('sh-'+k+'-nw',(D.night||{}).who)}<input id="sh-${k}-nt" value="${esc((D.night||{}).t||'')}" placeholder="ميعاد مختلف (اختياري)" style="display:block;margin-top:4px;width:100%;font-size:12px;padding:3px 6px"></td><td>${sel('sh-'+k+'-no',(D.night||{}).off,'—')}</td></tr>`; }).join('')}
     </tbody></table></div>
     <h4 style="margin:14px 0 6px">الأشخاص وحساباتهم على السيستم</h4>
     <div class="hint" style="margin-bottom:6px">كل واحد ليه إيميل هيطلعله الجدول أول ما يفتح السيستم لحد ما يأكّد إنه شافه.</div>
@@ -1722,8 +1737,18 @@ function shiftReadForm(){
   E.people=(E.people||[]).map((pp,i)=>({name:(g('sh-pn-'+i)||'').trim(), email:(g('sh-pe-'+i)||'').trim().toLowerCase()}));
   SH_DAYS.forEach(([k])=>{ const dw=g('sh-'+k+'-dw'), dof=g('sh-'+k+'-do'), nw=g('sh-'+k+'-nw'), nof=g('sh-'+k+'-no');
     const dt=(g('sh-'+k+'-dt')||'').trim(), nt=(g('sh-'+k+'-nt')||'').trim();
-    E.days[k]={day:{who:dw, ...(dof&&dof!==dw?{off:dof}:{}), ...(dt?{t:dt}:{})}, night:{who:nw, ...(nof&&nof!==nw?{off:nof}:{}), ...(nt?{t:nt}:{})}}; });
+    const note=(g('sh-'+k+'-note')||'').trim();
+    E.days[k]={day:{who:dw, ...(dof&&dof!==dw?{off:dof}:{}), ...(dt?{t:dt}:{})}, night:{who:nw, ...(nof&&nof!==nw?{off:nof}:{}), ...(nt?{t:nt}:{})}, ...(note?{note}:{})}; });
+  const W=shWeek(ui.shEWk||0), wn=(g('sh-wnote')||'').trim(); E.weeks=E.weeks||{}; if(wn) E.weeks[W[0].ds]={note:wn}; else delete E.weeks[W[0].ds];
+  const bEl=document.getElementById('sh-base'); if(bEl) E._base=bEl.checked;
   E.notes=g('sh-notes').split('\n').map(x=>x.trim()).filter(Boolean);
+}
+function shEditLoadWeek(E){ const W=shWeek(ui.shEWk||0); E.days={}; W.forEach(w=>{ E.days[w.k]=JSON.parse(JSON.stringify(((E.dated||{})[w.ds])||E._tpl[w.k]||{day:{},night:{}})); }); }
+function shEditCommitWeek(E){ // يسجل أيام الأسبوع اللي بيتعدل بالتاريخ — بس اللي مختلف عن الجدول الثابت
+  const W=shWeek(ui.shEWk||0); E.dated=E.dated||{}; const cl=o=>JSON.stringify({day:(o||{}).day||{},night:(o||{}).night||{}});
+  if(E._base){ SH_DAYS.forEach(([k])=>{ const D=E.days[k]||{}; E._tpl[k]={day:D.day||{},night:D.night||{}}; }); E._base=false; }
+  W.forEach(w=>{ const D=E.days[w.k]||{}; if(!D.note && cl(D)===cl(E._tpl[w.k])) delete E.dated[w.ds]; else E.dated[w.ds]=D; });
+  const cut=shYmd(new Date(Date.now()-70*864e5)); Object.keys(E.dated).forEach(x=>{ if(x<cut) delete E.dated[x]; }); Object.keys(E.weeks||{}).forEach(x=>{ if(x<cut) delete E.weeks[x]; });
 }
 function shiftProblems(E){
   // إجازتين ورا بعض: إجازة الصبح وإجازة الليل في نفس اليوم، أو إجازة ليل يوم وصبح اليوم اللي بعده
@@ -1743,7 +1768,7 @@ function shiftAckModal(){
   const em=shMyEmail(); const me=(SHIFT.people||[]).find(pp=>(pp.email||'').toLowerCase()===em)||{};
   return `<div class="modal"><div class="box" style="max-width:640px"><h3>🗓 جدول ورديات جديد${me.name?` — ${esc(me.name)}`:''}</h3><div class="pad">
     <div class="hint" style="margin-bottom:8px">صاحب النظام نشر جدول ورديات جديد. راجعه وأكّد إنك شفته.</div>
-    ${shiftTableHtml()}
+    ${shiftTableHtml(null,0)}<div style="height:12px"></div>${shiftTableHtml(null,1)}
     <label class="f" style="margin-top:12px">عندك ملاحظة أو مش هتقدر؟ (اختياري)</label><textarea id="sh-ack-note" rows="2" style="width:100%"></textarea>
   </div><div class="foot"><button class="btn p" data-act="sh-ack">✓ قريت الجدول وموافق</button><button class="btn" data-act="sh-ack-note">✋ ابعت الملاحظة</button><button class="btn" data-act="sh-later">بعدين</button></div></div></div>`;
 }
@@ -12860,14 +12885,16 @@ async function _act(a,d){
   if(a==='fix-factory-party'){ const L=wrongFactoryParty(); if(!L.length) return; if(!confirm(`${L.length} حركة منصرف سببها «${[...new Set(L.map(m=>m.reason))].join('، ')}» بس متسجلة لمصنع تاني كجهة. هتتشال الجهة منها (السبب والكمية زي ما هم). تكمل؟`)) return;
     const g=await guardBulk('تصحيح جهة حركات اتسجلت لمصنع'); if(!g) return; L.forEach(m=>{ m.party=''; }); await saveTx(); await logOp(g, L.length+' حركة'); toast(`اتصلحت ${L.length} حركة ✓`); if(ui.modal && /الفحص اليومي/.test(ui.modal)) return act('hc-open',{}); return render(); }
   if(a==='sh-open'){ await shiftLoad(); if(isOwner() && !(USERS_LIST&&USERS_LIST.length)) { try{ await usersLoad(); }catch(e){} } ui.modal=shiftViewModal(); return render(); }
-  if(a==='sh-edit'){ if(!isOwner()) return; ui.shE=JSON.parse(JSON.stringify(SHIFT&&SHIFT.ver?SHIFT:SH_DEFAULT)); ui.modal=shiftEditModal(); return render(); }
+  if(a==='sh-edit'){ if(!isOwner()) return; ui.shE=JSON.parse(JSON.stringify(SHIFT&&SHIFT.ver?SHIFT:SH_DEFAULT)); ui.shE._tpl=JSON.parse(JSON.stringify(ui.shE.days||{})); ui.shEWk=ui.shWk||0; shEditLoadWeek(ui.shE); ui.modal=shiftEditModal(); return render(); }
+  if(a==='sh-wk'){ ui.shWk=d.d==='0'?0:(ui.shWk||0)+(+d.d); ui.modal=shiftViewModal(); return render(); }
+  if(a==='sh-ewk'){ shiftReadForm(); shEditCommitWeek(ui.shE); ui.shEWk=(ui.shEWk||0)+(+d.d); shEditLoadWeek(ui.shE); ui._shForce=false; ui.modal=shiftEditModal(); return render(); }
   if(a==='sh-p-add'){ shiftReadForm(); ui.shE.people.push({name:'',email:''}); ui.modal=shiftEditModal(); return render(); }
   if(a==='sh-p-del'){ shiftReadForm(); ui.shE.people.splice(+d.i,1); ui.modal=shiftEditModal(); return render(); }
   if(a==='sh-cancel'){ ui.shE=null; ui.modal=shiftViewModal(); return render(); }
   if(a==='sh-save'){ if(!isOwner()||VIEWER) return; shiftReadForm(); const E=ui.shE; E.people=E.people.filter(pp=>pp.name);
     const probs=shiftProblems(E); if(probs.length && !ui._shForce){ ui._shForce=true; const w=document.getElementById('sh-warn'); if(w) w.innerHTML=`<div style="color:var(--red);line-height:1.8">⚠ ${probs.map(esc).join('<br>⚠ ')}<br><b>دوس «احفظ وانشر» تاني لو متأكد.</b></div>`; return; }
-    ui._shForce=false; E.ver=Date.now();
-    try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_sched',v:E}]}); SHIFT=E; ui.shE=null; toast('✓ الجدول اتنشر — كل واحد هيطلعله أول ما يفتح السيستم لحد ما يأكّد'); ui.modal=shiftViewModal(); return render(); }
+    ui._shForce=false; shEditCommitWeek(E); const V=JSON.parse(JSON.stringify(E)); V.days=V._tpl; delete V._tpl; delete V._base; V.ver=Date.now(); ui.shWk=ui.shEWk||0;
+    try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'shift_sched',v:V}]}); SHIFT=V; ui.shE=null; toast('✓ الجدول اتنشر — كل واحد هيطلعله أول ما يفتح السيستم لحد ما يأكّد'); ui.modal=shiftViewModal(); return render(); }
     catch(e){ return toast('ماتحفظش: '+e.message,1); } }
   if(a==='sh-ack' || a==='sh-ack-note'){ const em=shMyEmail(); if(!em||!SHIFT) return; const note=((document.getElementById('sh-ack-note')||{}).value||'').trim();
     if(a==='sh-ack-note' && !note) return toast('اكتب الملاحظة الأول',1);
