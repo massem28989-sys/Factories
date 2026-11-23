@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '23-11 · 13:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '23-11 · 14:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4827,6 +4827,7 @@ function locModal(){ const L=locList(); const sel=ui.locSel&&L.some(l=>l.id===ui
     <h3>🗺 أماكن الجرد</h3>
     <div class="pad" style="max-height:74vh;overflow:auto">
       <div class="hint" style="line-height:1.8;margin-bottom:8px">1) اكتب الأماكن <b>بالترتيب اللي بتلف بيه في المخزن</b>. 2) اختار مكان، ودوس على الأصناف اللي فيه. الصنف بيتنقل للمكان اللي اخترته — ودوسة تانية بتشيله.</div>
+      ${L.length&&none?`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#F0FAF1;border:1px solid #9BCBA4;border-radius:10px;padding:10px 12px;margin-bottom:10px"><b>📍 ${none} صنف لسه مالهوش مكان</b><button class="btn p" data-act="lq-open">🚀 وزّعهم بسرعة — صنف صنف</button><span class="hint">كل صنف يطلعلك لوحده، دوس على أوضته وبيروح للي بعده.</span></div>`:''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
         ${L.map((l,i)=>`<span style="display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:2px 4px;${l.id===sel?'background:#8E1A20;color:#fff':''}">
           <button class="btn sm" style="border:0;background:none;color:inherit;font-weight:700" data-act="loc-pick" data-v="${esc(l.id)}">${i+1}. ${esc(l.name)} <span style="opacity:.7">(${S.items.filter(it=>(S.itemLoc||{})[it.id]===l.id).length})</span></button>
@@ -4846,6 +4847,57 @@ function locModal(){ const L=locList(); const sel=ui.locSel&&L.some(l=>l.id===ui
           <div class="hint" style="margin-top:4px">اللي عليه ✓ هيلاقي زرار «🗺 الأماكن» في شاشة الجرد ويقدر يضيف أماكن ويحط الأصناف فيها.</div></div>`; })():''}
     </div>
     <div class="foot"><button class="btn p" data-close="1">تمام</button></div></div></div>`; }
+/* ===== 🚀 توزيع الأصناف اللي مالهاش مكان بسرعة: صنف صنف، دوسة على المكان وبعده اللي بعده ===== */
+const _lqTok=n=>arNorm(String(n||'')).toLowerCase().split(/[^a-z0-9ء-ي]+/).filter(w=>w.length>=3);
+function lqSuggest(it){ const L=locList(); const sc={}; L.forEach(l=>sc[l.id]=0); const IL=S.itemLoc||{}; const tk=new Set(_lqTok(it.name+' '+(it.desc||'')));
+  S.items.forEach(o=>{ const l=IL[o.id]; if(!l||sc[l]==null||o.id===it.id) return; if(o.cat===it.cat) sc[l]+=1; const m=_lqTok(o.name+' '+(o.desc||'')).filter(w=>tk.has(w)).length; if(m) sc[l]+=4*m; });
+  let best='',bv=0; Object.entries(sc).forEach(([k,v])=>{ if(v>bv){ bv=v; best=k; } }); return best; }
+function lqModal(){ const L=locList(); const ids=ui.lqIds||[]; const i=Math.min(ui.lqI||0, ids.length);
+  const done=ids.filter(id=>L.some(l=>l.id===(S.itemLoc||{})[id])).length;
+  if(i>=ids.length) return `<div class="modal"><div class="box" style="max-width:560px"><h3>🚀 توزيع الأصناف</h3><div class="pad" style="text-align:center;padding:30px"><div style="font-size:40px">✅</div><b style="font-size:17px">خلصت — اتحدد مكان ${done} صنف من ${ids.length}</b>${done<ids.length?`<div class="hint" style="margin-top:6px">${ids.length-done} صنف اتخطّى، هيرجعولك المرة الجاية.</div>`:''}</div><div class="foot"><button class="btn p" data-act="lq-close">تمام</button></div></div></div>`;
+  const it=item(ids[i])||{}; const sug=lqSuggest(it); const cur=(S.itemLoc||{})[it.id]; const c=calc(it); const oh=c.has?c.real:c.book;
+  return `<div class="modal"><div class="box" style="max-width:640px"><h3>🚀 توزيع الأصناف — ${i+1} من ${ids.length}</h3>
+    <div style="height:6px;background:#eee"><div style="height:6px;width:${Math.round(100*i/ids.length)}%;background:var(--green,#2e7d32)"></div></div>
+    <div class="pad">
+      <div style="text-align:center;margin:6px 0 16px"><div style="font-size:21px;font-weight:800;line-height:1.4">${esc(it.name)}</div>
+        <div class="hint">${esc(it.cat||'')}${it.desc?' · '+esc(it.desc):''} · الرصيد ${fmt(n2(oh))} ${esc(it.unit||'')}</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px">${L.map((l,k)=>`<button class="btn ${l.id===cur?'p':''}" data-act="lq-set" data-v="${esc(l.id)}" style="padding:16px 10px;font-size:16px;font-weight:700;${l.id===sug&&l.id!==cur?'border:2px solid var(--green,#2e7d32);background:#F0FAF1':''}">${k+1}. ${esc(l.name)}${l.id===sug?'<div style="font-size:11px;font-weight:600;color:#2e7d32">⭐ مقترح</div>':''}</button>`).join('')}</div>
+      <div class="hint" style="margin-top:10px;text-align:center">⭐ = المكان اللي فيه أصناف شبهه. ممكن تدوس رقم المكان من الكيبورد (1–${L.length}).</div>
+    </div>
+    <div class="foot" style="justify-content:space-between"><div style="display:flex;gap:6px"><button class="btn" data-act="lq-nav" data-d="-1" ${i?'':'disabled'}>→ اللي قبله</button><button class="btn" data-act="lq-nav" data-d="1">تخطّي ←</button></div><button class="btn" data-act="lq-close">قفل (بيتحفظ)</button></div></div></div>`; }
+let _lqSaveT=null; function lqSaveSoon(){ clearTimeout(_lqSaveT); _lqSaveT=setTimeout(()=>{ saveMain().catch(()=>{}); },1500); }
+document.addEventListener('keydown',e=>{ if(!ui.modal||!ui.modal.includes('data-act="lq-set"')) return; const n=+e.key; const L=locList(); if(n>=1&&n<=L.length){ e.preventDefault(); const b=document.querySelector(`[data-act="lq-set"][data-v="${L[n-1].id}"]`); if(b) b.click(); } });
+
+/* ===== 🎯 اقتراح الحد الأدنى من الاستهلاك الفعلي ===== */
+function minSuggestRows(){ const cover=+ui.msCover||3, T=today(); const days=14; const from=prAddDays(T,-days);
+  const first=S.moves.reduce((a,m)=>(!a||m.date<a)?m.date:a,''); const span=Math.max(1,Math.min(days, Math.round((new Date(T)-new Date(first<from?from:first))/864e5)));
+  const sup=new Set(S.suppliers||[]); const bought=new Set(S.moves.filter(m=>m.dir==='in'&&sup.has(m.party)).map(m=>m.itemId));
+  const out={}; S.moves.forEach(m=>{ if(m.dir!=='out'||m.date<from||m.date>T||isSettleParty(m.party)) return; out[m.itemId]=(out[m.itemId]||0)+(+m.qty||0); });
+  return S.items.filter(it=>!isUntracked(it.id) && (bought.has(it.id)||it.packUnit)).map(it=>{ const avg=(out[it.id]||0)/span; let s=avg*cover; const pk=+it.packSize>1&&it.packUnit?+it.packSize:0;
+      s= s<=0?0 : pk? Math.ceil(s/pk-1e-9)*pk : (s>=10?Math.ceil(s):Math.ceil(s*10)/10);
+      const c=calc(it); return {it,avg,sug:n2(s),pk,oh:c.has?c.real:c.book}; })
+    .sort((a,b)=>(+(a.it.min>0)-+(b.it.min>0))||b.avg*(+b.it.price||0)-a.avg*(+a.it.price||0)); }
+function minSuggestModal(){ const rows=minSuggestRows(); const onlyNo=ui.msOnlyNo!==false; const R=rows.filter(r=>!onlyNo||!(r.it.min>0)); const q=arNorm((ui.msQ||'').trim());
+  const RR=R.filter(r=>!q||arNorm(r.it.name).includes(q));
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:960px;display:flex;flex-direction:column;overflow:hidden"><h3>🎯 الحد الأدنى للطلب — مقترح من الاستهلاك</h3>
+    <div style="padding:10px 16px;border-bottom:1px solid var(--line);background:#FAF7F2;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div><label class="f">الحد الأدنى يكفي كام يوم؟</label><input type="number" id="ms-cover" min="1" step="1" value="${+ui.msCover||3}" style="width:80px;text-align:center;font-weight:700"></div>
+      <label style="align-self:center"><input type="checkbox" id="ms-only" ${onlyNo?'checked':''}> اللي مالهوش حد أدنى بس</label>
+      <input type="text" id="ms-q" placeholder="دور على صنف…" value="${esc(ui.msQ||'')}" style="flex:1;min-width:160px">
+      <div class="hint" style="flex-basis:100%;line-height:1.7">المقترح = متوسط الصرف اليومي في آخر 14 يوم × عدد الأيام، ومتقرّب لكرتونة كاملة لو الصنف ليه وحدة كرتونة. أول ما الرصيد يوصل للرقم ده، السيستم ينبّهك تطلب. عدّل أي رقم قبل الحفظ، وشيل العلامة من الصنف اللي مش عايزه.</div></div>
+    <div class="pad" style="flex:1 1 auto;min-height:200px;overflow:auto;padding-top:0"><table data-nosort><thead style="position:sticky;top:0;background:#fff;z-index:1"><tr><th style="width:30px"><input type="checkbox" id="ms-all" checked></th><th>الصنف</th><th class="n">صرف يومي</th><th class="n">الرصيد</th><th class="n">الحالي</th><th class="n">الحد الأدنى</th></tr></thead><tbody>
+      ${RR.map(r=>`<tr><td><input type="checkbox" data-msck="${r.it.id}" ${r.sug>0?'checked':''}></td><td><b>${esc(r.it.name)}</b><div class="hint">${esc(r.it.cat||'')}${r.avg<=0?' · <span style="color:#b07800">ما اتصرفش في آخر 14 يوم</span>':''}</div></td>
+        <td class="n">${r.avg>0?fmt(n2(r.avg))+' '+esc(r.it.unit||''):'—'}</td><td class="n">${fmt(n2(r.oh))}</td><td class="n">${r.it.min>0?fmt(r.it.min):'—'}</td>
+        <td class="n" style="white-space:nowrap"><input type="number" min="0" step="any" data-msv="${r.it.id}" value="${r.sug||''}" placeholder="0" style="width:84px;text-align:center;font-weight:700"> <span class="hint">${esc(r.it.unit||'')}</span>${r.pk?`<div class="hint" data-mspk="${r.it.id}">= ${fmt(n2(r.sug/r.pk))} ${esc(r.it.packUnit)}</div>`:''}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">مفيش أصناف</td></tr>'}
+    </tbody></table></div>
+    <div class="foot" style="justify-content:space-between"><span class="hint">${RR.length} صنف</span><div style="display:flex;gap:8px"><button class="btn p" data-act="ms-save">💾 احفظ الحد الأدنى للمعلَّم</button><button class="btn" data-close="1">إلغاء</button></div></div></div></div>`; }
+function minSuggestBind(){ const re=()=>{ ui.modal=minSuggestModal(); render(); minSuggestBind(); };
+  const c=$('#ms-cover'); if(c) c.onchange=()=>{ ui.msCover=Math.max(1,+c.value||3); re(); };
+  const o=$('#ms-only'); if(o) o.onchange=()=>{ ui.msOnlyNo=o.checked; re(); };
+  const q=$('#ms-q'); if(q){ q.oninput=()=>{ ui.msQ=q.value; clearTimeout(q._t); q._t=setTimeout(()=>{ const p=q.selectionStart; re(); const n=$('#ms-q'); if(n){ n.focus(); try{ n.setSelectionRange(p,p); }catch(e){} } },350); }; }
+  const a=$('#ms-all'); if(a) a.onchange=()=>document.querySelectorAll('[data-msck]').forEach(x=>x.checked=a.checked);
+  document.querySelectorAll('[data-msv]').forEach(i=>i.oninput=()=>{ const ck=document.querySelector(`[data-msck="${i.dataset.msv}"]`); if(ck) ck.checked=+i.value>0; const it=item(i.dataset.msv); const pk=document.querySelector(`[data-mspk="${i.dataset.msv}"]`); if(pk&&it) pk.textContent=`= ${fmt(n2((+i.value||0)/(+it.packSize||1)))} ${it.packUnit}`; }); }
+
 function locBind(){ const q=$('#loc-q');
   // البحث: بنحدّث قايمة الأصناف بس (مش الشاشة كلها) — كده الكتابة مش بتقطّع ولا بتضيع حروف
   if(q){ let t=null; q.oninput=()=>{ ui.locQ=q.value; clearTimeout(t); t=setTimeout(()=>{ const tmp=document.createElement('div'); tmp.innerHTML=locModal(); const ng=tmp.querySelector('#loc-grid'), og=$('#loc-grid'); if(!ng||!og) return;
@@ -6608,7 +6660,7 @@ function viewItems(){
   <div class="panel">
     <h2>كارت الأصناف <em>${list.length} من ${S.items.length}</em>
       <button class="btn sm" data-act="ih-open" style="margin-inline-start:auto">📈 تاريخ صنف</button><button class="btn sm g" data-act="items-export">تصدير CSV</button>
-      <button class="btn sm" data-act="import-item-catalog">استيراد بالجملة</button><button class="btn sm" data-act="pk-open" data-v="all">📦 وحدات الكرتونة</button>
+      <button class="btn sm" data-act="import-item-catalog">استيراد بالجملة</button><button class="btn sm" data-act="pk-open" data-v="all">📦 وحدات الكرتونة</button><button class="btn sm" data-act="ms-open">🎯 الحد الأدنى المقترح</button>
       <button class="btn sm p" data-act="new-item">صنف جديد</button></h2>
     ${categoryTabs()}
     <div class="pad">
@@ -13420,6 +13472,14 @@ async function _act(a,d){
   if(a.startsWith('loc-') && !canLoc()) return toast('ترتيب الأماكن محتاج صلاحية من صاحب النظام',1);
   if(a==='loc-open'){ S.locs=S.locs||[]; S.itemLoc=S.itemLoc||{}; if(isOwner() && !(USERS_LIST&&USERS_LIST.length)){ try{ await usersLoad(); }catch(e){} } ui.modal=locModal(); render(); locBind(); return; }
   if(a==='loc-ed'){ if(!isOwner()) return; const em=String(d.v||'').toLowerCase(); const L=(S.locEditors||[]).map(x=>String(x).toLowerCase()); S.locEditors=L.includes(em)?L.filter(x=>x!==em):[...L,em]; await saveMain(); toast(L.includes(em)?`اتشالت الصلاحية من ${em}`:`✓ ${em} يقدر يرتب الأماكن دلوقتي`); ui.modal=locModal(); render(); locBind(); return; }
+  if(a==='lq-open'){ const L=locList(); if(!L.length) return toast('اعمل الأماكن الأول',1); ui.lqIds=S.items.filter(it=>!isUntracked(it.id) && !L.some(l=>l.id===(S.itemLoc||{})[it.id])).sort((x,y)=>String(x.cat).localeCompare(String(y.cat),'ar')||x.name.localeCompare(y.name,'ar')).map(it=>it.id);
+    if(!ui.lqIds.length) return toast('✓ كل الأصناف ليها مكان'); ui.lqI=0; ui.modal=lqModal(); return render(); }
+  if(a==='lq-set'){ const id=(ui.lqIds||[])[ui.lqI||0]; if(!id) return; S.itemLoc=S.itemLoc||{}; S.itemLoc[id]=d.v; lqSaveSoon(); ui.lqI=(ui.lqI||0)+1; ui.modal=lqModal(); return render(); }
+  if(a==='lq-nav'){ ui.lqI=Math.max(0,(ui.lqI||0)+(+d.d)); ui.modal=lqModal(); return render(); }
+  if(a==='lq-close'){ clearTimeout(_lqSaveT); await saveMain(); ui.modal=locModal(); render(); locBind(); return; }
+  if(a==='ms-open'){ ui.msOnlyNo=true; ui.msQ=''; ui.modal=minSuggestModal(); render(); minSuggestBind(); return; }
+  if(a==='ms-save'){ let n=0; document.querySelectorAll('[data-msck]').forEach(ck=>{ if(!ck.checked) return; const it=item(ck.dataset.msck); const v=+((document.querySelector(`[data-msv="${ck.dataset.msck}"]`)||{}).value)||0; if(it&&v>0&&it.min!==v){ it.min=v; n++; } });
+    if(!n) return toast('مفيش ولا رقم يتحفظ',1); await saveMain(); toast(`✓ اتحفظ الحد الأدنى لـ ${n} صنف`); ui.modal=minSuggestModal(); render(); minSuggestBind(); return; }
   if(a==='loc-pick'){ ui.locSel=d.v; ui.modal=locModal(); render(); locBind(); return; }
   if(a==='loc-add'){ const v=(($('#loc-new')||{}).value||'').trim(); if(!v) return toast('اكتب اسم المكان',1); S.locs=S.locs||[]; S.itemLoc=S.itemLoc||{}; if(S.locs.some(l=>l.name===v)) return toast('المكان ده موجود',1); const id=uid('loc'); S.locs.push({id,name:v}); ui.locSel=id; await saveMain(); ui.modal=locModal(); render(); locBind(); const n=$('#loc-new'); if(n) n.focus(); return; }
   if(a==='loc-ren'){ const l=S.locs.find(x=>x.id===d.v); if(!l) return; const v=(prompt('اسم المكان',l.name)||'').trim(); if(!v) return; l.name=v; await saveMain(); ui.modal=locModal(); render(); locBind(); return; }
