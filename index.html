@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '22-11 · 14:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '23-11 · 12:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8678,70 +8678,100 @@ function prAwaitingPanel(){
 // صنف بيتطلب بالعدد (حبة/قطعة) والمخزن بالوزن (كيلو): بيتسجل العدد للمتابعة، والوارد بالوزن الفعلي وسعر الكيلو
 function prByWeight(r){ const it=item(r.itemId)||{}; const U=String(r.orderUnit||''), B=String(r.unit||it.unit||'');
   return !!U && U!==B && /حب|قطع|pc|pcs/i.test(U) && /كيلو|كجم|كغ|kg|KG|جرام/i.test(B); }
+// عمر الصنف (أيام) من آخر استلام ليه تاريخ صلاحية — بيتعرض كاختصار
+function prShelfDays(itemId){ let best=null; for(const m of S.moves){ if(m.dir!=='in'||m.itemId!==itemId||!m.expDate||!m.date) continue; if(!best||String(m.date)>String(best.date)) best=m; }
+  if(!best) return 0; const d=Math.round((new Date(best.expDate)-new Date(best.date))/864e5); return d>0&&d<2000?d:0; }
 function prReceiveModal(key){
   const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && r.status==='approved'); if(!rs.length) return null;
   const sup=rs[0].supplier||'';
-  return `<div class="modal" data-close="1"><div class="box" style="max-width:820px">
-    <h3>استلام طلب الشراء${prLabel(rs)?' — '+esc(prLabel(rs)):''}</h3>
-    <div class="pad" style="max-height:72vh;overflow:auto">
-      <div style="display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px"><button class="btn sm" type="button" onclick="document.querySelectorAll('[data-prq]').forEach(i=>{i.value=0;i.dispatchEvent(new Event('input'))})">صفّر الكل</button><button class="btn sm" type="button" onclick="document.querySelectorAll('[data-prq]').forEach(i=>{i.value=i.dataset.full;i.dispatchEvent(new Event('input'))})">رجّع الكل كامل</button></div>
-      ${(()=>{ const q=arNorm(sup); const isFac = q && (FACTORIES||[]).some(f=>{ const p=arNorm(f.name||''); return p && (p.includes(q)||q.includes(p)); });
-        return isFac ? `<div class="warnbar" style="margin-bottom:10px;line-height:1.7">⚠️ المورد ده مصنع من مصانعك. لو هو بعت الشحنة من النظام، استلمها من <b>«الحركة ← استلام من مصانع»</b> مش من هنا — كده المصنع التاني يتبلّغ بأي فرق، وطلب الشراء بيتخصم لوحده. الاستلام من هنا هيسجل الوارد مرة تانية.</div>` : ''; })()}
-      <div class="hint" style="margin-bottom:10px;line-height:1.7">الكميات متعبّية باللي فاضل من الطلب. <b>عدّ اللي وصل فعلًا</b> وعدّل الرقم لو فيه نقص، واكتب صفر للصنف اللي ما وصلش. السعر لكل وحدة زي ما هي مكتوبة جنبه.</div>
-      <div class="tblwrap" style="border:1px solid var(--line);border-radius:10px;max-height:none"><table>
-        <thead><tr><th>الصنف</th><th class="n">المطلوب</th><th class="n">وصل</th><th>جاي من</th><th class="n">سعر الوحدة</th><th class="n">الإجمالي</th></tr></thead>
-        <tbody>${rs.map(r=>{ const it=item(r.itemId)||{price:0,unit:r.unit};
-          const size=+r.orderSize||1, U=r.orderUnit||r.unit;
-          const remainBase=Math.max(0,(+r.qty||0)-(+r.receivedQty||0)), remain=n2(remainBase/size);
-          const pr=n2((+it.price||0)*size);
-          return `<tr data-prr="${r.id}">
-            <td><div class="iname">${esc(r.itemName)}</div>${size!==1?`<div class="hint">1 ${esc(U)} = ${fmt(size)} ${esc(r.unit||'')}</div>`:''}</td>
-            <td class="n">${fmtP(remain)} ${esc(U)}${+r.receivedQty>0?`<div class="hint" style="color:var(--amber,#b07800)">وصل قبل كده ${fmt(n2(r.receivedQty/size))}${prLinkedInfo(r)}</div>`:''}</td>
-            <td class="n"><input type="number" min="0" step="any" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:80px;text-align:center"> <span class="hint">${esc(U)}</span>
-              ${prByWeight(r)?`<div style="margin-top:6px;background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:5px 6px"><label class="hint" style="display:block;margin-bottom:3px;color:#8A4A0B">⚖️ الوزن الفعلي (${esc(r.unit||'كيلو')})</label><input type="number" min="0" step="any" data-prw="${r.id}" placeholder="مثلًا 14.05" style="width:90px;text-align:center;font-weight:700"></div>`:''}</td>
-            <td><select data-prfrom="${r.id}" style="max-width:150px" title="لو الصنف ده جه من مكان تاني غير مورد الطلب (زي المخزن الرئيسي)">
-              <option value="${esc(r.supplier||sup)}">${esc(r.supplier||sup||'—')}</option>
-              ${[...new Set([...S.suppliers, ...(S.branches||[]).filter(b=>/مخزن/.test(b))])].filter(x=>x&&x!==(r.supplier||sup)).sort((a,b)=>a.localeCompare(b,'ar')).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}
-            </select></td>
-            <td class="n"><input type="number" min="0" step="any" data-prp="${r.id}" value="${(prByWeight(r)?n2(+it.price||0):pr)||''}" style="width:84px;text-align:center">${prByWeight(r)?`<div class="hint">للـ${esc(r.unit||'كيلو')}</div>`:''}</td>
-            <td class="n" data-prt="${r.id}">${money(remain*pr)}</td></tr>`; }).join('')}</tbody>
-        <tfoot><tr><td colspan="5" style="text-align:end"><b>إجمالي الفاتورة</b></td><td class="n"><b id="prr-total">—</b></td></tr></tfoot>
-      </table></div>
-      <div class="grid" style="margin-top:12px">
-        <div><label class="f">تاريخ الاستلام</label><input type="date" id="prr-date" value="${today()}" style="width:100%"></div>
-        <div style="grid-column:span 2"><label class="f">صورة الفاتورة <span class="hint">(مرة واحدة لكل الأصناف)</span></label><input type="file" id="prr-inv" accept="image/*" capture="environment" style="width:100%"></div>
+  const q=arNorm(sup); const isFac = q && (FACTORIES||[]).some(f=>{ const p=arNorm(f.name||''); return p && (p.includes(q)||q.includes(p)); });
+  const srcOpts=r=>[...new Set([...S.suppliers, ...(S.branches||[]).filter(b=>/مخزن/.test(b))])].filter(x=>x&&x!==(r.supplier||sup)).sort((a,b)=>a.localeCompare(b,'ar'));
+  const card=r=>{ const it=item(r.itemId)||{price:0,unit:r.unit};
+    const size=+r.orderSize||1, U=r.orderUnit||r.unit, bw=prByWeight(r);
+    const remainBase=Math.max(0,(+r.qty||0)-(+r.receivedQty||0)), remain=n2(remainBase/size);
+    const pr=n2((+it.price||0)*size); const sd=prShelfDays(r.itemId); const tracks=S.moves.some(m=>m.dir==='in'&&m.itemId===r.itemId&&m.expDate);
+    return `<div class="prc" data-prr="${r.id}" data-trk="${tracks?1:''}" style="border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:#fff">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap">
+        <div><div class="iname" style="font-size:15px">${esc(r.itemName)}</div>
+          <div class="hint">المطلوب: <b>${fmtP(remain)} ${esc(U)}</b>${size!==1?` · 1 ${esc(U)} = ${fmt(size)} ${esc(r.unit||'')}`:''}${(r.supplier&&r.supplier!==sup)?` · ${esc(r.supplier)}`:''}</div>
+          ${+r.receivedQty>0?`<div class="hint" style="color:#b07800">وصل قبل كده ${fmt(n2(r.receivedQty/size))}${prLinkedInfo(r)}</div>`:''}</div>
+        <span class="chip" data-prst="${r.id}">—</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:10px;align-items:flex-end">
+        <div><label class="f">وصل كام (${esc(U)})</label>
+          <div style="display:flex;align-items:center;gap:4px"><button class="btn sm" type="button" data-prstep="-1">−</button><input type="number" min="0" step="any" inputmode="decimal" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:78px;text-align:center;font-size:16px;font-weight:700"><button class="btn sm" type="button" data-prstep="1">+</button></div>
+          <div style="display:flex;gap:4px;margin-top:4px"><button class="btn sm" type="button" data-prset="full">✓ كامل</button><button class="btn sm" type="button" data-prset="0">✗ ما وصلش</button></div></div>
+        ${bw?`<div style="background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:5px 8px"><label class="f" style="color:#8A4A0B">⚖️ الوزن الفعلي (${esc(r.unit||'كيلو')})</label><input type="number" min="0" step="any" inputmode="decimal" data-prw="${r.id}" placeholder="مثلًا 14.05" style="width:96px;text-align:center;font-weight:700;font-size:16px"></div>`:''}
+        <div><label class="f">تاريخ الصلاحية ${tracks?'<span style="color:var(--red)">*</span>':'<span class="hint">(اختياري)</span>'}</label>
+          <input type="date" data-prexp="${r.id}" style="width:150px">
+          <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">${sd?`<button class="btn sm" type="button" data-prexpd="${sd}" title="نفس عمر آخر استلام">زي آخر مرة (${sd} يوم)</button>`:''}<button class="btn sm" type="button" data-prexpd="7">أسبوع</button><button class="btn sm" type="button" data-prexpd="30">شهر</button><button class="btn sm" type="button" data-prexpd="180">6 شهور</button><button class="btn sm" type="button" data-prexpd="365">سنة</button></div>
+          <div class="hint" data-prexpi="${r.id}" style="min-height:1em"></div></div>
+        <div><label class="f">سعر ${bw?'الـ'+esc(r.unit||'كيلو'):'الـ'+esc(U)}</label><input type="number" min="0" step="any" inputmode="decimal" data-prp="${r.id}" value="${(bw?n2(+it.price||0):pr)||''}" style="width:90px;text-align:center"></div>
+        <div style="margin-inline-start:auto;text-align:end"><label class="f">الإجمالي</label><div class="n" data-prt="${r.id}" style="font-weight:800;font-size:16px">—</div></div>
       </div>
+      <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">جه من مكان تاني؟</summary>
+        <select data-prfrom="${r.id}" style="margin-top:4px;max-width:220px"><option value="${esc(r.supplier||sup)}">${esc(r.supplier||sup||'—')}</option>${srcOpts(r).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></details>
+    </div>`; };
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:860px;display:flex;flex-direction:column;overflow:hidden">
+    <h3>📦 استلام${prLabel(rs)?' — '+esc(prLabel(rs)):''}</h3>
+    <div style="padding:10px 16px;border-bottom:1px solid var(--line);background:#FAF7F2;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+      <div><label class="f">تاريخ الاستلام</label><input type="date" id="prr-date" value="${today()}"></div>
+      <div style="flex:1;min-width:200px"><label class="f">📷 صورة الفاتورة <span class="hint">(مرة واحدة لكل الأصناف)</span></label><input type="file" id="prr-inv" accept="image/*" capture="environment" style="width:100%"></div>
+      <div style="text-align:end"><div class="hint">${rs.length} صنف · اتطلب ${rs[0].createdAt?new Date(rs[0].createdAt).toLocaleDateString('ar-EG'):''}${rs[0].needDate?' · التوصيل '+esc(rs[0].needDate):''}</div><div id="prr-prog" style="font-weight:700"></div></div>
     </div>
-    <div class="foot"><button class="btn p" data-act="pr-receive-save" data-k="${key}">تأكيد الاستلام وتسجيل الوارد</button><button class="btn" data-close="1">إلغاء</button></div>
+    <div class="pad" style="flex:1 1 auto;min-height:160px;overflow:auto;background:#F6F4F1">
+      ${isFac?`<div class="warnbar" style="margin-bottom:10px;line-height:1.7">⚠️ المورد ده مصنع من مصانعك. لو هو بعت الشحنة من النظام، استلمها من <b>«الحركة ← استلام من مصانع»</b> مش من هنا — الاستلام من هنا هيسجل الوارد مرة تانية.</div>`:''}
+      <div class="hint" style="margin-bottom:8px;line-height:1.7">عدّ اللي وصل فعلًا لكل صنف، واكتب تاريخ الصلاحية من على الكرتونة. الصنف اللي ما وصلش دوس «✗ ما وصلش».${rs.length>1?` <button class="btn sm" type="button" data-prall="full">✓ الكل كامل</button> <button class="btn sm" type="button" data-prall="0">صفّر الكل</button>`:''}</div>
+      ${rs.map(card).join('')}
+    </div>
+    <div class="foot" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><div><span class="hint">إجمالي الفاتورة</span> <b id="prr-total" style="font-size:18px">—</b></div>
+      <div style="display:flex;gap:8px"><button class="btn p" data-act="pr-receive-save" data-k="${key}">تأكيد الاستلام وتسجيل الوارد</button><button class="btn" data-close="1">إلغاء</button></div></div>
   </div></div>`;
 }
 function prReceiveBind(){
-  const upd=()=>{ let tot=0; document.querySelectorAll('[data-prr]').forEach(tr=>{ const id=tr.dataset.prr;
-      const w=tr.querySelector(`[data-prw="${id}"]`); const q=w?(+w.value||0):(+(tr.querySelector(`[data-prq="${id}"]`)||{}).value||0), p=+(tr.querySelector(`[data-prp="${id}"]`)||{}).value||0;
-      const c=tr.querySelector(`[data-prt="${id}"]`); if(c) c.textContent=money(q*p); tot+=q*p; });
-    const t=document.getElementById('prr-total'); if(t) t.textContent=money(tot); };
-  document.querySelectorAll('[data-prq],[data-prp],[data-prw]').forEach(i=>i.oninput=upd); upd();
+  const dateOf=()=>(document.getElementById('prr-date')||{}).value||today();
+  const upd=()=>{ let tot=0, full=0, part=0, none=0; document.querySelectorAll('[data-prr]').forEach(tr=>{ const id=tr.dataset.prr;
+      const qi=tr.querySelector(`[data-prq="${id}"]`); const qv=+(qi||{}).value||0, fullv=+(qi||{}).dataset.full||0;
+      const w=tr.querySelector(`[data-prw="${id}"]`); const q=w?(+w.value||0):qv, p=+(tr.querySelector(`[data-prp="${id}"]`)||{}).value||0;
+      const c=tr.querySelector(`[data-prt="${id}"]`); if(c) c.textContent=money(q*p); tot+=q*p;
+      const st=tr.querySelector(`[data-prst="${id}"]`); const k=qv<=0?'none':qv+1e-9>=fullv?'full':'part'; if(k==='full') full++; else if(k==='part') part++; else none++;
+      if(st){ st.className='chip '+(k==='full'?'g':k==='part'?'a':'r'); st.textContent=k==='full'?'✓ وصل كامل':k==='part'?`ناقص ${fmtP(n2(fullv-qv))}`:'✗ ما وصلش'; }
+      tr.style.borderColor=k==='full'?'#9BCBA4':k==='part'?'#F0C27B':'#E9A3A3'; tr.style.opacity=k==='none'?.7:1;
+      const ex=tr.querySelector(`[data-prexp="${id}"]`), ei=tr.querySelector(`[data-prexpi="${id}"]`);
+      if(ex&&ei){ if(!ex.value){ ei.textContent=tr.dataset.trk&&qv>0?'الصنف ده بيتابع صلاحيته — اكتب التاريخ':''; ei.style.color='#b07800'; }
+        else { const d=Math.round((new Date(ex.value)-new Date(dateOf()))/864e5); ei.textContent=d<0?`⛔ منتهي من ${-d} يوم`:d<=3?`⚠️ باقي ${d} يوم بس`:`باقي ${d} يوم`; ei.style.color=d<0?'var(--red)':d<=3?'#b07800':'#2e7d32'; } } });
+    const t=document.getElementById('prr-total'); if(t) t.textContent=money(tot);
+    const pg=document.getElementById('prr-prog'); if(pg) pg.innerHTML=`<span style="color:#2e7d32">✓ ${full}</span>${part?` · <span style="color:#b07800">ناقص ${part}</span>`:''}${none?` · <span style="color:var(--red)">ما وصلش ${none}</span>`:''}`; };
+  document.querySelectorAll('[data-prq],[data-prp],[data-prw],[data-prexp],#prr-date').forEach(i=>i.oninput=upd);
+  document.querySelectorAll('[data-prr]').forEach(tr=>{ const qi=tr.querySelector('[data-prq]');
+    tr.querySelectorAll('[data-prstep]').forEach(b=>b.onclick=()=>{ qi.value=Math.max(0,n2((+qi.value||0)+(+b.dataset.prstep))); upd(); });
+    tr.querySelectorAll('[data-prset]').forEach(b=>b.onclick=()=>{ qi.value=b.dataset.prset==='full'?qi.dataset.full:0; upd(); });
+    tr.querySelectorAll('[data-prexpd]').forEach(b=>b.onclick=()=>{ const d=new Date(dateOf()); d.setDate(d.getDate()+(+b.dataset.prexpd)); tr.querySelector('[data-prexp]').value=d.toISOString().slice(0,10); upd(); }); });
+  document.querySelectorAll('[data-prall]').forEach(b=>b.onclick=()=>{ document.querySelectorAll('[data-prq]').forEach(i=>{ i.value=b.dataset.prall==='full'?i.dataset.full:0; }); upd(); });
+  upd();
 }
 async function prReceiveSave(key){
   const rs=PURCHASE_REQUESTS.filter(r=>prGroupKey(r)===key && r.status==='approved'); if(!rs.length) return;
   const date=($('#prr-date')||{}).value||today(); const party=rs[0].supplier||'';
   const lines=rs.map(r=>{ const size=+r.orderSize||1; const q=+((document.querySelector(`[data-prq="${r.id}"]`)||{}).value||0); const p=+((document.querySelector(`[data-prp="${r.id}"]`)||{}).value||0);
     const from=((document.querySelector(`[data-prfrom="${r.id}"]`)||{}).value)||party;
-    const wEl=document.querySelector(`[data-prw="${r.id}"]`); if(wEl){ const w=+wEl.value||0; return {r, qtyBase:n2(w), priceBase:p, q, U:r.orderUnit||r.unit, from, byW:true, cnt:q}; }
-    return {r, qtyBase:n2(q*size), priceBase:size?p/size:p, q, U:r.orderUnit||r.unit, from}; });
+    const exp=((document.querySelector(`[data-prexp="${r.id}"]`)||{}).value)||''; const trk=!!((document.querySelector(`[data-prr="${r.id}"]`)||{dataset:{}}).dataset.trk);
+    const wEl=document.querySelector(`[data-prw="${r.id}"]`); if(wEl){ const w=+wEl.value||0; return {r, qtyBase:n2(w), priceBase:p, q, U:r.orderUnit||r.unit, from, byW:true, cnt:q, exp, trk}; }
+    return {r, qtyBase:n2(q*size), priceBase:size?p/size:p, q, U:r.orderUnit||r.unit, from, exp, trk}; });
+  const expBad=lines.filter(l=>l.q>0 && l.exp && l.exp<date); if(expBad.length) return toast(`تاريخ الصلاحية منتهي: ${expBad.map(l=>l.r.itemName).join('، ')} — راجعه أو ارفض الصنف`,1);
+  const expMiss=lines.filter(l=>l.q>0 && l.trk && !l.exp);
   const noW=lines.filter(l=>l.byW && l.cnt>0 && !(l.qtyBase>0)); if(noW.length) return toast(`اكتب الوزن الفعلي لـ ${noW.map(l=>l.r.itemName).join('، ')} — بيتسجل بالكيلو مش بالعدد`,1);
   lines.splice(0,lines.length,...lines.filter(l=>l.qtyBase>0 && item(l.r.itemId)));
   if(!lines.length) return toast('مفيش ولا صنف كميته أكبر من صفر',1);
   const miss=rs.length-lines.length;
-  if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${l.byW?`${fmtP(l.cnt)} ${l.U} = ${fmtP(l.qtyBase)} ${l.r.unit||'كيلو'}`:`${fmtP(l.q)} ${l.U}`}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
-    (miss?`\n\n${miss} صنف ما وصلش — طلبه هيفضل مفتوح.`:'')+'\n\nتأكيد؟')) return;
+  if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${l.byW?`${fmtP(l.cnt)} ${l.U} = ${fmtP(l.qtyBase)} ${l.r.unit||'كيلو'}`:`${fmtP(l.q)} ${l.U}`}${l.exp?`  · صلاحية ${l.exp}`:''}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
+    (miss?`\n\n${miss} صنف ما وصلش — طلبه هيفضل مفتوح.`:'')+(expMiss.length?`\n\n⚠️ من غير تاريخ صلاحية: ${expMiss.map(l=>l.r.itemName).join('، ')}`:'')+'\n\nتأكيد؟')) return;
   const btn=document.querySelector('[data-act="pr-receive-save"]'); if(btn){ btn.disabled=true; btn.textContent='بيسجّل…'; }
   SUBMITTING++;
   try{
     const moves=[];
     const pch=[];
     for(const l of lines){ const it=item(l.r.itemId);
-      const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:''};
+      const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:'',...(l.exp?{expDate:l.exp}:{})};
       S.moves.push(m); moves.push(m); if(l.priceBase>0){ const w=wacApply(it, m); if(w) pch.push(w); } }
     setTimeout(()=>afterPriceChange(pch), 900);
     let invMsg='';
