@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '23-11 · 12:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '23-11 · 12:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8679,6 +8679,12 @@ function prAwaitingPanel(){
 function prByWeight(r){ const it=item(r.itemId)||{}; const U=String(r.orderUnit||''), B=String(r.unit||it.unit||'');
   return !!U && U!==B && /حب|قطع|pc|pcs/i.test(U) && /كيلو|كجم|كغ|kg|KG|جرام/i.test(B); }
 // عمر الصنف (أيام) من آخر استلام ليه تاريخ صلاحية — بيتعرض كاختصار
+// تاريخ زي المكتوب على الكرتونة: 13/12/2027 أو 13-12-27 أو 2027-12-13 → YYYY-MM-DD ('' لو فاضي، null لو غلط)
+function prParseD(v){ v=String(v||'').trim().replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)); if(!v) return '';
+  let m=v.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/), y,mo,d; if(m){ y=+m[1]; mo=+m[2]; d=+m[3]; }
+  else { m=v.match(/^(\d{1,2})[-\/. ](\d{1,2})[-\/. ](\d{2,4})$/); if(!m) return null; d=+m[1]; mo=+m[2]; y=+m[3]; if(y<100) y+=2000; }
+  const D=new Date(Date.UTC(y,mo-1,d)); if(D.getUTCMonth()!==mo-1||D.getUTCDate()!==d||y<2000||y>2100) return null; return D.toISOString().slice(0,10); }
+const prFmtD=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'';
 function prShelfDays(itemId){ let best=null; for(const m of S.moves){ if(m.dir!=='in'||m.itemId!==itemId||!m.expDate||!m.date) continue; if(!best||String(m.date)>String(best.date)) best=m; }
   if(!best) return 0; const d=Math.round((new Date(best.expDate)-new Date(best.date))/864e5); return d>0&&d<2000?d:0; }
 function prReceiveModal(key){
@@ -8701,8 +8707,10 @@ function prReceiveModal(key){
           <div style="display:flex;align-items:center;gap:4px"><button class="btn sm" type="button" data-prstep="-1">−</button><input type="number" min="0" step="any" inputmode="decimal" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:78px;text-align:center;font-size:16px;font-weight:700"><button class="btn sm" type="button" data-prstep="1">+</button></div>
           <div style="display:flex;gap:4px;margin-top:4px"><button class="btn sm" type="button" data-prset="full">✓ كامل</button><button class="btn sm" type="button" data-prset="0">✗ ما وصلش</button></div></div>
         ${bw?`<div style="background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:5px 8px"><label class="f" style="color:#8A4A0B">⚖️ الوزن الفعلي (${esc(r.unit||'كيلو')})</label><input type="number" min="0" step="any" inputmode="decimal" data-prw="${r.id}" placeholder="مثلًا 14.05" style="width:96px;text-align:center;font-weight:700;font-size:16px"></div>`:''}
-        <div><label class="f">تاريخ الصلاحية ${tracks?'<span style="color:var(--red)">*</span>':'<span class="hint">(اختياري)</span>'}</label>
-          <input type="date" data-prexp="${r.id}" style="width:150px">
+        <div><label class="f">تاريخ الإنتاج <span class="hint">(اختياري)</span></label>
+          <input type="text" inputmode="numeric" data-prprod="${r.id}" placeholder="يوم/شهر/سنة" style="width:120px;text-align:center;direction:ltr"></div>
+        <div><label class="f">تاريخ الانتهاء ${tracks?'<span style="color:var(--red)">*</span>':'<span class="hint">(اختياري)</span>'}</label>
+          <input type="text" inputmode="numeric" data-prexp="${r.id}" placeholder="يوم/شهر/سنة" style="width:120px;text-align:center;direction:ltr;font-weight:700">
           <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">${sd?`<button class="btn sm" type="button" data-prexpd="${sd}" title="نفس عمر آخر استلام">زي آخر مرة (${sd} يوم)</button>`:''}<button class="btn sm" type="button" data-prexpd="7">أسبوع</button><button class="btn sm" type="button" data-prexpd="30">شهر</button><button class="btn sm" type="button" data-prexpd="180">6 شهور</button><button class="btn sm" type="button" data-prexpd="365">سنة</button></div>
           <div class="hint" data-prexpi="${r.id}" style="min-height:1em"></div></div>
         <div><label class="f">سعر ${bw?'الـ'+esc(r.unit||'كيلو'):'الـ'+esc(U)}</label><input type="number" min="0" step="any" inputmode="decimal" data-prp="${r.id}" value="${(bw?n2(+it.price||0):pr)||''}" style="width:90px;text-align:center"></div>
@@ -8737,15 +8745,18 @@ function prReceiveBind(){
       if(st){ st.className='chip '+(k==='full'?'g':k==='part'?'a':'r'); st.textContent=k==='full'?'✓ وصل كامل':k==='part'?`ناقص ${fmtP(n2(fullv-qv))}`:'✗ ما وصلش'; }
       tr.style.borderColor=k==='full'?'#9BCBA4':k==='part'?'#F0C27B':'#E9A3A3'; tr.style.opacity=k==='none'?.7:1;
       const ex=tr.querySelector(`[data-prexp="${id}"]`), ei=tr.querySelector(`[data-prexpi="${id}"]`);
-      if(ex&&ei){ if(!ex.value){ ei.textContent=tr.dataset.trk&&qv>0?'الصنف ده بيتابع صلاحيته — اكتب التاريخ':''; ei.style.color='#b07800'; }
-        else { const d=Math.round((new Date(ex.value)-new Date(dateOf()))/864e5); ei.textContent=d<0?`⛔ منتهي من ${-d} يوم`:d<=3?`⚠️ باقي ${d} يوم بس`:`باقي ${d} يوم`; ei.style.color=d<0?'var(--red)':d<=3?'#b07800':'#2e7d32'; } } });
+      if(ex&&ei){ const xv=prParseD(ex.value), pv=prParseD((tr.querySelector(`[data-prprod="${id}"]`)||{}).value);
+        if(xv===null||pv===null){ ei.textContent='⛔ التاريخ مش مفهوم — اكتبه يوم/شهر/سنة زي 13/12/2027'; ei.style.color='var(--red)'; }
+        else if(xv&&pv&&pv>xv){ ei.textContent='⛔ الإنتاج بعد الانتهاء؟ راجع التاريخين'; ei.style.color='var(--red)'; }
+        else if(!xv){ ei.textContent=tr.dataset.trk&&qv>0?'الصنف ده بيتابع صلاحيته — اكتب التاريخ':''; ei.style.color='#b07800'; }
+        else { const d=Math.round((new Date(xv)-new Date(dateOf()))/864e5); ei.textContent=d<0?`⛔ منتهي من ${-d} يوم`:d<=3?`⚠️ باقي ${d} يوم بس`:`باقي ${d} يوم`; ei.style.color=d<0?'var(--red)':d<=3?'#b07800':'#2e7d32'; } } });
     const t=document.getElementById('prr-total'); if(t) t.textContent=money(tot);
     const pg=document.getElementById('prr-prog'); if(pg) pg.innerHTML=`<span style="color:#2e7d32">✓ ${full}</span>${part?` · <span style="color:#b07800">ناقص ${part}</span>`:''}${none?` · <span style="color:var(--red)">ما وصلش ${none}</span>`:''}`; };
-  document.querySelectorAll('[data-prq],[data-prp],[data-prw],[data-prexp],#prr-date').forEach(i=>i.oninput=upd);
+  document.querySelectorAll('[data-prq],[data-prp],[data-prw],[data-prexp],[data-prprod],#prr-date').forEach(i=>i.oninput=upd);
   document.querySelectorAll('[data-prr]').forEach(tr=>{ const qi=tr.querySelector('[data-prq]');
     tr.querySelectorAll('[data-prstep]').forEach(b=>b.onclick=()=>{ qi.value=Math.max(0,n2((+qi.value||0)+(+b.dataset.prstep))); upd(); });
     tr.querySelectorAll('[data-prset]').forEach(b=>b.onclick=()=>{ qi.value=b.dataset.prset==='full'?qi.dataset.full:0; upd(); });
-    tr.querySelectorAll('[data-prexpd]').forEach(b=>b.onclick=()=>{ const d=new Date(dateOf()); d.setDate(d.getDate()+(+b.dataset.prexpd)); tr.querySelector('[data-prexp]').value=d.toISOString().slice(0,10); upd(); }); });
+    tr.querySelectorAll('[data-prexpd]').forEach(b=>b.onclick=()=>{ const pv=prParseD((tr.querySelector('[data-prprod]')||{}).value); const d=new Date(pv||dateOf()); d.setDate(d.getDate()+(+b.dataset.prexpd)); tr.querySelector('[data-prexp]').value=prFmtD(d.toISOString().slice(0,10)); upd(); }); });
   document.querySelectorAll('[data-prall]').forEach(b=>b.onclick=()=>{ document.querySelectorAll('[data-prq]').forEach(i=>{ i.value=b.dataset.prall==='full'?i.dataset.full:0; }); upd(); });
   upd();
 }
@@ -8754,16 +8765,18 @@ async function prReceiveSave(key){
   const date=($('#prr-date')||{}).value||today(); const party=rs[0].supplier||'';
   const lines=rs.map(r=>{ const size=+r.orderSize||1; const q=+((document.querySelector(`[data-prq="${r.id}"]`)||{}).value||0); const p=+((document.querySelector(`[data-prp="${r.id}"]`)||{}).value||0);
     const from=((document.querySelector(`[data-prfrom="${r.id}"]`)||{}).value)||party;
-    const exp=((document.querySelector(`[data-prexp="${r.id}"]`)||{}).value)||''; const trk=!!((document.querySelector(`[data-prr="${r.id}"]`)||{dataset:{}}).dataset.trk);
-    const wEl=document.querySelector(`[data-prw="${r.id}"]`); if(wEl){ const w=+wEl.value||0; return {r, qtyBase:n2(w), priceBase:p, q, U:r.orderUnit||r.unit, from, byW:true, cnt:q, exp, trk}; }
-    return {r, qtyBase:n2(q*size), priceBase:size?p/size:p, q, U:r.orderUnit||r.unit, from, exp, trk}; });
+    const exp=prParseD((document.querySelector(`[data-prexp="${r.id}"]`)||{}).value), prod=prParseD((document.querySelector(`[data-prprod="${r.id}"]`)||{}).value); const trk=!!((document.querySelector(`[data-prr="${r.id}"]`)||{dataset:{}}).dataset.trk);
+    const wEl=document.querySelector(`[data-prw="${r.id}"]`); if(wEl){ const w=+wEl.value||0; return {r, qtyBase:n2(w), priceBase:p, q, U:r.orderUnit||r.unit, from, byW:true, cnt:q, exp, prod, trk}; }
+    return {r, qtyBase:n2(q*size), priceBase:size?p/size:p, q, U:r.orderUnit||r.unit, from, exp, prod, trk}; });
+  const dBad=lines.filter(l=>l.q>0 && (l.exp===null||l.prod===null)); if(dBad.length) return toast(`التاريخ مش مفهوم في: ${dBad.map(l=>l.r.itemName).join('، ')} — اكتبه يوم/شهر/سنة زي 13/12/2027`,1);
+  const dRev=lines.filter(l=>l.q>0 && l.exp && l.prod && l.prod>l.exp); if(dRev.length) return toast(`تاريخ الإنتاج بعد الانتهاء في: ${dRev.map(l=>l.r.itemName).join('، ')}`,1);
   const expBad=lines.filter(l=>l.q>0 && l.exp && l.exp<date); if(expBad.length) return toast(`تاريخ الصلاحية منتهي: ${expBad.map(l=>l.r.itemName).join('، ')} — راجعه أو ارفض الصنف`,1);
   const expMiss=lines.filter(l=>l.q>0 && l.trk && !l.exp);
   const noW=lines.filter(l=>l.byW && l.cnt>0 && !(l.qtyBase>0)); if(noW.length) return toast(`اكتب الوزن الفعلي لـ ${noW.map(l=>l.r.itemName).join('، ')} — بيتسجل بالكيلو مش بالعدد`,1);
   lines.splice(0,lines.length,...lines.filter(l=>l.qtyBase>0 && item(l.r.itemId)));
   if(!lines.length) return toast('مفيش ولا صنف كميته أكبر من صفر',1);
   const miss=rs.length-lines.length;
-  if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${l.byW?`${fmtP(l.cnt)} ${l.U} = ${fmtP(l.qtyBase)} ${l.r.unit||'كيلو'}`:`${fmtP(l.q)} ${l.U}`}${l.exp?`  · صلاحية ${l.exp}`:''}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
+  if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${l.byW?`${fmtP(l.cnt)} ${l.U} = ${fmtP(l.qtyBase)} ${l.r.unit||'كيلو'}`:`${fmtP(l.q)} ${l.U}`}${l.exp?`  · ينتهي ${prFmtD(l.exp)}`:''}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
     (miss?`\n\n${miss} صنف ما وصلش — طلبه هيفضل مفتوح.`:'')+(expMiss.length?`\n\n⚠️ من غير تاريخ صلاحية: ${expMiss.map(l=>l.r.itemName).join('، ')}`:'')+'\n\nتأكيد؟')) return;
   const btn=document.querySelector('[data-act="pr-receive-save"]'); if(btn){ btn.disabled=true; btn.textContent='بيسجّل…'; }
   SUBMITTING++;
@@ -8771,7 +8784,7 @@ async function prReceiveSave(key){
     const moves=[];
     const pch=[];
     for(const l of lines){ const it=item(l.r.itemId);
-      const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:'',...(l.exp?{expDate:l.exp}:{})};
+      const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:'',...(l.exp?{expDate:l.exp}:{}),...(l.prod?{prodDate:l.prod}:{})};
       S.moves.push(m); moves.push(m); if(l.priceBase>0){ const w=wacApply(it, m); if(w) pch.push(w); } }
     setTimeout(()=>afterPriceChange(pch), 900);
     let invMsg='';
