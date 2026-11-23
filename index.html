@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '23-11 · 12:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '23-11 · 13:15'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -7411,6 +7411,7 @@ async function fetchPurchaseRequests(){
     PR_CFG = v.prCfg || {};
     _prRemember(); PR_FETCHED_AT=Date.now();
     purReqLoaded = true;
+    setTimeout(()=>{ prAutoExpire().catch(()=>{}); },1500);
   }catch(e){ PURCHASE_REQUESTS = []; }
 }
 let PR_FETCHED_AT = 0; let PR_BUSY=false;
@@ -8663,17 +8664,48 @@ function prOpenGroups(){
   return [...g.entries()].map(([k,rs])=>({key:k, rs, supplier:prLabel(rs), mixed:prMixed(rs), createdAt:rs[0].createdAt, note:rs[0].note||''}))
     .sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));
 }
+/* سياسة إقفال طلبات الشراء: الطلب اللي عدّى ميعاد توصيله بيومين من غير استلام بيتقفل لوحده */
+const PR_GRACE_DAYS=2;
+const prDue=r=>String(r.needDate||String(r.createdAt||'').slice(0,10)||'');
+const prAddDays=(ymd,n)=>{ const d=new Date(ymd+'T12:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+async function prAutoExpire(){
+  if(VIEWER||CHEF||!DB.on) return; const T=today(); const at=new Date().toISOString(); let n=0; const names=[];
+  PURCHASE_REQUESTS.forEach(r=>{ if(r.status!=='approved') return; const due=prDue(r); if(!due || prAddDays(due,PR_GRACE_DAYS)>=T) return;
+    if(+r.receivedQty>0){ r.status='fulfilled'; r.fulfilledAt=at; r.closedShort=true; r.shortQty=n2((+r.qty||0)-(+r.receivedQty||0)); r.autoClosed=true; }
+    else { r.status='cancelled'; r.cancelledAt=at; r.cancelReason=`ما وصلش — اتقفل تلقائي بعد ${PR_GRACE_DAYS} يوم من ميعاد التوصيل (${due})`; r.autoClosed=true; }
+    n++; names.push(`${r.supplier||''}: ${r.itemName}`); });
+  if(n){ const ok=await savePurchaseRequests(); if(ok) toast(`🔒 اتقفل تلقائي ${n} صنف من طلبات شراء عدّى ميعادها بيومين — اتسجلوا «ما وصلش»`); }
+}
 function prAwaitingPanel(){
   if(DB.on && !purReqLoaded){ fetchPurchaseRequests().then(()=>{ if(tab==='in') render(); }); return ''; }
   const gs=prOpenGroups(); if(!gs.length) return '';
+  const T=today(); const own=isOwner();
+  const dueOf=g=>prDue(g.rs[0]);
+  const st=g=>{ const d=dueOf(g); if(!d) return {k:3,t:'',c:''}; const late=Math.round((new Date(T)-new Date(d))/864e5);
+    if(late>0){ const left=PR_GRACE_DAYS+1-late; return {k:0,t:`⏰ متأخر ${late} يوم`,s:left<=1?'🔒 هيتقفل تلقائي بكرة لو ما اتستلمش النهارده':`هيتقفل تلقائي بعد ${left} يوم`,c:'r'}; }
+    if(late===0) return {k:1,t:'🚚 النهارده',c:'a'}; return {k:2,t:late===-1?'بكرة':`بعد ${-late} يوم`,c:''}; };
+  const list=gs.map(g=>({g,s:st(g)})).sort((a,b)=>a.s.k-b.s.k || dueOf(a.g).localeCompare(dueOf(b.g)));
+  const cnt=k=>list.filter(x=>x.s.k===k).length;
+  const fd=d=>d?new Date(d+'T12:00').toLocaleDateString('ar-EG',{weekday:'short',day:'numeric',month:'numeric'}):'';
   return `<div class="panel" style="border:2px solid var(--blue)">
     <h2>🛒 طلبات شراء مستنية الاستلام <em>${gs.length}</em></h2>
-    <div class="tblwrap" style="max-height:none"><table><tbody>${gs.map(g=>`<tr>
-      <td><b>${g.supplier?esc(g.supplier):'<span class="hint">من غير مورد</span>'}</b>
-        <div class="hint">${g.rs.length} صنف · اتطلب ${g.createdAt?new Date(g.createdAt).toLocaleDateString(LANG==='en'?'en-GB':'ar-EG'):''}${g.rs[0].needDate?' · 🚚 التوصيل '+esc(g.rs[0].needDate):''}${g.note?' · '+esc(g.note):''}</div></td>
-      <td>${g.rs.slice(0,4).map(r=>`<span class="chip">${esc(r.itemName)} · ${r.orderUnit&&r.orderUnit!==r.unit?fmtP(r.orderQty)+' '+esc(r.orderUnit):fmt(r.qty)+' '+esc(r.unit||'')}${+r.receivedQty>0?' (وصل جزء)':''}</span>`).join(' ')}${g.rs.length>4?` <span class="hint">+${g.rs.length-4}</span>`:''}</td>
-      <td style="text-align:end;white-space:nowrap">${isOwner()?`<button class="btn sm" data-act="pr-edit" data-k="${g.key}">✏️</button>`:''} ${prWaButton(g.key,g.supplier)} <button class="btn p" data-act="pr-receive" data-k="${g.key}">استلام ←</button>${isOwner() && g.rs.some(r=>+r.receivedQty>0)?` <button class="btn sm" data-act="pr-close" data-k="${g.key}" title="الباقي مش هييجي">✖ إقفال الباقي</button>`:''}
-        ${g.rs[0].sentToSupplierAt?`<div class="hint" style="margin-top:3px">✓ اتبعت للمورد ${new Date(g.rs[0].sentToSupplierAt).toLocaleDateString(LANG==='en'?'en-GB':'ar-EG')}</div>`:''}</td></tr>`).join('')}</tbody></table></div></div>`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:-4px 0 8px">${cnt(0)?`<span class="chip r">متأخر ${cnt(0)}</span>`:''}${cnt(1)?`<span class="chip a">النهارده ${cnt(1)}</span>`:''}${cnt(2)+cnt(3)?`<span class="chip">جاي ${cnt(2)+cnt(3)}</span>`:''}
+      <span class="hint" style="align-self:center">الطلب اللي يعدّي ميعاد توصيله بـ${PR_GRACE_DAYS} يوم من غير استلام بيتقفل لوحده ويتسجل «ما وصلش».</span></div>
+    <div style="display:flex;flex-direction:column;gap:8px">${list.map(({g,s})=>{ const sent=g.rs.find(r=>r.sentToSupplierAt);
+      return `<div style="border:1px solid ${s.c==='r'?'#E9A3A3':s.c==='a'?'#F0C27B':'var(--line)'};background:${s.c==='r'?'#FFF6F6':s.c==='a'?'#FFFBF2':'#fff'};border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <div style="min-width:180px;flex:1 1 220px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><b style="font-size:15px">${g.supplier?esc(g.supplier):'<span class="hint">من غير مورد</span>'}</b>${s.t?`<span class="chip ${s.c}">${s.t}</span>`:''}</div>
+          <div class="hint">التوصيل ${esc(fd(dueOf(g))||'—')} · ${g.rs.length} صنف${sent?` · ✓ اتبعت للمورد ${new Date(sent.sentToSupplierAt).toLocaleDateString('ar-EG',{day:'numeric',month:'numeric'})}`:' · <span style="color:#b07800">لسه ما اتبعتش للمورد</span>'}${g.note?' · '+esc(g.note):''}</div>
+          ${s.s?`<div class="hint" style="color:var(--red)">${s.s}</div>`:''}</div>
+        <div style="flex:2 1 300px;display:flex;flex-wrap:wrap;gap:4px">${g.rs.map(r=>`<span class="chip">${esc(r.itemName)} · <b>${r.orderUnit&&r.orderUnit!==r.unit?fmtP(r.orderQty)+' '+esc(r.orderUnit):fmt(r.qty)+' '+esc(r.unit||'')}</b>${+r.receivedQty>0?' <span style="color:#b07800">(وصل جزء)</span>':''}</span>`).join('')}</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-inline-start:auto">
+          <details class="prmore" style="position:relative"><summary class="btn sm" style="list-style:none;cursor:pointer">⋯ المزيد</summary>
+            <div style="position:absolute;inset-inline-end:0;top:110%;z-index:20;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:8px;display:flex;flex-direction:column;gap:6px;min-width:200px">
+              ${own?`<button class="btn sm" data-act="pr-edit" data-k="${g.key}">✏️ تعديل الطلب</button>`:''}
+              <div style="display:flex;gap:4px;flex-wrap:wrap">${prWaButton(g.key,g.supplier)}</div>
+              ${own?`<button class="btn sm danger" data-act="pr-close" data-k="${g.key}">✖ إقفال الطلب (مش جاي)</button>`:''}</div></details>
+          <button class="btn p" data-act="pr-receive" data-k="${g.key}">📦 استلام</button></div>
+      </div>`; }).join('')}</div></div>`;
 }
 // صنف بيتطلب بالعدد (حبة/قطعة) والمخزن بالوزن (كيلو): بيتسجل العدد للمتابعة، والوارد بالوزن الفعلي وسعر الكيلو
 function prByWeight(r){ const it=item(r.itemId)||{}; const U=String(r.orderUnit||''), B=String(r.unit||it.unit||'');
@@ -8716,6 +8748,9 @@ function prReceiveModal(key){
         <div><label class="f">سعر ${bw?'الـ'+esc(r.unit||'كيلو'):'الـ'+esc(U)}</label><input type="number" min="0" step="any" inputmode="decimal" data-prp="${r.id}" value="${(bw?n2(+it.price||0):pr)||''}" style="width:90px;text-align:center"></div>
         <div style="margin-inline-start:auto;text-align:end"><label class="f">الإجمالي</label><div class="n" data-prt="${r.id}" style="font-weight:800;font-size:16px">—</div></div>
       </div>
+      <div data-prrestw="${r.id}" style="display:none;margin-top:8px;padding:6px 10px;border-radius:8px;background:#FFF6E5;border:1px solid #F0C27B"><b data-prrestl="${r.id}">الباقي:</b>
+        <label style="margin-inline-start:10px;white-space:nowrap"><input type="radio" name="prrest-${r.id}" value="wait"> 🕓 جاي بعدين (الطلب يفضل مفتوح)</label>
+        <label style="margin-inline-start:10px;white-space:nowrap"><input type="radio" name="prrest-${r.id}" value="close"> 🔒 مش جاي — اقفله</label></div>
       <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">جه من مكان تاني؟</summary>
         <select data-prfrom="${r.id}" style="margin-top:4px;max-width:220px"><option value="${esc(r.supplier||sup)}">${esc(r.supplier||sup||'—')}</option>${srcOpts(r).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></details>
     </div>`; };
@@ -8743,6 +8778,7 @@ function prReceiveBind(){
       const c=tr.querySelector(`[data-prt="${id}"]`); if(c) c.textContent=money(q*p); tot+=q*p;
       const st=tr.querySelector(`[data-prst="${id}"]`); const k=qv<=0?'none':qv+1e-9>=fullv?'full':'part'; if(k==='full') full++; else if(k==='part') part++; else none++;
       if(st){ st.className='chip '+(k==='full'?'g':k==='part'?'a':'r'); st.textContent=k==='full'?'✓ وصل كامل':k==='part'?`ناقص ${fmtP(n2(fullv-qv))}`:'✗ ما وصلش'; }
+      const rw=tr.querySelector(`[data-prrestw="${id}"]`); if(rw){ rw.style.display=k==='full'?'none':''; const rl=tr.querySelector(`[data-prrestl="${id}"]`); if(rl) rl.textContent=k==='none'?'الصنف ده:':`الباقي (${fmtP(n2(fullv-qv))}):`; }
       tr.style.borderColor=k==='full'?'#9BCBA4':k==='part'?'#F0C27B':'#E9A3A3'; tr.style.opacity=k==='none'?.7:1;
       const ex=tr.querySelector(`[data-prexp="${id}"]`), ei=tr.querySelector(`[data-prexpi="${id}"]`);
       if(ex&&ei){ const xv=prParseD(ex.value), pv=prParseD((tr.querySelector(`[data-prprod="${id}"]`)||{}).value);
@@ -8772,12 +8808,17 @@ async function prReceiveSave(key){
   const dRev=lines.filter(l=>l.q>0 && l.exp && l.prod && l.prod>l.exp); if(dRev.length) return toast(`تاريخ الإنتاج بعد الانتهاء في: ${dRev.map(l=>l.r.itemName).join('، ')}`,1);
   const expBad=lines.filter(l=>l.q>0 && l.exp && l.exp<date); if(expBad.length) return toast(`تاريخ الصلاحية منتهي: ${expBad.map(l=>l.r.itemName).join('، ')} — راجعه أو ارفض الصنف`,1);
   const expMiss=lines.filter(l=>l.q>0 && l.trk && !l.exp);
+  const restOf=id=>((document.querySelector(`input[name="prrest-${id}"]:checked`)||{}).value)||'';
+  const fullOf=id=>+((document.querySelector(`[data-prq="${id}"]`)||{dataset:{}}).dataset.full)||0;
+  const shortRs=rs.filter(r=>{ const q=+((document.querySelector(`[data-prq="${r.id}"]`)||{}).value||0); return q+1e-9<fullOf(r.id); });
+  const noChoice=shortRs.filter(r=>!restOf(r.id)); if(noChoice.length && lines.some(l=>l.q>0)){ noChoice.forEach(r=>{ const w=document.querySelector(`[data-prrestw="${r.id}"]`); if(w){ w.style.outline='2px solid var(--red)'; w.scrollIntoView({block:'center'}); } });
+    return toast(`حدد الباقي جاي ولا يتقفل: ${noChoice.map(r=>r.itemName).join('، ')}`,1); }
   const noW=lines.filter(l=>l.byW && l.cnt>0 && !(l.qtyBase>0)); if(noW.length) return toast(`اكتب الوزن الفعلي لـ ${noW.map(l=>l.r.itemName).join('، ')} — بيتسجل بالكيلو مش بالعدد`,1);
   lines.splice(0,lines.length,...lines.filter(l=>l.qtyBase>0 && item(l.r.itemId)));
   if(!lines.length) return toast('مفيش ولا صنف كميته أكبر من صفر',1);
   const miss=rs.length-lines.length;
   if(!confirm(`هيتسجّل وارد ${lines.length} صنف بتاريخ ${date}:\n`+lines.map(l=>`• ${l.r.itemName}: ${l.byW?`${fmtP(l.cnt)} ${l.U} = ${fmtP(l.qtyBase)} ${l.r.unit||'كيلو'}`:`${fmtP(l.q)} ${l.U}`}${l.exp?`  · ينتهي ${prFmtD(l.exp)}`:''}${l.from!==party?`  ← من ${l.from}`:''}`).join('\n')+
-    (miss?`\n\n${miss} صنف ما وصلش — طلبه هيفضل مفتوح.`:'')+(expMiss.length?`\n\n⚠️ من غير تاريخ صلاحية: ${expMiss.map(l=>l.r.itemName).join('، ')}`:'')+'\n\nتأكيد؟')) return;
+    (shortRs.length?'\n\n'+shortRs.map(r=>`${restOf(r.id)==='close'?'🔒':'🕓'} ${r.itemName}: ${restOf(r.id)==='close'?'الباقي هيتقفل':'الباقي هيفضل مفتوح'}`).join('\n'):'')+(expMiss.length?`\n\n⚠️ من غير تاريخ صلاحية: ${expMiss.map(l=>l.r.itemName).join('، ')}`:'')+'\n\nتأكيد؟')) return;
   const btn=document.querySelector('[data-act="pr-receive-save"]'); if(btn){ btn.disabled=true; btn.textContent='بيسجّل…'; }
   SUBMITTING++;
   try{
@@ -8797,6 +8838,9 @@ async function prReceiveSave(key){
     for(const [ix,l] of lines.entries()){ const r=l.r; r.receivedQty=n2((+r.receivedQty||0)+l.qtyBase); (r.moveIds=r.moveIds||[]).push(moves[ix].id); r.linkedMoveId=moves[ix].id;
       if(l.byW){ r.receivedCnt=n2((+r.receivedCnt||0)+l.cnt); r.receivedQty=n2((+r.receivedCnt)*(+r.orderSize||1)); (r.weights=r.weights||[]).push({cnt:l.cnt,kg:l.qtyBase,date}); }
       if(r.receivedQty >= (+r.qty||0)*0.98){ r.status='fulfilled'; r.fulfilledAt=at; closed++; } }
+    for(const r of shortRs){ if(restOf(r.id)!=='close' || r.status!=='approved') continue; closed++;
+      if(+r.receivedQty>0){ r.status='fulfilled'; r.fulfilledAt=at; r.closedShort=true; r.shortQty=n2((+r.qty||0)-(+r.receivedQty||0)); }
+      else { r.status='cancelled'; r.cancelledAt=at; r.cancelReason='المورد ما بعتوش — اتقفل وقت الاستلام'; } }
     await savePurchaseRequests();
     toast(`اتسجّل وارد ${moves.length} صنف — اتقفل ${closed} من ${rs.length} طلب`+invMsg);
     ui.modal = bulkReceiptModal(moves, date, party, '');
