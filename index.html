@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 11:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 12:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4684,7 +4684,8 @@ function restoreMoveDraft(d, skip){
   const p=document.getElementById('m-packs'); if(p) p.dispatchEvent(new Event('input'));
   if(d.__focus){ const f=document.getElementById(d.__focus); if(f) f.focus(); }
 }
-function render(){ if(CALC_IDX) return _render(); CALC_IDX=calcIndex(); try{ return _render(); } finally{ CALC_IDX=null; } }
+function render(){ if(QS.has('branch')){ const ae=document.activeElement; if(BP.cfg && !(ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))) bpRender(); return; } // صفحة طلبيات الفروع: أي تحديث في الخلفية ما يرسمش شاشة المصنع فوقها
+  if(CALC_IDX) return _render(); CALC_IDX=calcIndex(); try{ return _render(); } finally{ CALC_IDX=null; } }
 function _render(){
   if(CHEF) return renderChef();
   const tt=totals();
