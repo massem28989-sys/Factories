@@ -863,8 +863,10 @@ let ROLE = QS.get('manager')!==null ? 'manager' : 'owner';
 let FACTORY = QS.get('factory') || 'kunafa';
 
 /* ================= اللغة (زرار تبديل واضح — بيغطي شاشات وارد/منصرف/الجرد اليومي والهيكل العام) ================= */
-let LANG = (()=>{ try{ return localStorage.getItem('lang')||'ar'; }catch(e){ return 'ar'; } })();
-function setLang(l){ LANG=l; try{ localStorage.setItem('lang',l); }catch(e){} if(typeof applyDir==='function') applyDir(); render(); }
+// صفحة طلبيات الفروع: الإنجليزي هو الأساسي، ولها اختيار لغة لوحدها (ما بيأثرش على برنامج المصنع على نفس الجهاز)
+const LANG_KEY = QS.has('branch') ? 'lang-bp' : 'lang';
+let LANG = (()=>{ const def=QS.has('branch')?'en':'ar'; try{ return localStorage.getItem(LANG_KEY)||def; }catch(e){ return def; } })();
+function setLang(l){ LANG=l; try{ localStorage.setItem(LANG_KEY,l); }catch(e){} if(typeof applyDir==='function') applyDir(); render(); }
 const T = {
   ar: {
     daily_stock:'الجرد اليومي', monthly_count:'الجرد الشهري', count_entry:'تسجيل الجرد', in_tab:'وارد', out_tab:'منصرف',
@@ -1052,7 +1054,7 @@ function trText(t){
   if(nv!==v && /^[\u0600-\u06FF]/.test(v) && /^[a-z]/.test(nv)) nv=nv[0].toUpperCase()+nv.slice(1);
   if(nv!==v) t.nodeValue=nv;
 }
-function langFab(){ return `<button type="button" class="lang-fab" data-notr onclick="try{localStorage.setItem('lang',LANG==='en'?'ar':'en')}catch(e){};location.reload()">${LANG==='en'?'العربية':'English'}</button>`; }
+function langFab(){ return `<button type="button" class="lang-fab" data-notr onclick="try{localStorage.setItem(LANG_KEY,LANG==='en'?'ar':'en')}catch(e){};location.reload()">${LANG==='en'?'العربية':'English'}</button>`; }
 function applyDir(){
   const ltr = LANG==='en';
   const r=document.getElementById('root'); if(r) r.dir = ltr?'ltr':'rtl';
@@ -1246,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 12:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 12:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
