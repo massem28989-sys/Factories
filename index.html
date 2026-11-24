@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 23:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '25-11 · 00:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2866,6 +2866,7 @@ async function supArchLoad(per){
   catch(e){ SUP_ARCH[per]={err:e.message}; }
   render();
 }
+const RET_CREDIT='مرتجع للمورد — خصم فاتورة';
 function supplierAccounts(per){
   per = per===undefined ? SUP_PERIOD : per;
   const arch = per && per!==S.period;
@@ -2882,8 +2883,9 @@ function supplierAccounts(per){
     const val = n2((+m.qty||0) * (+m.price||0));
     if(m.dir==='in' && !String(m.party||'').startsWith('إنتاج تلقائي') && !isSettleParty(m.party)){
       const a=ensure(party); a.buys=n2(a.buys+val); a.buyN++; a.moves.push({...m, kind:'buy', val, itemName:it.name, unit:it.unit});
-    } else if(m.dir==='out' && m.reason==='مرتجع للمورد'){
-      const a=ensure(party); a.returns=n2(a.returns+val); a.retN++; a.moves.push({...m, kind:'ret', val, itemName:it.name, unit:it.unit});
+    } else if(m.dir==='out' && (m.reason==='مرتجع للمورد' || String(m.reason||'').startsWith(RET_CREDIT))){
+      const cr=String(m.reason||'').startsWith(RET_CREDIT); const v=cr?n2(+m.price||0):val; // المرتجع المالي: السعر = القيمة كلها
+      const a=ensure(party); a.returns=n2(a.returns+v); a.retN++; a.moves.push({...m, kind:'ret', val:v, itemName:it.name+(cr?' — خصم فاتورة':''), unit:it.unit, ...(cr?{qty:+((String(m.reason).match(/\(([\d.,]+)/)||[])[1]||'0').replace(/,/g,''), price:+((String(m.reason).match(/×\s*([\d.,]+)/)||[])[1]||'0').replace(/,/g,'')}:{})});
     }
   });
 
@@ -6384,7 +6386,9 @@ function viewMove(dir){
               <select id="m-party" style="flex:1;min-width:0">${S.suppliers.map(sp=>`<option>${esc(sp)}</option>`).join('')}</select>
               <button type="button" class="btn sm" data-act="add-supplier">${t('new_supplier')}</button>
             </div>
-            <div class="hint" style="margin-top:4px">قيمة المرتجع هتتخصم من حساب المورد تلقائي في كشف الحساب</div>`
+            <div class="hint" style="margin-top:4px">قيمة المرتجع هتتخصم من حساب المورد تلقائي في كشف الحساب</div>
+            <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:8px 10px;cursor:pointer">
+              <input type="checkbox" id="m-retcredit" style="margin-top:3px"><span><b>📄 خصم من الفاتورة بس</b> — البضاعة دي اتحسبت في الصرف خلاص (زي الكراتين 800 لـ 800)، فالمرتجع <b>مايخصمش من المخزن</b>، بيتخصم من حساب المورد بس</span></label>`
           :`<label class="f">${t('note')}</label><input type="text" id="m-party" style="width:100%">`}</div>
         ${ui.moveReason==='مرتجع للمورد'?`<div><label class="f">سعر الوحدة وقت الشراء <span class="hint">(بيتعبّى تلقائي)</span></label><input type="number" step="any" id="m-retprice" style="width:100%"><div class="hint" id="m-retprice-hint" style="margin-top:4px"></div></div>`:''}`}
         <div><label class="f">${t('date')}</label><input type="date" id="m-date" value="${today()}" style="width:100%"></div>
@@ -14750,6 +14754,12 @@ async function _act(a,d){
       const lockedMode = S.dispatchOnlyMode && S.restrictDispatchTo;
       const party = lockedMode ? S.restrictDispatchTo : ($('#m-party')?$('#m-party').value.trim():'');
       const reason = lockedMode ? 'صرف لمصنع تاني' : $('#m-reason').value;
+      if(reason==='مرتجع للمورد' && $('#m-retcredit') && $('#m-retcredit').checked){
+        // مرتجع مالي: الكمية صفر عشان المخزن مايتأثرش، والسعر = قيمة المرتجع كلها (بتتخصم من حساب المورد)
+        const rp = $('#m-retprice') ? +$('#m-retprice').value||0 : 0; const up = rp>0 ? rp : (+it.price||0);
+        m={id:uid('m'),dir:'out',itemId:id,qty:0,date,price:n2(up*qty),party,reason:`${RET_CREDIT} (${fmt(qty)} ${it.unit} × ${fmt(n2(up))})`,prodDate,temp};
+        S.moves.push(m); await saveTx(); toast(`📄 اتخصم ${money(n2(up*qty))} من حساب ${party} — المخزن ما اتأثرش`); ui.modal=receiptModal(m); return render();
+      }
       const res = dispenseOut(id, qty, date, party, reason);
       if(res.error) return toast(res.error,1);
       m = res.move;
