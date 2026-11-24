@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 12:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 12:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3360,7 +3360,7 @@ async function branchPortal(){
     DB.on=true;
     BP.cfg=await koGetCfg();
     const its=await sbAll('stock_items?'+fEq()+'&select=id,name,unit,cat',{prefer:'return=representation'})||[];
-    const allow=new Set(BP.cfg.items); BP.items=its.filter(i=>allow.has(i.id)).sort((a,b)=>(a.cat||'').localeCompare(b.cat||'','ar')||a.name.localeCompare(b.name,'ar'));
+    const allow=new Set(BP.cfg.items); BP.items=its.filter(i=>allow.has(i.id)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
     BP.allItems=BP.items;
     try{ const s=JSON.parse(sessionStorage.getItem('bp:'+FACTORY)||'null'); if(s && BP.cfg.pins[s.branch]===s.h) BP.branch=s.branch; }catch(e){}
     bpApplyBrand();
@@ -3419,16 +3419,14 @@ function bpRender(){
 }
 function bpNewView(){
   if(!BP.items.length) return `<div class="panel"><div class="pad"><div class="warnbar">المصنع لسه ما حددش الأصناف اللي الفروع تطلبها.</div></div></div>`;
-  const cats=['الكل',...new Set(BP.items.map(i=>i.cat||'أخرى'))];
   const q=BP.q.trim().toLowerCase();
-  const shown=BP.items.filter(i=>(BP.cat==='الكل'||(i.cat||'أخرى')===BP.cat)&&(!q||i.name.toLowerCase().includes(q)));
+  const shown=BP.items.filter(i=>!q||i.name.toLowerCase().includes(q));
   const chosen=BP.items.filter(i=>+BP.qty[i.id]>0);
   const tmr=new Date(Date.now()+864e5).toISOString().slice(0,10);
   return `<div class="panel"><h2>طلبية جديدة <em>${chosen.length} صنف</em></h2>
     <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="bp-q" placeholder="دور على صنف…" value="${esc(BP.q)}"></div></div>
-    <div class="cattabs">${cats.map(c=>`<button class="cattab ${BP.cat===c?'on':''}" data-bp="cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-    <div class="tblwrap" style="max-height:none"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
-      ${shown.map(i=>`<tr${+BP.qty[i.id]>0?' style="background:var(--brand-bg)"':''}><td><div class="iname">${esc(i.name)}</div><div class="hint">${esc(i.cat||'')}</div></td>
+    <div class="tblwrap" style="max-height:none;margin-top:10px"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
+      ${shown.map(i=>`<tr${+BP.qty[i.id]>0?' style="background:var(--brand-bg)"':''}><td><div class="iname">${esc(i.name)}</div></td>
         <td class="n"><div style="display:flex;gap:6px;align-items:center;justify-content:flex-end"><input type="number" min="0" step="any" inputmode="decimal" data-bq="${i.id}" value="${BP.qty[i.id]||''}" style="width:78px;text-align:center"><span class="hint" style="min-width:34px">${esc(koUnitOf(BP.cfg,i).unit)}</span></div></td></tr>`).join('')||`<tr><td colspan="2" class="empty">مفيش أصناف مطابقة</td></tr>`}
     </tbody></table></div></div>
     <div class="panel"><h2>مراجعة وإرسال</h2><div class="pad">
