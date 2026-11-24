@@ -1246,7 +1246,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '23-11 · 14:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 11:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3390,9 +3390,22 @@ function bpRender(){
   else if(!BP.branch){
     const names=Object.keys(BP.cfg.pins).sort((a,b)=>a.localeCompare(b,'ar'));
     const bl=koBrands();
-    inner = names.length ? `<div class="panel" style="max-width:420px;margin:24px auto 0"><h2>دخول الفرع</h2><div class="pad">
-        ${bl.length?`<div style="display:flex;justify-content:center;gap:18px;margin:4px 0 14px">${bl.map(b=>`<div style="text-align:center"><img src="${b.logo()}" alt="" style="width:64px;height:64px;object-fit:contain;border-radius:50%;background:#fff;box-shadow:0 0 0 1px var(--line)"><div class="hint" style="margin-top:4px">${esc(b.name)}</div></div>`).join('')}</div>`:''}
-        <label class="f">الفرع</label><select id="bp-branch" style="width:100%"><option value="">اختار الفرع…</option>${names.map(n=>`<option>${esc(n)}</option>`).join('')}</select>
+    let last=''; try{ last=localStorage.getItem('bp-last:'+FACTORY)||''; }catch(e){} if(!names.includes(last)) last='';
+    const bOf=n=>((BP.cfg.brands||{})[n]||''); const hasB=bl.length>1 && names.some(n=>bOf(n));
+    if(BP.lsel===undefined) BP.lsel=last; if(BP.lbrand===undefined) BP.lbrand=last&&hasB?bOf(last):'';
+    const B=hasB?koBrand(BP.lbrand):null; const lq=arNorm((BP.lq||'').trim()).toLowerCase();
+    // اسم الفرع من غير اسم البراند في أوله (AserTime Fujeirah → Fujeirah) عشان يتقري بسرعة
+    const short=n=>{ const t=n.replace(/^\s*(a\s*s+e+r\s*time|عصير\s*تايم|papa\s*kunafa|بابا\s*كنافة)\s*[-–·]?\s*/i,''); return t||n; };
+    const shown=names.filter(n=>(!B||bOf(n)===B.id) && (!lq || arNorm(n).toLowerCase().includes(lq))).sort((a,b)=>short(a).localeCompare(short(b),'ar'));
+    const step1=hasB && !B;
+    inner = names.length ? `<div class="panel" style="max-width:560px;margin:24px auto 0"><h2>دخول الفرع</h2><div class="pad">
+        ${hasB?`<div class="hint" style="text-align:center;margin-bottom:6px">${step1?'1) اختار البراند':'البراند'}</div><div style="display:flex;justify-content:center;gap:14px;margin:0 0 14px">${bl.map(b=>{ const on=B&&B.id===b.id, n=names.filter(x=>bOf(x)===b.id).length; return `<button type="button" data-bp="lbrand" data-v="${b.id}" style="border:2px solid ${on?b.color:'var(--line)'};background:${on?b.color+'14':'#fff'};border-radius:14px;padding:10px 14px;cursor:pointer;opacity:${B&&!on?.5:1};min-width:120px"><img src="${b.logo()}" alt="" style="width:64px;height:64px;object-fit:contain;border-radius:50%;background:#fff"><div style="margin-top:4px;font-weight:700;color:${b.color}">${esc(b.name)}</div><div class="hint">${n} فرع</div></button>`; }).join('')}</div>`:''}
+        ${last&&BP.lsel!==last?`<button type="button" class="btn" data-bp="lpick" data-v="${esc(last)}" style="width:100%;margin-bottom:10px">↩ آخر فرع دخلت منه: <b>${esc(last)}</b></button>`:''}
+        ${step1?'':`<label class="f">${hasB?'2) ':''}الفرع ${B?`<span class="hint">— ${shown.length} فرع ${esc(B.name)}</span>`:''}</label>
+        ${(B?names.filter(n=>bOf(n)===B.id).length:names.length)>8?`<input type="search" id="bp-lq" placeholder="🔍 اكتب أول حروف الفرع…" value="${esc(BP.lq||'')}" style="width:100%;margin-bottom:8px" autocomplete="off">`:''}
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;max-height:300px;overflow:auto;padding:2px">${shown.map(n=>{ const on=BP.lsel===n; return `<button type="button" data-bp="lpick" data-v="${esc(n)}" style="padding:12px 8px;border-radius:10px;border:2px solid ${on?'var(--brand,#8E1A20)':'var(--line)'};background:${on?'var(--brand,#8E1A20)':'#fff'};color:${on?'#fff':'inherit'};font-weight:700;font-size:14px;cursor:pointer;direction:ltr" title="${esc(n)}">${esc(short(n))}</button>`; }).join('')||'<div class="hint">مفيش فرع بالاسم ده</div>'}</div>`}
+        <input type="hidden" id="bp-branch" value="${esc(BP.lsel||'')}">
+        ${BP.lsel?`<div style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--brand-bg,#FBEFEF);text-align:center">الفرع: <b style="font-size:17px">${esc(BP.lsel)}</b></div>`:''}
         <label class="f" style="margin-top:10px">الباسورد</label><input type="password" id="bp-pin" inputmode="numeric" autocomplete="off" style="width:100%">
         <div class="warnbar" id="bp-err" style="margin-top:10px;display:none"></div>
         <button class="btn p" data-bp="login" style="width:100%;margin-top:12px;padding:10px">دخول</button></div></div>`
@@ -3455,6 +3468,7 @@ function bpBind(){
   const n=$('#bp-note'); if(n) n.oninput=()=>BP.note=n.value;
   const d=$('#bp-need'); if(d) d.onchange=()=>BP.need=d.value;
   const pin=$('#bp-pin'); if(pin) pin.onkeydown=e=>{ if(e.key==='Enter') bpAct('login',{}); };
+  const lq=$('#bp-lq'); if(lq) lq.oninput=()=>{ BP.lq=lq.value; const p=lq.selectionStart; bpRender(); const n=$('#bp-lq'); if(n){ n.focus(); try{ n.setSelectionRange(p,p); }catch(e){} } };
 }
 async function bpAct(a,d){
   try{
@@ -3463,9 +3477,11 @@ async function bpAct(a,d){
       if(!br||!pin){ err.style.display='block'; err.textContent='اختار الفرع واكتب الباسورد'; return; }
       const h=await koHash(br,pin);
       if(BP.cfg.pins[br]!==h){ err.style.display='block'; err.textContent='الباسورد غلط'; return; }
-      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); }catch(e){} bpApplyBrand();
+      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); localStorage.setItem('bp-last:'+FACTORY,br); }catch(e){} bpApplyBrand(); BP.lsel=undefined; BP.lbrand=undefined; BP.lq='';
       BP.tab='new'; return bpRender();
     }
+    if(a==='lbrand'){ BP.lbrand=BP.lbrand===d.v?'':d.v; BP.lq=''; if(BP.lsel && ((BP.cfg.brands||{})[BP.lsel]||'')!==BP.lbrand) BP.lsel=''; return bpRender(); }
+    if(a==='lpick'){ BP.lsel=d.v; const bb=(BP.cfg.brands||{})[d.v]; if(bb) BP.lbrand=bb; bpRender(); const p=$('#bp-pin'); if(p) p.focus(); return; }
     if(a==='logout'){ BP.branch=''; try{ sessionStorage.removeItem('bp:'+FACTORY); }catch(e){} return bpRender(); }
     if(a==='tab'){ BP.tab=d.v; if(d.v==='mine'){ BP.orders=await koList(BP.branch); } return bpRender(); }
     if(a==='cat'){ BP.cat=d.v; return bpRender(); }
