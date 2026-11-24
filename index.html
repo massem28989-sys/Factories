@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 13:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 13:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4954,6 +4954,7 @@ function proSide(){ const isMgr=ROLE==='manager'; const fac=FACTORIES.find(f=>f.
     <nav class="side-nav">${groups}</nav>
     <div class="side-foot">${AUTH?`<span>${esc(AUTH.user.email)}</span><button type="button" data-act="logout">تسجيل الخروج</button>`:''}
       ${Object.values(SESS).some(Boolean)?`<button type="button" data-act="lock-all">🔒 اقفل التبويبات</button>`:''}
+      <button type="button" data-notr onclick="setLang(LANG==='en'?'ar':'en')" style="font-weight:700">🌐 ${LANG==='en'?'العربية':'English'}</button>
       <button type="button" data-act="ui-look" data-v="classic">الشكل القديم</button><span style="font-size:11px">نسخة ${APP_BUILD}</span></div>
   </aside>`; }
 function goTab(k){ if(!TABS.some(t=>t[0]===k)) return false; if(!canOpen(k)){ ui.modal=unlockModal(k); render(); return false; }
