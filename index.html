@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 14:35'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 15:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3470,6 +3470,30 @@ function bpNewView(){
       <button class="btn p" data-bp="send" style="width:100%;margin-top:14px;padding:11px" ${chosen.length?'':'disabled'}>ابعت الطلبية للمصنع (${chosen.length} صنف)</button>
     </div></div>`;
 }
+const _bt=(en,ar)=>LANG==='en'?en:ar;
+function bpOrderTable(o){ const T=_bt, live=o.status==='sent'||o.status==='received';
+  const head=live?`<th>${T('Item','الصنف')}</th><th class="n">${T('Factory sent','المصنع بعت')}</th><th class="n">${T('Branch received','الفرع استلم')}</th>`
+    :`<th>${T('Item','الصنف')}</th><th class="n">${T('Ordered','طلبت')}</th>`;
+  return `<table style="margin-top:8px" data-notr><thead><tr>${head}</tr></thead><tbody>
+    ${o.lines.map((l,ix)=>`<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span></td>
+      ${live?`<td class="n">${fmtP(l.sent||0)}</td>`:`<td class="n">${fmtP(l.qty)}</td>`}
+      ${o.status==='sent'?`<td class="n"><input type="number" min="0" step="any" data-br="${o.id}:${ix}" value="${l.sent||0}" style="width:74px;text-align:center"></td>`:''}
+      ${o.status==='received'?`<td class="n" style="${Math.abs((l.recv||0)-(l.sent||0))>0.0001?'color:var(--red);font-weight:600':''}">${fmtP(l.recv||0)}</td>`:''}</tr>`).join('')}
+  </tbody></table>
+  ${o.status==='sent'?`<div class="hint" style="margin-top:6px">عدّ اللي وصلك فعلًا وعدّل الرقم لو فيه نقص أو زيادة، وبعدين أكّد.</div><button class="btn p" data-bp="recv" data-id="${o.id}" style="margin-top:8px">أكّد الاستلام</button>`:''}
+  ${o.status==='new'?(koOpen()?`<button class="btn" data-bp="edit" data-id="${o.id}" style="margin-top:8px" data-notr>✏️ ${T('Edit order','عدّل الطلبية')}</button>`
+    :`<div class="hint" style="margin-top:8px" data-notr>${T('You can edit this order between 10:00 pm and 12:00 midnight.','تقدر تعدّل الطلبية من 10 بالليل لحد 12 نص الليل.')}</div>`):''}`; }
+function bpEditBox(o){ const T=_bt, E=BP.edit; const q=(E.q||'').trim().toLowerCase();
+  const inOrder=new Set(Object.keys(E.qty)); const res=q?BP.items.filter(i=>!inOrder.has(i.id)&&i.name.toLowerCase().includes(q)).slice(0,8):[];
+  const rows=Object.keys(E.qty).map(id=>{ const it=BP.items.find(i=>i.id===id)||{id,name:(o.lines.find(l=>l.itemId===id)||{}).name||id}; const u=it.unit!==undefined?koUnitOf(BP.cfg,it).unit:((o.lines.find(l=>l.itemId===id)||{}).unit||'');
+    return `<tr${+E.qty[id]>0?'':' style="opacity:.5"'}><td>${esc(it.name)} <span class="hint">${esc(u)}</span></td><td class="n" style="white-space:nowrap"><input type="number" min="0" step="any" inputmode="decimal" data-eq="${id}" value="${E.qty[id]===''?'':E.qty[id]}" style="width:74px;text-align:center"> <button class="btn sm" data-bp="erm" data-v="${id}" title="${T('Remove','شيل')}" style="padding:2px 8px">✕</button></td></tr>`; }).join('');
+  return `<div data-notr style="margin-top:8px;border:2px solid var(--brand,#D4751A);border-radius:12px;padding:10px">
+    <b>✏️ ${T('Editing order','تعديل الطلبية')}</b>
+    <table style="margin-top:8px"><thead><tr><th>${T('Item','الصنف')}</th><th class="n">${T('Quantity','الكمية')}</th></tr></thead><tbody>${rows}</tbody></table>
+    <div style="margin-top:10px"><label class="f">🔍 ${T('Forgot an item? Search and add it','نسيت صنف؟ دوّر عليه وضيفه')}</label>
+      <input type="text" id="bp-eq" value="${esc(E.q||'')}" placeholder="${T('Type item name…','اكتب اسم الصنف…')}" autocomplete="off" style="width:100%"></div>
+    ${q?`<div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">${res.map(i=>`<button class="btn sm" data-bp="eadd" data-v="${i.id}" style="justify-content:space-between;display:flex;text-align:start">${esc(i.name)} <span>＋ ${T('Add','ضيف')}</span></button>`).join('')||`<div class="hint">${T('No matching items','مفيش صنف بالاسم ده')}</div>`}</div>`:''}
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn p" data-bp="esave" data-id="${o.id}">💾 ${T('Save changes','احفظ التعديل')}</button><button class="btn" data-bp="ecancel">${T('Back','رجوع')}</button></div></div>`; }
 function bpMineView(){
   const L=BP.orders;
   return `<div class="panel"><h2>طلبياتي <em>${L.length}</em><button class="btn sm" data-bp="reload" style="margin-inline-start:auto">تحديث</button></h2>
@@ -3479,14 +3503,7 @@ function bpMineView(){
       <span class="chip ${o.status==='sent'?'a':o.status==='received'?'b':o.status==='cancelled'?'r':''}">${KO_STATUS[o.status]||o.status}</span></div>
     ${o.note?`<div class="hint" style="margin-top:4px">ملاحظة: ${esc(o.note)}</div>`:''}
     ${o.status==='cancelled'&&o.cancelReason?`<div class="hint" style="margin-top:4px">سبب الإلغاء: ${esc(o.cancelReason)}</div>`:''}
-    <table style="margin-top:8px"><thead><tr><th>الصنف</th><th class="n">طلبت</th>${o.status!=='new'&&o.status!=='cancelled'?'<th class="n">اتبعت</th>':''}${o.status==='sent'||o.status==='received'?'<th class="n">استلمت</th>':''}</tr></thead><tbody>
-      ${o.lines.map((l,ix)=>`<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span></td><td class="n">${fmtP(l.qty)}</td>
-        ${o.status!=='new'&&o.status!=='cancelled'?`<td class="n">${fmtP(l.sent||0)}</td>`:''}
-        ${o.status==='sent'?`<td class="n"><input type="number" min="0" step="any" data-br="${o.id}:${ix}" value="${l.sent||0}" style="width:74px;text-align:center"></td>`:''}
-        ${o.status==='received'?`<td class="n" style="${Math.abs((l.recv||0)-(l.sent||0))>0.0001?'color:var(--red);font-weight:600':''}">${fmtP(l.recv||0)}</td>`:''}</tr>`).join('')}
-    </tbody></table>
-    ${o.status==='sent'?`<div class="hint" style="margin-top:6px">عدّ اللي وصلك فعلًا وعدّل الرقم لو فيه نقص أو زيادة، وبعدين أكّد.</div><button class="btn p" data-bp="recv" data-id="${o.id}" style="margin-top:8px">أكّد الاستلام</button>`:''}
-    ${o.status==='new'?`<button class="btn sm danger" data-bp="cancel" data-id="${o.id}" style="margin-top:8px">إلغاء الطلبية</button>`:''}
+    ${BP.edit&&BP.edit.id===o.id?bpEditBox(o):bpOrderTable(o)}
   </div>`).join(''):`<div class="empty">لسه مفيش طلبيات</div>`}</div>`;
 }
 function bpBind(){
@@ -3499,6 +3516,8 @@ function bpBind(){
   const n=$('#bp-note'); if(n) n.oninput=()=>BP.note=n.value;
   const d=$('#bp-need'); if(d) d.onchange=()=>BP.need=d.value;
   const pin=$('#bp-pin'); if(pin) pin.onkeydown=e=>{ if(e.key==='Enter') bpAct('login',{}); };
+  R.querySelectorAll('[data-eq]').forEach(i=>i.oninput=()=>{ if(BP.edit) BP.edit.qty[i.dataset.eq]=i.value===''?'':+i.value; });
+  const eq=$('#bp-eq'); if(eq) eq.oninput=()=>{ BP.edit.q=eq.value; const p=eq.selectionStart; bpRender(); const n=$('#bp-eq'); if(n){ n.focus(); try{ n.setSelectionRange(p,p); }catch(e){} } };
   const lq=$('#bp-lq'); if(lq) lq.oninput=()=>{ if(/@/.test(lq.value)){ lq.value=''; } BP.lq=lq.value; const p=lq.selectionStart; bpRender(); const n=$('#bp-lq'); if(n){ n.focus(); try{ n.setSelectionRange(p,p); }catch(e){} } };
 }
 async function bpAct(a,d){
@@ -3511,10 +3530,25 @@ async function bpAct(a,d){
       BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); localStorage.setItem('bp-last:'+FACTORY,br); }catch(e){} bpApplyBrand(); BP.lsel=undefined; BP.lbrand=undefined; BP.lq='';
       BP.tab='new'; return bpRender();
     }
+    if(a==='edit'){ const o=BP.orders.find(x=>x.id===d.id); if(!o||o.status!=='new') return; if(!koOpen()) return toast(_bt('Editing is open from 10:00 pm to 12:00 midnight only','التعديل متاح من 10 بالليل لحد 12 نص الليل بس'),1);
+      const qty={}; o.lines.forEach(l=>qty[l.itemId]=l.qty); BP.edit={id:o.id,qty,q:''}; return bpRender(); }
+    if(a==='ecancel'){ BP.edit=null; return bpRender(); }
+    if(a==='erm'){ if(BP.edit) BP.edit.qty[d.v]=0; return bpRender(); }
+    if(a==='eadd'){ if(BP.edit){ BP.edit.qty[d.v]=''; BP.edit.q=''; } bpRender(); const n=document.querySelector(`[data-eq="${d.v}"]`); if(n) n.focus(); return; }
+    if(a==='esave'){ const E=BP.edit; if(!E) return; const o=BP.orders.find(x=>x.id===E.id); if(!o) return;
+      if(!koOpen()){ BP.edit=null; toast(_bt('Editing is open from 10:00 pm to 12:00 midnight only','التعديل متاح من 10 بالليل لحد 12 نص الليل بس'),1); return bpRender(); }
+      const fresh=(await koList(BP.branch)).find(x=>x.id===o.id);
+      if(!fresh||fresh.status!=='new'){ BP.edit=null; BP.orders=await koList(BP.branch); toast(_bt('The factory already started this order — call the factory','المصنع بدأ يجهّزها — كلّم المصنع'),1); return bpRender(); }
+      const lines=Object.keys(E.qty).filter(id=>+E.qty[id]>0).map(id=>{ const old=fresh.lines.find(l=>l.itemId===id); const it=BP.items.find(i=>i.id===id);
+        if(it){ const u=koUnitOf(BP.cfg,it); return {itemId:id,name:it.name,unit:u.unit,qty:+E.qty[id],size:u.size,baseUnit:u.base}; } return {...old, qty:+E.qty[id]}; }).filter(l=>l&&l.name);
+      if(!lines.length){ if(!confirm(_bt('All quantities are zero — this will cancel the order. Continue?','كل الكميات صفر — كده الطلبية هتتلغي. تكمل؟'))) return;
+        fresh.status='cancelled'; fresh.cancelReason='الفرع لغاها (صفّر الكميات)'; }
+      else fresh.lines=lines;
+      fresh.editedAt=new Date().toISOString(); await koSave(fresh); BP.edit=null; BP.orders=await koList(BP.branch); toast(_bt('Order updated ✓','الطلبية اتعدلت ✓')); return bpRender(); }
     if(a==='lbrand'){ BP.lbrand=BP.lbrand===d.v?'':d.v; BP.lq=''; if(BP.lsel && ((BP.cfg.brands||{})[BP.lsel]||'')!==BP.lbrand) BP.lsel=''; return bpRender(); }
     if(a==='lpick'){ BP.lsel=d.v; const bb=(BP.cfg.brands||{})[d.v]; if(bb) BP.lbrand=bb; bpRender(); const p=$('#bp-pin'); if(p) p.focus(); return; }
     if(a==='logout'){ BP.branch=''; try{ sessionStorage.removeItem('bp:'+FACTORY); }catch(e){} return bpRender(); }
-    if(a==='tab'){ BP.tab=d.v; if(d.v==='mine'){ BP.orders=await koList(BP.branch); } return bpRender(); }
+    if(a==='tab'){ BP.edit=null; BP.tab=d.v; if(d.v==='mine'){ BP.orders=await koList(BP.branch); } return bpRender(); }
     if(a==='cat'){ BP.cat=d.v; return bpRender(); }
     if(a==='reload'){ BP.orders=await koList(BP.branch); toast('اتحدثت'); return bpRender(); }
     if(a==='send'){
