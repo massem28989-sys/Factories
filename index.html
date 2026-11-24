@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 16:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 16:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3441,6 +3441,8 @@ function koDxb(){ const P={}; new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Du
 /* 🧪 فترة التجربة: لحد آخر نوفمبر — الصرف من الطلبيات ما بيسجلش منصرف ولا بيأثر على المخزن */
 const KO_LIVE_FROM='2026-12-01';
 const koTrialNow=()=>koDxb().ymd<KO_LIVE_FROM;
+// فرع تجربة (اسمه بيبدأ بـ Test أو تجربة): طلبياته دايمًا تجريبية — من غير منصرف حتى بعد 1/12
+const koIsTestBranch=b=>/^\s*(test|تجرب)/i.test(String(b||''));
 const koDxbOf=iso=>{ const d=new Date(Date.parse(iso)+4*3600e3).toISOString(); return {ymd:d.slice(0,10), h:+d.slice(11,13)}; };
 // ليلة الطلب الأخيرة: لو الساعة 10 بالليل أو بعدها يبقى النهارده، غير كده إمبارح
 function koLastWindowDate(){ const t=koDxb(); if(t.h>=KO_WIN[0]) return t.ymd; const d=new Date(t.ymd+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().slice(0,10); }
@@ -3467,7 +3469,7 @@ function bpNewView(){
   const chosen=BP.items.filter(i=>+BP.qty[i.id]>0);
   const tmr=(()=>{ const d=new Date(koDxb().ymd+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+1); return d.toISOString().slice(0,10); })(); // الطلب بيتعمل بالليل — التوصيل تاني يوم
   const U=bpUsual(); const last=(BP.orders||[]).find(o=>o.status!=='cancelled');
-  return `${koTrialNow()?`<div class="warnbar" style="margin-bottom:10px" data-notr>🧪 ${_bt('Trial period until 30/11 — orders are for practice and don\'t affect stock.','فترة تجريبية لحد 30/11 — الطلبيات للتجربة ومش بتأثر على المخزن.')}</div>`:''}
+  return `${koTrialNow()||koIsTestBranch(BP.branch)?`<div class="warnbar" style="margin-bottom:10px" data-notr>🧪 ${_bt('Trial period until 30/11 — orders are for practice and don\'t affect stock.','فترة تجريبية لحد 30/11 — الطلبيات للتجربة ومش بتأثر على المخزن.')}</div>`:''}
   <div class="panel"><h2>طلبية جديدة <em>${chosen.length} صنف</em>${last?`<button class="btn sm" data-bp="repeat" style="margin-inline-start:auto" data-notr>↻ ${_bt('Repeat last order','كرر آخر طلبية')}</button>`:''}</h2>
     <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="bp-q" placeholder="دور على صنف…" value="${esc(BP.q)}"></div></div>
     <div class="tblwrap" style="max-height:none;margin-top:10px"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
@@ -3607,7 +3609,7 @@ async function koLoad(){
   if(tab==='korders') render();
 }
 // طلبية من فترة التجربة: اتبعتت في التجربة، أو اتلغت/فضلت جديدة من قبل ليلة 30/11 (طلبيات ليلة 30/11 حقيقية لتوصيل 1/12)
-const koIsTrialOrder=o=>!!o.trial || ((o.status==='cancelled'||o.status==='new') && koDxbOf(o.createdAt||'').ymd<'2026-11-30');
+const koIsTrialOrder=o=>!!o.trial || koIsTestBranch(o.branch) || ((o.status==='cancelled'||o.status==='new') && koDxbOf(o.createdAt||'').ymd<'2026-11-30');
 const koLateDays=o=>o.sentAt?Math.floor((Date.now()-Date.parse(o.sentAt))/864e5):0;
 function koDiffText(o){ const A={}, B={}; (o.origLines||[]).forEach(l=>A[l.itemId]=l); o.lines.forEach(l=>B[l.itemId]=l); const out=[];
   o.lines.forEach(l=>{ const a=A[l.itemId]; if(!a) out.push(`＋ ${esc(l.name)} ${fmtP(l.qty)}`); else if(+a.qty!==+l.qty) out.push(`${esc(l.name)} من ${fmtP(a.qty)} لـ ${fmtP(l.qty)}`); });
@@ -3695,7 +3697,7 @@ function viewKOrders(){
   ${brandSummary}
   ${koTrialNow()?`<div class="panel"><div class="pad"><div class="warnbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="flex:1">🧪 <b>فترة تجريبية لحد 30/11:</b> «جهزت واتبعتت» بيعلّم الطلبية إنها اتبعتت بس، ومن غير ما يسجل منصرف من المخزن. ومن 1/12 بيبدأ يسجل المنصرف عادي.</span></div></div></div>`:''}
   ${KO.list.some(o=>koIsTrialOrder(o))&&isOwner?`<div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="hint" style="flex:1">فيه ${KO.list.filter(o=>koIsTrialOrder(o)).length} طلبية من فترة التجربة (قبل 1/12).</span><button class="btn sm danger" data-act="ko-clear-trial">🧹 امسح طلبيات التجربة</button></div></div>`:''}
-  ${(()=>{ const W=koLastWindowDate(); const pinned=Object.keys(KO.cfg.pins||{}).filter(b=>!KO.brand||((KO.cfg.brands||{})[b]||'')===KO.brand);
+  ${(()=>{ const W=koLastWindowDate(); const pinned=Object.keys(KO.cfg.pins||{}).filter(b=>!koIsTestBranch(b)).filter(b=>!KO.brand||((KO.cfg.brands||{})[b]||'')===KO.brand);
      const did=new Set(KO.list.filter(o=>o.status!=='cancelled'&&koInWindow(o,W)).map(o=>o.branch)); const miss=pinned.filter(b=>!did.has(b)).sort((a,b)=>a.localeCompare(b,'ar'));
      return pinned.length?`<div class="panel"><h2>طلبيات ليلة ${W.slice(8,10)}/${W.slice(5,7)} <em>${did.size} من ${pinned.length} فرع</em></h2><div class="pad">${miss.length?`<div class="hint" style="margin-bottom:6px">ما طلبوش (من 10 لـ 12 بالليل):</div><div style="display:flex;flex-wrap:wrap;gap:6px">${miss.map(b=>`<span class="chip r">${esc(b)}</span>`).join('')}</div>`:'<span class="chip g">✓ كل الفروع طلبت</span>'}</div></div>`:''; })()}
   <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em>${brandFilter}${fresh.length?`<button class="btn sm p" data-act="ko-pick" style="${bl.length?'':'margin-inline-start:auto'}">🖨️ ورقة التجهيز</button>`:''}<button class="btn sm" data-act="ko-refresh" style="${bl.length||fresh.length?'':'margin-inline-start:auto'}">تحديث</button></h2>
@@ -3820,7 +3822,7 @@ async function koAct(a,d){
     o.lines.forEach((l,ix)=>{ const inp=document.querySelector(`[data-kosent="${o.id}:${ix}"]`); l.sent=inp&&inp.value!==''?Math.max(0,+inp.value):l.qty; });
     const toSend=o.lines.filter(l=>l.sent>0);
     if(!toSend.length) return toast('كل الكميات صفر — لو مش هتبعت حاجة الغي الطلبية',1);
-    if(today()<KO_LIVE_FROM){ // 🧪 فترة التجربة: من غير منصرف
+    if(today()<KO_LIVE_FROM || koIsTestBranch(o.branch)){ // 🧪 فترة التجربة أو فرع تجربة: من غير منصرف
       if(!confirm(`🧪 فترة تجريبية — الطلبية هتتعلّم «اتبعتت» عند الفرع، بس مش هيتسجل منصرف من المخزن.\n\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}`).join('\n')}\n\nلو البضاعة طالعة فعلًا، سجّل منصرفها زي ما بتعمل عادي.\n\nتأكيد؟`)) return;
       o.trial=true; o.moveIds=[]; o.status='sent'; o.sentAt=new Date().toISOString(); o.period=S.period; await koSave(o); toast(`🧪 اتعلّمت «اتبعتت» لفرع ${o.branch} — من غير منصرف (تجريبي)`); return render(); }
     if(!confirm(`هيتسجل منصرف "صرف للفروع" لفرع ${o.branch}:\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}${koLineSize(l)!==1?` (= ${fmtP(n2(l.sent*koLineSize(l)))} ${l.baseUnit||(item(l.itemId)||{}).unit||''})`:''}`).join('\n')}\n\nتأكيد؟`)) return;
