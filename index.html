@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 23:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 23:55'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1313,7 +1313,7 @@ async function load(){
       await cntAnchorLoad();
       // تعديل وصفة من جهاز تاني ممكن يكون غيّر خصم أيام قبل الجرد — نعوّضه أول ما نفتح، من غير ما نستنى أي حفظ
       setTimeout(()=>{ try{ if(!VIEWER && (isOwner()||ROLE==='manager') && !(window.__updStale&&window.__updStale())){ const f=anchorHeal(); if(f){ saveTx(); toast(`🔒 ${f} تعديل في أيام قبل الجرد اتعوّض — الرصيد بعد الجرد رجع زي ما اتعدّ`); }
-        const nm=nomMigrate(); if(nm){ saveTx(); toast(`⚖️ ${nm} استلام كراتين رجع بسعر وكمية الفاتورة، والفرق اتسجل «فرق وزن كرتونة»`); } } }catch(e){} }, 3000);
+        const nm=nomMigrate(); if(nm){ saveTx(); toast(`⚖️ ${nm} استلام كراتين اتظبط على كمية وسعر الفاتورة`); } } }catch(e){} }, 3000);
       await stdLoad();
       await exportSalesLoad();
       gsKeyLoad().then(()=>{ if(!GS_FKEY && BRANCH_APP) render(); });
@@ -7183,7 +7183,7 @@ function itemModal(it){
       <div style="grid-column:1/-1;background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:8px 10px">
         <label class="f">⚖️ بيتستلم بالوزن وبيتصرف كراتين كاملة؟ <span style="color:var(--muted)">(اختياري)</span></label>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">وزن الكرتونة <input type="number" step="any" min="0" id="f-nom" value="${it&&nomPackOf(it)||''}" placeholder="مثلًا 20" style="width:90px;text-align:center"> ${esc(e.unit)}
-        <span class="hint">الوارد بيتسجل زي الفاتورة بالظبط (803.2 بسعرها)، والسيستم بيضيف جنبه «فرق وزن كرتونة» (3.2) عشان الرصيد يبقى 800 = 40 كرتونة. سيبه فاضي للأصناف العادية.</span></div></div>
+        <span class="hint">لو اتكتب وزن الميزان (803.2 أو 799)، بيتسجل 800 = 40 كرتونة زي فاتورة المورد وبنفس سعر الكيلو. سيبه فاضي للأصناف العادية.</span></div></div>
     </div>
     ${it?(()=>{ const rs=(S.recipes||[]).map(r=>({r, ln:(r.lines||[]).find(l=>l.itemId===it.id), out:r.outItemId===it.id})).filter(x=>x.ln||x.out);
       if(!rs.length) return '';
@@ -8924,16 +8924,16 @@ function prParseD(v){ v=String(v||'').trim().replace(/[٠-٩]/g,c=>'٠١٢٣٤٥
   else { m=v.match(/^(\d{1,2})[-\/. ](\d{1,2})[-\/. ](\d{2,4})$/); if(!m) return null; d=+m[1]; mo=+m[2]; y=+m[3]; if(y<100) y+=2000; }
   const D=new Date(Date.UTC(y,mo-1,d)); if(D.getUTCMonth()!==mo-1||D.getUTCDate()!==d||y<2000||y>2100) return null; return D.toISOString().slice(0,10); }
 const prFmtD=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'';
-/* ⚖️ الكرتونة الاسمية: صنف بيتستلم بالوزن الفعلي (803.2) بس بيتصرف كراتين 20 كيلو كاملة —
-   الوارد بيتسجل زي الفاتورة بالظبط (803.2 بسعر الفاتورة، فحساب المورد مظبوط)، وجنبه حركة «تسوية جرد — فرق وزن كرتونة»
-   بالفرق (3.2) عشان الرصيد يبقى 800 = 40 كرتونة ومايفضلش وزن وهمي */
+/* ⚖️ الكرتونة الاسمية: المورد بيفوتر بالوزن الاسمي (40 كرتونة × 20 = 800) حتى لو الميزان قال 803.2 أو 799 —
+   فلو اتكتب وزن الميزان، الوارد بيتسجل بالكراتين الكاملة (800) وبنفس سعر الكيلو اللي في الفاتورة. الوزن الفعلي بيتحفظ للمعلومة بس */
 const NOM_PARTY='تسوية جرد — فرق وزن كرتونة';
-function nomSettle(it,m){ const n=nomPackOf(it); if(!n||!(+m.qty>0)) return null; const w=+m.qty, q=nomRound(it,w); const d=Math.round((w-q)*1000)/1000; if(Math.abs(d)<1e-9) return null;
-  return {id:uid('m'), dir:d>0?'out':'in', itemId:it.id, qty:Math.abs(d), date:m.date, price:+m.price||+it.price||0, party:NOM_PARTY, reason:`وزن الكراتين ${fmt(w)} ← ${fmt(q)} (${fmt(q/n)} × ${fmt(n)})`, nomOf:m.id}; }
-// تصليح الاستلامات اللي اتسجلت بالطريقة القديمة (800 بسعر متعدل) — ترجع زي الفاتورة + حركة التسوية
-function nomMigrate(){ let n=0; S.moves.slice().forEach(m=>{ if(!m.actualWt||m.dir!=='in') return; const it=item(m.itemId); if(!it) return;
-  const q=+m.qty, w=+m.actualWt; m.price=Math.round((+m.price||0)*q/w*10000)/10000; m.qty=w; delete m.actualWt;
-  const sx=nomSettle(it,m); if(sx){ sx.qty=Math.round(Math.abs(w-q)*1000)/1000; sx.dir=w>q?'out':'in'; S.moves.push(sx); } n++; }); return n; }
+function nomFix(it,m){ const n=nomPackOf(it); if(!n||!(+m.qty>0)) return m; const w=+m.qty, q=nomRound(it,w); if(Math.abs(q-w)<1e-9) return m; m.scaleWt=w; m.qty=q; return m; }
+// تصليح اللي اتسجل بالطرق القديمة: (1) 800 بسعر متعدل → سعر الفاتورة، (2) 803.2 + حركة تسوية فرق وزن → 800 من غير تسوية
+function nomMigrate(){ let n=0;
+  S.moves.forEach(m=>{ if(m.dir==='in' && m.actualWt){ const q=+m.qty, w=+m.actualWt; m.price=Math.round((+m.price||0)*q/w*100)/100; m.scaleWt=w; delete m.actualWt; n++; } });
+  const st=S.moves.filter(m=>m.party===NOM_PARTY && m.nomOf); st.forEach(x=>{ const m=S.moves.find(y=>y.id===x.nomOf); if(m){ m.scaleWt=+m.qty; m.qty=Math.round(((+m.qty)+(x.dir==='out'?-1:1)*(+x.qty))*1000)/1000; } if(typeof DELETED_MOVE_IDS!=='undefined') DELETED_MOVE_IDS.add(x.id); n++; });
+  if(st.length){ const ids=new Set(st.map(x=>x.id)); S.moves=S.moves.filter(m=>!ids.has(m.id)); }
+  return n; }
 const nomPackOf=it=>{ const v=it&&S.unitConv&&S.unitConv[it.id]&&+S.unitConv[it.id].nom; return v>0?v:0; };
 function nomRound(it,w){ const n=nomPackOf(it); if(!n||!(w>0)) return w; const q=Math.round(w/n)*n; return (q>0 && Math.abs(w-q)<=Math.max(2,0.05*w)) ? q : w; } // لو الفرق كبير (كرتونة ناقصة مثلًا) بيتسجل الوزن زي ما هو
 // بيرجع الحركة بعد التقريب + سعر متعدل بحيث القيمة = الوزن الفعلي × السعر
@@ -8959,7 +8959,7 @@ function prReceiveModal(key){
         <div><label class="f">وصل كام (${esc(U)})</label>
           <div style="display:flex;align-items:center;gap:4px"><button class="btn sm" type="button" data-prstep="-1">−</button><input type="number" min="0" step="any" inputmode="decimal" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:78px;text-align:center;font-size:16px;font-weight:700"><button class="btn sm" type="button" data-prstep="1">+</button></div>
           <div style="display:flex;gap:4px;margin-top:4px"><button class="btn sm" type="button" data-prset="full">✓ كامل</button><button class="btn sm" type="button" data-prset="0">✗ ما وصلش</button></div></div>
-        ${nomPackOf(it)?`<div class="hint" style="align-self:center;color:#8A4A0B">⚖️ بيتقرّب لكراتين كاملة (${fmt(nomPackOf(it))} ${esc(r.unit||'')}) — اكتب الوزن الفعلي</div>`:''}
+        ${nomPackOf(it)?`<div class="hint" style="align-self:center;color:#8A4A0B">⚖️ بيتسجل كراتين كاملة × ${fmt(nomPackOf(it))} زي الفاتورة</div>`:''}
         ${bw?`<div style="background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:5px 8px"><label class="f" style="color:#8A4A0B">⚖️ الوزن الفعلي (${esc(r.unit||'كيلو')})</label><input type="number" min="0" step="any" inputmode="decimal" data-prw="${r.id}" placeholder="مثلًا 14.05" style="width:96px;text-align:center;font-weight:700;font-size:16px"></div>`:''}
         <div><label class="f">تاريخ الإنتاج <span class="hint">(اختياري)</span></label>
           <input type="text" inputmode="numeric" data-prprod="${r.id}" placeholder="يوم/شهر/سنة" style="width:120px;text-align:center;direction:ltr"></div>
@@ -9048,7 +9048,7 @@ async function prReceiveSave(key){
     const pch=[];
     for(const l of lines){ const it=item(l.r.itemId);
       const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:'',...(l.exp?{expDate:l.exp}:{}),...(l.prod?{prodDate:l.prod}:{})};
-      S.moves.push(m); moves.push(m); { const sx=nomSettle(it,m); if(sx) S.moves.push(sx); } if(l.priceBase>0){ const w=wacApply(it, m); if(w) pch.push(w); } }
+      nomFix(it,m); S.moves.push(m); moves.push(m); if(l.priceBase>0){ const w=wacApply(it, m); if(w) pch.push(w); } }
     setTimeout(()=>afterPriceChange(pch), 900);
     let invMsg='';
     const f=($('#prr-inv')||{}).files; 
@@ -14722,7 +14722,8 @@ async function _act(a,d){
       const unitPrice = unitMul>1 ? r4(enteredPrice/unitMul) : r4(enteredPrice);
       { const odd=priceOddMsg(it, unitPrice); if(odd && !confirm(`⚠ راجع السعر قبل الحفظ\n\n${odd}\n\nلو السعر مكتوب للكرتونة أو العبوة، اختار الوحدة الصح من خانة الوحدة.\n\n• «موافق» ← السعر صح، احفظ\n• «إلغاء» ← أرجع أعدّله`)) return; }
       m={id:uid('m'),dir:'in',itemId:id,qty,date,price:unitPrice,party:$('#m-party')?$('#m-party').value.trim():'',reason:'',prodDate,temp,expDate};
-      S.moves.push(m); { const sx=nomSettle(it,m); if(sx){ S.moves.push(sx); autoMsg+=` · ⚖️ الرصيد ${fmt(nomRound(it,+m.qty))} (${fmt(nomRound(it,+m.qty)/nomPackOf(it))} كرتونة) — الفرق ${fmt(sx.qty)} اتسجل فرق وزن كرتونة`; } }
+      nomFix(it,m); if(m.scaleWt) autoMsg+=` · ⚖️ الميزان ${fmt(m.scaleWt)} اتسجل ${fmt(m.qty)} زي الفاتورة (${fmt(m.qty/nomPackOf(it))} كرتونة × ${fmt(nomPackOf(it))})`;
+      S.moves.push(m);
       if(m.price>0){ const w=wacApply(it, m); await saveMain(); if(w) setTimeout(()=>afterPriceChange([w]), 400); }
       // الوارد العادي منفصل تمامًا عن طلبات الشراء — مابيخصمش منها. استلام طلب الشراء بيتم من زرار «استلام» في الطلب نفسه بس.
       // بنكتفي بتنبيه لو فيه طلب مفتوح لنفس الصنف، عشان لو الوارد ده كان من الطلب فعلًا
@@ -14793,7 +14794,7 @@ async function _act(a,d){
       const typed = b.price[id];
       const price = (typed!==undefined && typed!=='') ? +typed : (+it.price>0 ? +it.price : 0);
       const m={id:uid('m'),dir:'in',itemId:id,qty:r4(qty),date,price:r4(price),party,reason:''};
-      S.moves.push(m); moves.push(m); { const sx=nomSettle(it,m); if(sx) S.moves.push(sx); }
+      nomFix(it,m); S.moves.push(m); moves.push(m);
       if(price>0) wacApply(it, m);
     }
     let invMsg='';
