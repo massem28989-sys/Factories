@@ -3447,7 +3447,7 @@ const koDxbOf=iso=>{ const d=new Date(Date.parse(iso)+4*3600e3).toISOString(); r
 // ليلة الطلب الأخيرة: لو الساعة 10 بالليل أو بعدها يبقى النهارده، غير كده إمبارح
 function koLastWindowDate(){ const t=koDxb(); if(t.h>=KO_WIN[0]) return t.ymd; const d=new Date(t.ymd+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().slice(0,10); }
 const koInWindow=(o,ymd)=>{ const x=koDxbOf(o.createdAt); return x.ymd===ymd && x.h>=KO_WIN[0] && x.h<KO_WIN[1]; };
-function koOpen(){ if(window.__KO_FORCE) return window.__KO_FORCE==='open'; if(typeof BP!=='undefined' && BP.branch && koIsTestBranch(BP.branch)) return true; // فرع التجربة مفتوح طول اليوم const t=koDxb(); return t.h>=KO_WIN[0] && t.h<KO_WIN[1]; }
+function koOpen(){ if(window.__KO_FORCE) return window.__KO_FORCE==='open'; if(typeof BP!=='undefined' && BP.branch && koIsTestBranch(BP.branch)) return true; /* فرع التجربة مفتوح طول اليوم */ const t=koDxb(); return t.h>=KO_WIN[0] && t.h<KO_WIN[1]; }
 function koOpensIn(){ const t=koDxb(); let mins=(KO_WIN[0]*60 - (t.h*60+t.m) + 1440)%1440; return {h:Math.floor(mins/60), m:mins%60}; }
 function bpClosedView(){ const o=koOpensIn(), en=LANG==='en';
   return `<div class="panel" style="max-width:560px;margin:24px auto 0"><div class="pad" style="text-align:center;padding:28px 18px" data-notr>
