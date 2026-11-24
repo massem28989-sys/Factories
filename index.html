@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 15:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 16:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3380,7 +3380,7 @@ async function branchPortal(){
     const allow=new Set(BP.cfg.items); BP.items=its.filter(i=>allow.has(i.id)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
     BP.allItems=BP.items;
     try{ const s=JSON.parse(sessionStorage.getItem('bp:'+FACTORY)||'null'); if(s && BP.cfg.pins[s.branch]===s.h) BP.branch=s.branch; }catch(e){}
-    bpApplyBrand();
+    bpApplyBrand(); if(BP.branch){ try{ BP.orders=await koList(BP.branch); }catch(e){} }
     try{ const d=JSON.parse(localStorage.getItem('bp-draft:'+FACTORY)||'null'); if(d&&d.qty) BP.qty=d.qty; }catch(e){}
   }catch(e){ BP.err=e.message; }
   bpRender();
@@ -3438,6 +3438,13 @@ function bpRender(){
 const KO_WIN=[22,24];
 function koDxb(){ const P={}; new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Dubai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).forEach(x=>P[x.type]=x.value);
   return {h:+P.hour%24, m:+P.minute, ymd:`${P.year}-${P.month}-${P.day}`}; }
+/* 🧪 فترة التجربة: لحد آخر نوفمبر — الصرف من الطلبيات ما بيسجلش منصرف ولا بيأثر على المخزن */
+const KO_LIVE_FROM='2026-12-01';
+const koTrialNow=()=>koDxb().ymd<KO_LIVE_FROM;
+const koDxbOf=iso=>{ const d=new Date(Date.parse(iso)+4*3600e3).toISOString(); return {ymd:d.slice(0,10), h:+d.slice(11,13)}; };
+// ليلة الطلب الأخيرة: لو الساعة 10 بالليل أو بعدها يبقى النهارده، غير كده إمبارح
+function koLastWindowDate(){ const t=koDxb(); if(t.h>=KO_WIN[0]) return t.ymd; const d=new Date(t.ymd+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().slice(0,10); }
+const koInWindow=(o,ymd)=>{ const x=koDxbOf(o.createdAt); return x.ymd===ymd && x.h>=KO_WIN[0] && x.h<KO_WIN[1]; };
 function koOpen(){ if(window.__KO_FORCE) return window.__KO_FORCE==='open'; const t=koDxb(); return t.h>=KO_WIN[0] && t.h<KO_WIN[1]; }
 function koOpensIn(){ const t=koDxb(); let mins=(KO_WIN[0]*60 - (t.h*60+t.m) + 1440)%1440; return {h:Math.floor(mins/60), m:mins%60}; }
 function bpClosedView(){ const o=koOpensIn(), en=LANG==='en';
@@ -3448,6 +3455,10 @@ function bpClosedView(){ const o=koOpensIn(), en=LANG==='en';
     <div style="margin-top:14px;display:inline-block;background:var(--brand-bg);border-radius:12px;padding:10px 16px;font-weight:700;font-size:17px">${en?`Opens in ${o.h}h ${o.m}m`:`بيفتح بعد ${o.h} ساعة و${o.m} دقيقة`}</div>
     <div class="hint" style="margin-top:14px">${en?'You can still check your orders and confirm deliveries in “My orders”.':'تقدر تتابع طلبياتك وتأكد الاستلام من «طلبياتي» في أي وقت.'}</div>
     <button class="btn" data-bp="tab" data-v="mine" style="margin-top:12px">${en?'My orders':'طلبياتي'}</button></div></div>`; }
+// الكمية المعتادة لكل صنف: الوسيط من آخر 6 طلبيات للفرع ده
+function bpUsual(){ const M={}; (BP.orders||[]).filter(o=>o.status!=='cancelled').slice(0,6).forEach(o=>o.lines.forEach(l=>{ (M[l.itemId]=M[l.itemId]||[]).push(+l.qty||0); }));
+  const U={}; Object.keys(M).forEach(k=>{ const a=M[k].sort((x,y)=>x-y); U[k]=a[Math.floor((a.length-1)/2)]; }); return U; }
+const bpOdd=(q,u)=>u>0 && q>=u*3 && q-u>=3;
 function bpNewView(){
   if(!koOpen()) return bpClosedView();
   if(!BP.items.length) return `<div class="panel"><div class="pad"><div class="warnbar">المصنع لسه ما حددش الأصناف اللي الفروع تطلبها.</div></div></div>`;
@@ -3455,11 +3466,13 @@ function bpNewView(){
   const shown=BP.items.filter(i=>!q||i.name.toLowerCase().includes(q));
   const chosen=BP.items.filter(i=>+BP.qty[i.id]>0);
   const tmr=(()=>{ const d=new Date(koDxb().ymd+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+1); return d.toISOString().slice(0,10); })(); // الطلب بيتعمل بالليل — التوصيل تاني يوم
-  return `<div class="panel"><h2>طلبية جديدة <em>${chosen.length} صنف</em></h2>
+  const U=bpUsual(); const last=(BP.orders||[]).find(o=>o.status!=='cancelled');
+  return `${koTrialNow()?`<div class="warnbar" style="margin-bottom:10px" data-notr>🧪 ${_bt('Trial period until 30/11 — orders are for practice and don\'t affect stock.','فترة تجريبية لحد 30/11 — الطلبيات للتجربة ومش بتأثر على المخزن.')}</div>`:''}
+  <div class="panel"><h2>طلبية جديدة <em>${chosen.length} صنف</em>${last?`<button class="btn sm" data-bp="repeat" style="margin-inline-start:auto" data-notr>↻ ${_bt('Repeat last order','كرر آخر طلبية')}</button>`:''}</h2>
     <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="bp-q" placeholder="دور على صنف…" value="${esc(BP.q)}"></div></div>
     <div class="tblwrap" style="max-height:none;margin-top:10px"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
       ${shown.map(i=>`<tr${+BP.qty[i.id]>0?' style="background:var(--brand-bg)"':''}><td><div class="iname">${esc(i.name)}</div></td>
-        <td class="n"><div style="display:flex;gap:6px;align-items:center;justify-content:flex-end"><input type="number" min="0" step="any" inputmode="decimal" data-bq="${i.id}" value="${BP.qty[i.id]||''}" style="width:78px;text-align:center"><span class="hint" style="min-width:34px">${esc(koUnitOf(BP.cfg,i).unit)}</span></div></td></tr>`).join('')||`<tr><td colspan="2" class="empty">مفيش أصناف مطابقة</td></tr>`}
+        <td class="n"><div style="display:flex;gap:6px;align-items:center;justify-content:flex-end"><input type="number" min="0" step="any" inputmode="decimal" data-bq="${i.id}" value="${BP.qty[i.id]||''}" style="width:78px;text-align:center"><span class="hint" style="min-width:34px">${esc(koUnitOf(BP.cfg,i).unit)}</span></div>${bpOdd(+BP.qty[i.id]||0,U[i.id])?`<div data-notr style="color:var(--red);font-size:12px;font-weight:700;margin-top:3px">⚠ ${_bt('Usually '+fmtP(U[i.id])+' — check the number','عادةً '+fmtP(U[i.id])+' — راجع الرقم')}</div>`:''}</td></tr>`).join('')||`<tr><td colspan="2" class="empty">مفيش أصناف مطابقة</td></tr>`}
     </tbody></table></div></div>
     <div class="panel"><h2>مراجعة وإرسال</h2><div class="pad">
       ${chosen.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${chosen.map(i=>`<span class="chip">${esc(i.name)} · <b>${fmtP(BP.qty[i.id])}</b> ${esc(koUnitOf(BP.cfg,i).unit)}</span>`).join('')}</div>`:'<div class="hint" style="margin-bottom:10px">اكتب الكميات فوق الأول.</div>'}
@@ -3527,9 +3540,11 @@ async function bpAct(a,d){
       if(!br||!pin){ err.style.display='block'; err.textContent='اختار الفرع واكتب الباسورد'; return; }
       const h=await koHash(br,pin);
       if(BP.cfg.pins[br]!==h){ err.style.display='block'; err.textContent='الباسورد غلط'; return; }
-      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); localStorage.setItem('bp-last:'+FACTORY,br); }catch(e){} bpApplyBrand(); BP.lsel=undefined; BP.lbrand=undefined; BP.lq='';
+      BP.branch=br; try{ sessionStorage.setItem('bp:'+FACTORY,JSON.stringify({branch:br,h})); localStorage.setItem('bp-last:'+FACTORY,br); }catch(e){} bpApplyBrand(); BP.lsel=undefined; BP.lbrand=undefined; BP.lq=''; try{ BP.orders=await koList(br); }catch(e){}
       BP.tab='new'; return bpRender();
     }
+    if(a==='repeat'){ const last=(BP.orders||[]).find(o=>o.status!=='cancelled'); if(!last) return; const ids=new Set(BP.items.map(i=>i.id)); let n=0; BP.qty={};
+      last.lines.forEach(l=>{ if(ids.has(l.itemId)&&+l.qty>0){ BP.qty[l.itemId]=+l.qty; n++; } }); bpSaveDraft(); toast(_bt(`Filled ${n} items from your last order — review and change what you need`,`اتملت ${n} صنف من آخر طلبية — راجعها وعدّل اللي محتاجه`)); return bpRender(); }
     if(a==='edit'){ const o=BP.orders.find(x=>x.id===d.id); if(!o||o.status!=='new') return; if(!koOpen()) return toast(_bt('Editing is open from 10:00 pm to 12:00 midnight only','التعديل متاح من 10 بالليل لحد 12 نص الليل بس'),1);
       const qty={}; o.lines.forEach(l=>qty[l.itemId]=l.qty); BP.edit={id:o.id,qty,q:''}; return bpRender(); }
     if(a==='ecancel'){ BP.edit=null; return bpRender(); }
@@ -3543,7 +3558,7 @@ async function bpAct(a,d){
         if(it){ const u=koUnitOf(BP.cfg,it); return {itemId:id,name:it.name,unit:u.unit,qty:+E.qty[id],size:u.size,baseUnit:u.base}; } return {...old, qty:+E.qty[id]}; }).filter(l=>l&&l.name);
       if(!lines.length){ if(!confirm(_bt('All quantities are zero — this will cancel the order. Continue?','كل الكميات صفر — كده الطلبية هتتلغي. تكمل؟'))) return;
         fresh.status='cancelled'; fresh.cancelReason='الفرع لغاها (صفّر الكميات)'; }
-      else fresh.lines=lines;
+      else { if(!fresh.origLines) fresh.origLines=fresh.lines.map(l=>({itemId:l.itemId,name:l.name,qty:l.qty})); fresh.lines=lines; }
       fresh.editedAt=new Date().toISOString(); await koSave(fresh); BP.edit=null; BP.orders=await koList(BP.branch); toast(_bt('Order updated ✓','الطلبية اتعدلت ✓')); return bpRender(); }
     if(a==='lbrand'){ BP.lbrand=BP.lbrand===d.v?'':d.v; BP.lq=''; if(BP.lsel && ((BP.cfg.brands||{})[BP.lsel]||'')!==BP.lbrand) BP.lsel=''; return bpRender(); }
     if(a==='lpick'){ BP.lsel=d.v; const bb=(BP.cfg.brands||{})[d.v]; if(bb) BP.lbrand=bb; bpRender(); const p=$('#bp-pin'); if(p) p.focus(); return; }
@@ -3556,6 +3571,8 @@ async function bpAct(a,d){
       const lines=BP.items.filter(i=>+BP.qty[i.id]>0).map(i=>{ const u=koUnitOf(BP.cfg,i); return {itemId:i.id,name:i.name,unit:u.unit,qty:+BP.qty[i.id],size:u.size,baseUnit:u.base}; });
       if(!lines.length) return toast('اكتب الكميات الأول',1);
       if(!koOpen()) { toast(LANG==='en'?'Ordering is open from 10:00 pm to 12:00 midnight only':'الطلب متاح من 10 بالليل لحد 12 نص الليل بس',1); return bpRender(); }
+      const U=bpUsual(); const odd=lines.filter(l=>bpOdd(l.qty,U[l.itemId]));
+      if(odd.length && !confirm(_bt('⚠ These quantities are much higher than usual:\n','⚠ الكميات دي أكبر بكتير من المعتاد:\n')+odd.map(l=>`• ${l.name}: ${fmtP(l.qty)} (${_bt('usually','عادةً')} ${fmtP(U[l.itemId])})`).join('\n')+_bt('\n\nAre they correct?','\n\nمتأكد إنها صح؟'))) return;
       if(!confirm(`هتبعت طلبية فيها ${lines.length} صنف لفرع ${BP.branch}. تأكيد؟`)) return;
       const btn=document.querySelector('[data-bp="send"]'); if(btn){ btn.disabled=true; btn.textContent='بيبعت…'; }
       const o={id:'o'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), branch:BP.branch, brand:((BP.cfg.brands||{})[BP.branch])||'', createdAt:new Date().toISOString(),
@@ -3589,6 +3606,32 @@ async function koLoad(){
   KO.loaded=true; KO.loading=false; KO.at=Date.now();
   if(tab==='korders') render();
 }
+// طلبية من فترة التجربة: اتبعتت في التجربة، أو اتلغت/فضلت جديدة من قبل ليلة 30/11 (طلبيات ليلة 30/11 حقيقية لتوصيل 1/12)
+const koIsTrialOrder=o=>!!o.trial || ((o.status==='cancelled'||o.status==='new') && koDxbOf(o.createdAt||'').ymd<'2026-11-30');
+const koLateDays=o=>o.sentAt?Math.floor((Date.now()-Date.parse(o.sentAt))/864e5):0;
+function koDiffText(o){ const A={}, B={}; (o.origLines||[]).forEach(l=>A[l.itemId]=l); o.lines.forEach(l=>B[l.itemId]=l); const out=[];
+  o.lines.forEach(l=>{ const a=A[l.itemId]; if(!a) out.push(`＋ ${esc(l.name)} ${fmtP(l.qty)}`); else if(+a.qty!==+l.qty) out.push(`${esc(l.name)} من ${fmtP(a.qty)} لـ ${fmtP(l.qty)}`); });
+  (o.origLines||[]).forEach(a=>{ if(!B[a.itemId]) out.push(`✕ ${esc(a.name)}`); }); return out.join(' · ')||'—'; }
+// 🖨️ ورقة التجهيز: إجمالي كل صنف من كل الطلبيات الجديدة + توزيعه على الفروع + قايمة تحميل لكل فرع
+function koPickSheet(orders){ const brandOf=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const T={};
+  orders.forEach(o=>o.lines.forEach(l=>{ const k=l.itemId+'|'+(l.unit||''); const t=T[k]=T[k]||{name:l.name,unit:l.unit||'',size:koLineSize(l),base:l.baseUnit||(item(l.itemId)||{}).unit||'',qty:0,by:[]}; t.qty+=+l.qty||0; t.by.push([o.branch,+l.qty||0]); }));
+  const rows=Object.values(T).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const D=new Date().toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'numeric',year:'numeric'});
+  const html=`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ورقة التجهيز</title><style>
+    body{font-family:system-ui,Tahoma,sans-serif;margin:18px;color:#111}h1{font-size:20px;margin:0 0 4px}.s{color:#555;font-size:12px;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}th,td{border:1px solid #999;padding:5px 7px;text-align:right;vertical-align:top}th{background:#eee}
+    td.n{text-align:center;font-weight:700;font-size:15px;white-space:nowrap}.by{font-size:11.5px;color:#333}.chk{width:26px}
+    .br{page-break-inside:avoid;border:1.5px solid #333;border-radius:6px;padding:8px 10px;margin-bottom:10px}.br h3{margin:0 0 6px;font-size:15px}.br table{margin:0}
+    h2{font-size:16px;margin:18px 0 8px;page-break-before:always}@media print{button{display:none}}</style></head><body>
+    <button onclick="print()" style="float:left;padding:8px 14px">🖨️ طباعة</button>
+    <h1>ورقة التجهيز — طلبيات الفروع</h1><div class="s">${D} · ${orders.length} طلبية · ${rows.length} صنف${KO.brand?` · ${esc((koBrand(KO.brand)||{}).name||'')}`:''}</div>
+    <table><thead><tr><th class="chk">✓</th><th>الصنف</th><th>الإجمالي</th><th>التوزيع على الفروع</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td class="chk"></td><td><b>${esc(r.name)}</b></td><td class="n">${fmtP(n2(r.qty))} ${esc(r.unit)}${r.size!==1?`<div class="by">= ${fmtP(n2(r.qty*r.size))} ${esc(r.base)}</div>`:''}</td><td class="by">${r.by.map(([b,q])=>`${esc(b)}: <b>${fmtP(q)}</b>`).join(' · ')}</td></tr>`).join('')}</tbody></table>
+    <h2>قايمة التحميل لكل فرع</h2>
+    ${orders.slice().sort((a,b)=>(brandOf(a)+a.branch).localeCompare(brandOf(b)+b.branch)).map(o=>`<div class="br"><h3>${esc(o.branch)} <span style="font-weight:400;font-size:12px">· مطلوبة ${esc(o.needDate||'')}${o.note?' · ملاحظة: '+esc(o.note):''}</span></h3>
+      <table><tbody>${o.lines.map(l=>`<tr><td class="chk"></td><td>${esc(l.name)}</td><td class="n">${fmtP(l.qty)} ${esc(l.unit||'')}</td></tr>`).join('')}</tbody></table></div>`).join('')}
+    </body></html>`;
+  const w=window.open('','_blank'); if(!w) return toast('المتصفح منع فتح الصفحة — اسمح بالنوافذ المنبثقة',1); w.document.open(); w.document.write(html); w.document.close(); }
 function viewKOrders(){
   if(!DB.on) return `<div class="panel"><div class="pad"><div class="warnbar">طلبيات الفروع محتاجة اتصال بالقاعدة.</div></div></div>`;
   if(!KO.loaded || Date.now()-KO.at>20000) koLoad();
@@ -3600,7 +3643,7 @@ function viewKOrders(){
   const bl=koBrands();
   // ملخص الشهر الحالي لكل براند: عدد الطلبيات وقيمة اللي اتبعت (بسعر الكارت)
   const brandSummary = bl.length ? (()=>{
-    const inP = o => (o.period ? o.period===S.period : String(o.sentAt||'').slice(0,7)===S.period) && (o.status==='sent'||o.status==='received');
+    const inP = o => !o.trial && (o.period ? o.period===S.period : String(o.sentAt||'').slice(0,7)===S.period) && (o.status==='sent'||o.status==='received');
     const rows = bl.map(b=>{ const os=KO.list.filter(o=>inP(o)&&brandOfOrder(o)===b.id);
       const val=os.reduce((t,o)=>t+o.lines.reduce((u,l)=>u+(+l.sent||0)*koLineSize(l)*((item(l.itemId)||{}).price||0),0),0);
       return {b, n:os.length, val}; });
@@ -3619,7 +3662,8 @@ function viewKOrders(){
   const orderCard=(o,mode)=>`<div class="pad" style="border-top:1px solid var(--line)">
     <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${koBrandChip(koBrand(brandOfOrder(o)))}<b style="font-size:16px">${esc(o.branch)}</b> <span class="hint">· اتطلبت ${koTime(o.createdAt)} · مطلوبة ${esc(o.needDate||'—')}</span></div>
-      <span class="chip ${mode==='sent'?'a':mode==='done'?'b':''}">${KO_STATUS[o.status]}</span></div>
+      <span style="display:flex;gap:6px;flex-wrap:wrap">${o.trial?'<span class="chip">🧪 تجريبي</span>':''}${mode==='new'&&o.editedAt?`<span class="chip a">✏️ الفرع عدّلها ${koTime(o.editedAt)}</span>`:''}${mode==='sent'&&koLateDays(o)>=1?`<span class="chip r">⏰ الفرع ما أكدش من ${koLateDays(o)} يوم</span>`:''}<span class="chip ${mode==='sent'?'a':mode==='done'?'b':''}">${KO_STATUS[o.status]}</span></span></div>
+    ${mode==='new'&&o.origLines?`<div class="hint" style="margin-top:4px;color:#8A4A0B">اتغيّر: ${koDiffText(o)}</div>`:''}
     ${o.note?`<div class="warnbar" style="margin-top:6px">ملاحظة الفرع: ${esc(o.note)}</div>`:''}
     <div class="tblwrap" style="margin-top:8px;max-height:none"><table><thead><tr><th>الصنف</th><th class="n">مطلوب</th>
       ${mode==='new'?'<th class="n">الرصيد عندك</th><th class="n">هيتبعت</th>':'<th class="n">اتبعت</th>'}${mode==='done'?'<th class="n">الفرع استلم</th>':''}</tr></thead><tbody>
@@ -3649,9 +3693,14 @@ function viewKOrders(){
   ${isOwner&&KO.showSetup?koSetupView(branches):''}
   ${KO.err?`<div class="panel"><div class="pad"><div class="warnbar">${esc(KO.err)}</div></div></div>`:''}
   ${brandSummary}
-  <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em>${brandFilter}<button class="btn sm" data-act="ko-refresh" style="${bl.length?'':'margin-inline-start:auto'}">تحديث</button></h2>
+  ${koTrialNow()?`<div class="panel"><div class="pad"><div class="warnbar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="flex:1">🧪 <b>فترة تجريبية لحد 30/11:</b> «جهزت واتبعتت» بيعلّم الطلبية إنها اتبعتت بس، ومن غير ما يسجل منصرف من المخزن. ومن 1/12 بيبدأ يسجل المنصرف عادي.</span></div></div></div>`:''}
+  ${KO.list.some(o=>koIsTrialOrder(o))&&isOwner?`<div class="panel"><div class="pad" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="hint" style="flex:1">فيه ${KO.list.filter(o=>koIsTrialOrder(o)).length} طلبية من فترة التجربة (قبل 1/12).</span><button class="btn sm danger" data-act="ko-clear-trial">🧹 امسح طلبيات التجربة</button></div></div>`:''}
+  ${(()=>{ const W=koLastWindowDate(); const pinned=Object.keys(KO.cfg.pins||{}).filter(b=>!KO.brand||((KO.cfg.brands||{})[b]||'')===KO.brand);
+     const did=new Set(KO.list.filter(o=>o.status!=='cancelled'&&koInWindow(o,W)).map(o=>o.branch)); const miss=pinned.filter(b=>!did.has(b)).sort((a,b)=>a.localeCompare(b,'ar'));
+     return pinned.length?`<div class="panel"><h2>طلبيات ليلة ${W.slice(8,10)}/${W.slice(5,7)} <em>${did.size} من ${pinned.length} فرع</em></h2><div class="pad">${miss.length?`<div class="hint" style="margin-bottom:6px">ما طلبوش (من 10 لـ 12 بالليل):</div><div style="display:flex;flex-wrap:wrap;gap:6px">${miss.map(b=>`<span class="chip r">${esc(b)}</span>`).join('')}</div>`:'<span class="chip g">✓ كل الفروع طلبت</span>'}</div></div>`:''; })()}
+  <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em>${brandFilter}${fresh.length?`<button class="btn sm p" data-act="ko-pick" style="${bl.length?'':'margin-inline-start:auto'}">🖨️ ورقة التجهيز</button>`:''}<button class="btn sm" data-act="ko-refresh" style="${bl.length||fresh.length?'':'margin-inline-start:auto'}">تحديث</button></h2>
     ${fresh.length?fresh.slice().reverse().map(o=>orderCard(o,'new')).join(''):'<div class="empty">مفيش طلبيات جديدة</div>'}</div>
-  <div class="panel"><h2>اتبعتت ومستنية تأكيد الفرع <em>${sent.length}</em></h2>
+  <div class="panel"><h2>اتبعتت ومستنية تأكيد الفرع <em>${sent.length}</em>${sent.filter(o=>koLateDays(o)>=1).length?`<span class="chip r" style="margin-inline-start:8px">⏰ ${sent.filter(o=>koLateDays(o)>=1).length} متأخرة</span>`:''}</h2>
     ${sent.length?sent.map(o=>orderCard(o,'sent')).join(''):'<div class="empty">مفيش</div>'}</div>
   <div class="panel"><h2>اتسلمت <em>آخر ${done.length}</em></h2>
     ${done.length?done.map(o=>orderCard(o,'done')).join(''):'<div class="empty">مفيش</div>'}</div>`;
@@ -3755,6 +3804,11 @@ async function koAct(a,d){
     return render();
   }
   if(a==='ko-unpin'){ if(!confirm(`قفل دخول فرع "${d.b}"؟ مش هيقدر يطلب لحد ما تعمله باسورد جديد.`)) return; delete KO.cfg.pins[d.b]; await koSaveCfg(KO.cfg); return render(); }
+  if(a==='ko-pick'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koPickSheet(L); }
+  if(a==='ko-clear-trial'){ const L=KO.list.filter(o=>koIsTrialOrder(o)); if(!L.length) return;
+    if(!confirm(`هيتمسح ${L.length} طلبية من فترة التجربة نهائي (من عند المصنع والفروع).\nالطلبيات اللي اتبعتت في التجربة ما سجلتش منصرف، فالمخزن مش هيتأثر.\n\nتكمل؟`)) return;
+    for(const o of L){ await sb('stock_settings?'+fEq()+'&k=eq.'+encodeURIComponent('korder_'+o.id),{method:'DELETE'}); }
+    KO.at=0; toast(`🧹 اتمسح ${L.length} طلبية تجريبية`); return koLoad(); }
   if(a==='ko-cancel'){
     const o=KO.list.find(x=>x.id===d.id); if(!o) return;
     const why=prompt('سبب الإلغاء (هيظهر للفرع):',''); if(why===null) return;
@@ -3766,6 +3820,9 @@ async function koAct(a,d){
     o.lines.forEach((l,ix)=>{ const inp=document.querySelector(`[data-kosent="${o.id}:${ix}"]`); l.sent=inp&&inp.value!==''?Math.max(0,+inp.value):l.qty; });
     const toSend=o.lines.filter(l=>l.sent>0);
     if(!toSend.length) return toast('كل الكميات صفر — لو مش هتبعت حاجة الغي الطلبية',1);
+    if(today()<KO_LIVE_FROM){ // 🧪 فترة التجربة: من غير منصرف
+      if(!confirm(`🧪 فترة تجريبية — الطلبية هتتعلّم «اتبعتت» عند الفرع، بس مش هيتسجل منصرف من المخزن.\n\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}`).join('\n')}\n\nلو البضاعة طالعة فعلًا، سجّل منصرفها زي ما بتعمل عادي.\n\nتأكيد؟`)) return;
+      o.trial=true; o.moveIds=[]; o.status='sent'; o.sentAt=new Date().toISOString(); o.period=S.period; await koSave(o); toast(`🧪 اتعلّمت «اتبعتت» لفرع ${o.branch} — من غير منصرف (تجريبي)`); return render(); }
     if(!confirm(`هيتسجل منصرف "صرف للفروع" لفرع ${o.branch}:\n${toSend.map(l=>`• ${l.name}: ${fmtP(l.sent)} ${l.unit||''}${koLineSize(l)!==1?` (= ${fmtP(n2(l.sent*koLineSize(l)))} ${l.baseUnit||(item(l.itemId)||{}).unit||''})`:''}`).join('\n')}\n\nتأكيد؟`)) return;
     SUBMITTING++;
     try{
