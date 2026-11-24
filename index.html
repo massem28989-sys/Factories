@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-11 · 00:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '25-11 · 00:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -8961,7 +8961,7 @@ function prReceiveModal(key){
         <span class="chip" data-prst="${r.id}">—</span></div>
       <div style="display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:10px;align-items:flex-end">
         <div><label class="f">وصل كام (${esc(U)})</label>
-          <div style="display:flex;align-items:center;gap:4px"><button class="btn sm" type="button" data-prstep="-1">−</button><input type="number" min="0" step="any" inputmode="decimal" data-prq="${r.id}" data-full="${remain}" value="${remain}" style="width:78px;text-align:center;font-size:16px;font-weight:700"><button class="btn sm" type="button" data-prstep="1">+</button></div>
+          <div style="display:flex;align-items:center;gap:4px"><button class="btn sm" type="button" data-prstep="-1">−</button><input type="number" min="0" step="any" inputmode="decimal" data-prq="${r.id}" data-sz="${size}" data-full="${remain}" value="${remain}" style="width:78px;text-align:center;font-size:16px;font-weight:700"><button class="btn sm" type="button" data-prstep="1">+</button></div>
           <div style="display:flex;gap:4px;margin-top:4px"><button class="btn sm" type="button" data-prset="full">✓ كامل</button><button class="btn sm" type="button" data-prset="0">✗ ما وصلش</button></div></div>
         ${nomPackOf(it)?`<div class="hint" style="align-self:center;color:#8A4A0B">⚖️ بيتسجل كراتين كاملة × ${fmt(nomPackOf(it))} زي الفاتورة</div>`:''}
         ${bw?`<div style="background:#FFF6E5;border:1px solid #F0C27B;border-radius:8px;padding:5px 8px"><label class="f" style="color:#8A4A0B">⚖️ الوزن الفعلي (${esc(r.unit||'كيلو')})</label><input type="number" min="0" step="any" inputmode="decimal" data-prw="${r.id}" placeholder="مثلًا 14.05" style="width:96px;text-align:center;font-weight:700;font-size:16px"></div>`:''}
@@ -8972,7 +8972,8 @@ function prReceiveModal(key){
           <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">${sd?`<button class="btn sm" type="button" data-prexpd="${sd}" title="نفس عمر آخر استلام">زي آخر مرة (${sd} يوم)</button>`:''}<button class="btn sm" type="button" data-prexpd="7">أسبوع</button><button class="btn sm" type="button" data-prexpd="30">شهر</button><button class="btn sm" type="button" data-prexpd="180">6 شهور</button><button class="btn sm" type="button" data-prexpd="365">سنة</button></div>
           <div class="hint" data-prexpi="${r.id}" style="min-height:1em"></div></div>
         <div><label class="f">سعر ${bw?'الـ'+esc(r.unit||'كيلو'):'الـ'+esc(U)}</label><input type="number" min="0" step="any" inputmode="decimal" data-prp="${r.id}" value="${(bw?n2(+it.price||0):pr)||''}" style="width:90px;text-align:center"></div>
-        <div style="margin-inline-start:auto;text-align:end"><label class="f">الإجمالي</label><div class="n" data-prt="${r.id}" style="font-weight:800;font-size:16px">—</div></div>
+        <div><label class="f">↩️ مرتجع مخصوم في الفاتورة <span class="hint">(${esc(r.unit||'')})</span></label><input type="number" min="0" step="any" inputmode="decimal" data-prret="${r.id}" placeholder="0" style="width:80px;text-align:center" title="لو المورد خصم مرتجع (من يوم قبل كده) من الفاتورة دي — اكتب كميته هنا. بيتخصم من حسابه بس، مش من المخزن"></div>
+        <div style="margin-inline-start:auto;text-align:end"><label class="f">الإجمالي</label><div class="n" data-prt="${r.id}" style="font-weight:800;font-size:16px">—</div><div class="hint" data-prrt="${r.id}"></div></div>
       </div>
       <div data-prrestw="${r.id}" style="display:none;margin-top:8px;padding:6px 10px;border-radius:8px;background:#FFF6E5;border:1px solid #F0C27B"><b data-prrestl="${r.id}">الباقي:</b>
         <label style="margin-inline-start:10px;white-space:nowrap"><input type="radio" name="prrest-${r.id}" value="wait"> 🕓 جاي بعدين (الطلب يفضل مفتوح)</label>
@@ -9001,7 +9002,9 @@ function prReceiveBind(){
   const upd=()=>{ let tot=0, full=0, part=0, none=0; document.querySelectorAll('[data-prr]').forEach(tr=>{ const id=tr.dataset.prr;
       const qi=tr.querySelector(`[data-prq="${id}"]`); const qv=+(qi||{}).value||0, fullv=+(qi||{}).dataset.full||0;
       const w=tr.querySelector(`[data-prw="${id}"]`); const q=w?(+w.value||0):qv, p=+(tr.querySelector(`[data-prp="${id}"]`)||{}).value||0;
-      const c=tr.querySelector(`[data-prt="${id}"]`); if(c) c.textContent=money(q*p); tot+=q*p;
+      const rq=+(tr.querySelector(`[data-prret="${id}"]`)||{}).value||0, rv=rq*(w?p:p/((+(qi||{dataset:{}}).dataset.sz)||1)); // المرتجع بوحدة الصنف الأساسية
+      const c=tr.querySelector(`[data-prt="${id}"]`); if(c) c.textContent=money(q*p-rv); tot+=q*p-rv;
+      const rt=tr.querySelector(`[data-prrt="${id}"]`); if(rt) rt.textContent=rv>0?`بعد خصم مرتجع ${money(rv)}`:'';
       const st=tr.querySelector(`[data-prst="${id}"]`); const k=qv<=0?'none':qv+1e-9>=fullv?'full':'part'; if(k==='full') full++; else if(k==='part') part++; else none++;
       if(st){ st.className='chip '+(k==='full'?'g':k==='part'?'a':'r'); st.textContent=k==='full'?'✓ وصل كامل':k==='part'?`ناقص ${fmtP(n2(fullv-qv))}`:'✗ ما وصلش'; }
       const rw=tr.querySelector(`[data-prrestw="${id}"]`); if(rw){ rw.style.display=k==='full'?'none':''; const rl=tr.querySelector(`[data-prrestl="${id}"]`); if(rl) rl.textContent=k==='none'?'الصنف ده:':`الباقي (${fmtP(n2(fullv-qv))}):`; }
@@ -9014,7 +9017,7 @@ function prReceiveBind(){
         else { const d=Math.round((new Date(xv)-new Date(dateOf()))/864e5); ei.textContent=d<0?`⛔ منتهي من ${-d} يوم`:d<=3?`⚠️ باقي ${d} يوم بس`:`باقي ${d} يوم`; ei.style.color=d<0?'var(--red)':d<=3?'#b07800':'#2e7d32'; } } });
     const t=document.getElementById('prr-total'); if(t) t.textContent=money(tot);
     const pg=document.getElementById('prr-prog'); if(pg) pg.innerHTML=`<span style="color:#2e7d32">✓ ${full}</span>${part?` · <span style="color:#b07800">ناقص ${part}</span>`:''}${none?` · <span style="color:var(--red)">ما وصلش ${none}</span>`:''}`; };
-  document.querySelectorAll('[data-prq],[data-prp],[data-prw],[data-prexp],[data-prprod],#prr-date').forEach(i=>i.oninput=upd);
+  document.querySelectorAll('[data-prq],[data-prp],[data-prw],[data-prexp],[data-prprod],[data-prret],#prr-date').forEach(i=>i.oninput=upd);
   document.querySelectorAll('[data-prr]').forEach(tr=>{ const qi=tr.querySelector('[data-prq]');
     tr.querySelectorAll('[data-prstep]').forEach(b=>b.onclick=()=>{ qi.value=Math.max(0,n2((+qi.value||0)+(+b.dataset.prstep))); upd(); });
     tr.querySelectorAll('[data-prset]').forEach(b=>b.onclick=()=>{ qi.value=b.dataset.prset==='full'?qi.dataset.full:0; upd(); });
@@ -9054,6 +9057,11 @@ async function prReceiveSave(key){
       const m={id:uid('m'),dir:'in',itemId:it.id,qty:l.qtyBase,date,price:Math.round(l.priceBase*10000)/10000,party:l.from||party,reason:'',...(l.exp?{expDate:l.exp}:{}),...(l.prod?{prodDate:l.prod}:{})};
       nomFix(it,m); S.moves.push(m); moves.push(m); if(l.priceBase>0){ const w=wacApply(it, m); if(w) pch.push(w); } }
     setTimeout(()=>afterPriceChange(pch), 900);
+    let retMsg=''; // ↩️ مرتجع مخصوم في الفاتورة: حركة مالية بس (كمية صفر) بتتخصم من حساب المورد
+    for(const r of rs){ const rq=+((document.querySelector(`[data-prret="${r.id}"]`)||{}).value)||0; if(!(rq>0)) continue; const it=item(r.itemId); if(!it) continue;
+      const pEl=document.querySelector(`[data-prp="${r.id}"]`); const pv=+((pEl||{}).value)||0; const bw=prByWeight(r); const up=n2(bw?pv:pv/(+r.orderSize||1)) || (+it.price||0);
+      const cm={id:uid('m'),dir:'out',itemId:it.id,qty:0,date,price:n2(up*rq),party,reason:`${RET_CREDIT} (${fmt(rq)} ${it.unit} × ${fmt(up)})`};
+      S.moves.push(cm); retMsg+=` · ↩️ مرتجع ${fmt(rq)} ${it.unit} اتخصم ${money(cm.price)}`; }
     let invMsg='';
     const f=($('#prr-inv')||{}).files; 
     if(f && f[0]){ try{ const path=await uploadInvoiceImage(f[0], moves[0].id); moves.forEach(m=>{ const cur=S.moves.find(x=>x.id===m.id)||m; cur.invoice=path; }); invMsg=' + اترفعت صورة الفاتورة'; }
@@ -9068,7 +9076,7 @@ async function prReceiveSave(key){
       if(+r.receivedQty>0){ r.status='fulfilled'; r.fulfilledAt=at; r.closedShort=true; r.shortQty=n2((+r.qty||0)-(+r.receivedQty||0)); }
       else { r.status='cancelled'; r.cancelledAt=at; r.cancelReason='المورد ما بعتوش — اتقفل وقت الاستلام'; } }
     await savePurchaseRequests();
-    toast(`اتسجّل وارد ${moves.length} صنف — اتقفل ${closed} من ${rs.length} طلب`+invMsg);
+    toast(`اتسجّل وارد ${moves.length} صنف — اتقفل ${closed} من ${rs.length} طلب`+retMsg+invMsg);
     ui.modal = bulkReceiptModal(moves, date, party, '');
   } finally { SUBMITTING--; }
   render();
