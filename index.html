@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 12:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 13:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3354,6 +3354,7 @@ const koLink = () => location.origin+location.pathname+'?factory='+encodeURIComp
 
 /* ---------------- صفحة الفرع ---------------- */
 const BP={cfg:null, items:[], branch:'', tab:'new', qty:{}, q:'', cat:'الكل', note:'', need:'', orders:[], err:''};
+setInterval(()=>{ try{ if(!QS.has('branch')||!BP.branch||BP.tab!=='new') return; const o=koOpen(); if(o!==window.__koWas){ window.__koWas=o; const ae=document.activeElement; if(!(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName))) bpRender(); } else if(!o) bpRender(); }catch(e){} }, 30000);
 async function branchPortal(){
   document.title='طلبيات الفروع — '+((FACTORIES.find(f=>f.id===FACTORY)||{}).name||'');
   $('#root').innerHTML='<div class="boot">جاري التحميل…</div>';
@@ -3419,12 +3420,27 @@ function bpRender(){
   $('#root').innerHTML=bpShell(inner);
   bpBind();
 }
+/* ⏰ مواعيد الطلب: الفروع تطلب من 12 بالليل لحد 4 الصبح بس (بتوقيت الإمارات) */
+const KO_WIN=[0,4];
+function koDxb(){ const P={}; new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Dubai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).forEach(x=>P[x.type]=x.value);
+  return {h:+P.hour%24, m:+P.minute, ymd:`${P.year}-${P.month}-${P.day}`}; }
+function koOpen(){ if(window.__KO_FORCE) return window.__KO_FORCE==='open'; const t=koDxb(); return t.h>=KO_WIN[0] && t.h<KO_WIN[1]; }
+function koOpensIn(){ const t=koDxb(); let mins=(KO_WIN[0]*60 - (t.h*60+t.m) + 1440)%1440; return {h:Math.floor(mins/60), m:mins%60}; }
+function bpClosedView(){ const o=koOpensIn(), en=LANG==='en';
+  return `<div class="panel" style="max-width:560px;margin:24px auto 0"><div class="pad" style="text-align:center;padding:28px 18px" data-notr>
+    <div style="font-size:46px">🕛</div>
+    <h2 style="border:0;margin:6px 0 8px;padding:0;justify-content:center">${en?'Ordering is closed now':'الطلب مقفول دلوقتي'}</h2>
+    <div style="font-size:16px;line-height:1.7">${en?'You can send orders <b>from 12:00 midnight to 4:00 am</b> (UAE time) only.':'تقدر تبعت الطلبية <b>من 12 بالليل لحد 4 الصبح</b> بس (بتوقيت الإمارات).'}</div>
+    <div style="margin-top:14px;display:inline-block;background:var(--brand-bg);border-radius:12px;padding:10px 16px;font-weight:700;font-size:17px">${en?`Opens in ${o.h}h ${o.m}m`:`بيفتح بعد ${o.h} ساعة و${o.m} دقيقة`}</div>
+    <div class="hint" style="margin-top:14px">${en?'You can still check your orders and confirm deliveries in “My orders”.':'تقدر تتابع طلبياتك وتأكد الاستلام من «طلبياتي» في أي وقت.'}</div>
+    <button class="btn" data-bp="tab" data-v="mine" style="margin-top:12px">${en?'My orders':'طلبياتي'}</button></div></div>`; }
 function bpNewView(){
+  if(!koOpen()) return bpClosedView();
   if(!BP.items.length) return `<div class="panel"><div class="pad"><div class="warnbar">المصنع لسه ما حددش الأصناف اللي الفروع تطلبها.</div></div></div>`;
   const q=BP.q.trim().toLowerCase();
   const shown=BP.items.filter(i=>!q||i.name.toLowerCase().includes(q));
   const chosen=BP.items.filter(i=>+BP.qty[i.id]>0);
-  const tmr=new Date(Date.now()+864e5).toISOString().slice(0,10);
+  const tmr=koDxb().ymd; // الطلب بيتعمل بعد نص الليل — التوصيل نفس اليوم
   return `<div class="panel"><h2>طلبية جديدة <em>${chosen.length} صنف</em></h2>
     <div class="pad" style="padding-bottom:0"><div class="bar"><input type="text" class="grow" id="bp-q" placeholder="دور على صنف…" value="${esc(BP.q)}"></div></div>
     <div class="tblwrap" style="max-height:none;margin-top:10px"><table><thead><tr><th>الصنف</th><th class="n" style="width:130px">الكمية</th></tr></thead><tbody>
@@ -3491,6 +3507,7 @@ async function bpAct(a,d){
       bpApplyBrand();
       const lines=BP.items.filter(i=>+BP.qty[i.id]>0).map(i=>{ const u=koUnitOf(BP.cfg,i); return {itemId:i.id,name:i.name,unit:u.unit,qty:+BP.qty[i.id],size:u.size,baseUnit:u.base}; });
       if(!lines.length) return toast('اكتب الكميات الأول',1);
+      if(!koOpen()) { toast(LANG==='en'?'Ordering is open from 12:00 midnight to 4:00 am only':'الطلب متاح من 12 بالليل لحد 4 الصبح بس',1); return bpRender(); }
       if(!confirm(`هتبعت طلبية فيها ${lines.length} صنف لفرع ${BP.branch}. تأكيد؟`)) return;
       const btn=document.querySelector('[data-bp="send"]'); if(btn){ btn.disabled=true; btn.textContent='بيبعت…'; }
       const o={id:'o'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), branch:BP.branch, brand:((BP.cfg.brands||{})[BP.branch])||'', createdAt:new Date().toISOString(),
