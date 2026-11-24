@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '24-11 · 14:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '24-11 · 14:25'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2752,6 +2752,9 @@ function inboxRedatePlan(){ const out=[]; const used=new Set();
     if(m){ used.add(m.id); out.push({m, from:got, to:want, n}); } });
   return out; }
 // نسبة التحويل المحفوظة: 1 من وحدة المصنع المرسل = كام من وحدة الصنف عندك
+// السعر الافتراضي لوحدة المرسل: اللي اتبعت مع الشحنة، وإلا سعر الصنف عندك (متحوّل لو الوحدة مختلفة)
+function inboxPriceDefault(n,mt){ if(+n.price>0) return n2(+n.price); if(!mt||!(+mt.price>0)) return '';
+  const norm=u=>String(u||'').trim().toLowerCase(); if(!n.unit||norm(n.unit)===norm(mt.unit)) return n2(+mt.price); const r=inboxRatio(mt.id,n.unit); return r?n2(+mt.price*r):''; }
 function inboxRatio(itemId,unit){ const k='rcv:'+String(unit||'').trim().toLowerCase(); const v=S.unitConv&&S.unitConv[itemId]&&+S.unitConv[itemId][k]; return v>0?v:0; }
 async function receiveInboxNotification(notifId){
   const n = MY_INBOX.find(x=>x.id===notifId);
@@ -2774,6 +2777,7 @@ async function receiveInboxNotification(notifId){
   if(inboxIsSuggested(n.itemName)){
     if(!confirm(`"${n.itemName}" مالوش تطابق حرفي عندك.\n\nالنظام اقترح: "${it.name}"\n\nهيتسجل ${fmt(actualQty)} ${it.unit} على الصنف ده. صح؟\n\n(لو غلط، دوس إلغاء وغيّر المطابقة من خانة البحث)`)) return;
   }
+  const pI=document.querySelector(`[data-inboxprice="${notifId}"]`); const unitPrice=pI&&pI.value!==''?parseFloat(pI.value):NaN; // سعر وحدة المرسل
   let localQty=actualQty, newRatio=0;
   if(n.unit && it.unit && norm(n.unit)!==norm(it.unit)){
     const li=document.querySelector(`[data-inboxloc="${notifId}"]`); const lv=li?parseFloat(li.value):NaN;
@@ -2816,7 +2820,8 @@ async function receiveInboxNotification(notifId){
     // بنسجّل السعر المعروف عندك للصنف ده (لو موجود) بدل ما نسجّل صفر دايمًا — عشان قيمة المخزون متتأثرش غلط
     const inD=inboxMoveDate(n); // بتاريخ الإرسال من المصنع التاني — مش يوم ما دوست استلام
     if(newRatio>0){ S.unitConv=S.unitConv||{}; (S.unitConv[it.id]=S.unitConv[it.id]||{})['rcv:'+norm(n.unit)]=newRatio; await saveMain(); }
-    const inMv={id:uid('m'), dir:'in', itemId:it.id, qty:localQty, date:inD, price:+it.price||0, party:n.fromFactory||'مصنع تاني', reason:'', inboxNotifId:n.id};
+    const lp = unitPrice>=0 && localQty>0 ? Math.round(unitPrice*actualQty/localQty*10000)/10000 : (+it.price||0); // سعر وحدتك = إجمالي الشحنة ÷ الكمية عندك
+    const inMv={id:uid('m'), dir:'in', itemId:it.id, qty:localQty, date:inD, price:lp, party:n.fromFactory||'مصنع تاني', reason:'', inboxNotifId:n.id};
     S.moves.push(inMv);
     await saveTx();
     let prMsg=''; try{ const pm=await applyPurchaseReceipt(it.id, localQty, n.fromFactory||'', inMv.id, inD, {anyDate:true}); if(pm.length) prMsg=' + طلب شراء "'+it.name+'": '+pm.join(' · '); }catch(e){}
@@ -2833,7 +2838,7 @@ async function receiveInboxNotification(notifId){
       });
     }
 
-    toast(`تم استلام "${it.name}" (${fmt(localQty)} ${it.unit}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون${hasDiscrepancy?' — وبلّغنا المصنع المرسل بالفرق':''}${prMsg}`);
+    toast(`تم استلام "${it.name}" (${fmt(localQty)} ${it.unit}${lp>0?` · ${money(n2(lp*localQty))} د.إ`:''}) من ${n.fromFactory||'مصنع تاني'} وضيفت للمخزون${hasDiscrepancy?' — وبلّغنا المصنع المرسل بالفرق':''}${prMsg}`);
   }catch(e){
     n.status='pending'; // لو حصل خطأ، نرجّعه معلّق تاني عشان يقدر يعيد المحاولة
     toast('حصل خطأ أثناء الاستلام، حاول تاني: '+e.message, 1);
@@ -4407,6 +4412,9 @@ function viewInbox(){
         <td class="n">
           <input type="number" step="any" min="0" data-inboxqty="${n.id}" value="${n.qty}" oninput="const l=document.querySelector('[data-inboxloc=&quot;${n.id}&quot;]'); if(l&&+l.dataset.ratio>0) l.value=Math.round((+this.value||0)*l.dataset.ratio*1000)/1000" style="width:74px;padding:4px 6px;font-size:12.5px;text-align:center">
           <span class="chip">${esc(n.unit||'')}</span>
+          <div style="margin-top:4px;display:flex;align-items:center;gap:4px;justify-content:flex-end;flex-wrap:wrap"><span class="hint">سعر الـ${esc(n.unit||(mt||{}).unit||'')}</span>
+            <input type="number" step="any" min="0" data-inboxprice="${n.id}" value="${inboxPriceDefault(n,mt)}" placeholder="؟" style="width:74px;padding:3px 6px;font-size:12.5px;text-align:center">
+            <span class="hint">د.إ</span>${+n.price>0?`<span class="chip" title="السعر اللي المصنع المرسل بعت بيه">المرسل: ${fmt(n.price)}</span>`:'<span class="chip a" title="الشحنة دي اتبعتت قبل ما الأسعار تتبعت مع الشحنات">من غير سعر — اكتبه</span>'}</div>
           <div class="hint" style="margin-top:2px">المُرسل أعلن ${fmt(n.qty)} · هيتسجل بتاريخ <input type="date" data-inboxdate="${esc(n.id)}" value="${esc(inboxMoveDate(n))}" max="${today()}" style="padding:1px 4px;font-size:12px" title="غيّره لو البضاعة وصلت في يوم تاني (مثلًا قبل الجرد)"></div>
         </td>
         <td>
@@ -9823,7 +9831,7 @@ function bind(){
       if(target){
         m.party=target;
         const toFac=FACTORIES.find(f=>f.id===target);
-        const notifId=await notifyFactory(target,{type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
+        const notifId=await notifyFactory(target,{type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, price:n2(+m.price>0?+m.price:(+it.price||0)), date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
         if(notifId){ m.notifyId=notifId; m.notifyFactory=target; await saveTx(); toast(`اتعدلت الجهة واتبعت إشعار لـ"${toFac?toFac.name:target}"`); }
         else toast('اتعدلت الجهة بس الإشعار ما اتبعتش، حاول تاني',1);
       } else {
@@ -13285,7 +13293,7 @@ async function _act(a,d){
       }
     }
     const toFac=FACTORIES.find(f=>f.id===target);
-    const notifId=await notifyFactory(target,{type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
+    const notifId=await notifyFactory(target,{type:'shipment', itemName:it.name, unit:it.unit, qty:m.qty, price:n2(+m.price>0?+m.price:(+it.price||0)), date:m.date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
     if(!notifId) return toast('الإشعار ما اتبعتش، حاول تاني',1);
     m.notifyId=notifId; m.notifyFactory=target; m.party=target;
     await saveTx();
@@ -14641,7 +14649,7 @@ async function _act(a,d){
       if(res.auto) autoMsg=' + الوصفة اتشغّلت تلقائي والخامات اتخصمت';
       if(reason==='صرف لمصنع تاني' && party){
         const toFac = FACTORIES.find(f=>f.id===party);
-        const notifId = await notifyFactory(party, {type:'shipment', itemName:it.name, unit:it.unit, qty, date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
+        const notifId = await notifyFactory(party, {type:'shipment', itemName:it.name, unit:it.unit, qty, price:n2((m&&+m.price>0)?+m.price:(+it.price||0)), date, fromFactory:FACTORIES.find(f=>f.id===FACTORY)?.name||FACTORY, fromFactoryId:FACTORY});
         if(notifId && m){ m.notifyId=notifId; m.notifyFactory=party; await saveTx(); }
         autoMsg += notifId? ` — وتم إبلاغ "${toFac?toFac.name:party}"` : ' — بس حصل خطأ في إبلاغ المصنع المستلم، كلّمه يدوي';
       }
