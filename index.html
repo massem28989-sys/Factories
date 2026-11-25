@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-11 · 15:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '25-11 · 15:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -12767,7 +12767,7 @@ function healthModal(){
   </div></div>`;
 }
 function healthText(){ const H=healthCheck(); const ic={bad:'⛔',warn:'⚠️',ok:'✅',info:'ℹ️'};
-  return `فحص يومي — ${(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name} — ${H.D}\n${H.moves} حركة · ${H.runs} تشغيلة\n\n`+(H.steps.length>1?'الترتيب:\n'+H.steps.map((x,i)=>`${i+1}) ${x}`).join('\n')+'\n\n':'')+H.R.map(r=>`${ic[r.lvl]} ${r.title}${r.desc?'\n   '+r.desc:''}${r.rows.length?'\n'+r.rows.slice(0,25).map(x=>'   - '+x.c.join(' | ')).join('\n'):''}`).join('\n\n'); }
+  return `فحص يومي — ${(FACTORIES.find(f=>f.id===FACTORY)||{name:FACTORY}).name} — ${H.D}\n${H.moves} حركة · ${H.runs} تشغيلة\n\n`+(H.steps.length>1?'الترتيب:\n'+H.steps.map((x,i)=>`${i+1}) ${x}`).join('\n')+'\n\n':'')+H.R.map(r=>`${ic[r.lvl]} ${r.title}${r.desc?'\n   '+r.desc:''}${r.rows.length?'\n'+r.rows.slice(0,60).map(x=>'   - '+x.c.join(' | ')).join('\n')+(r.rows.length>60?`\n   … و${r.rows.length-60} كمان`:''):''}`).join('\n\n'); }
 const AUD_ST={ 'other-day':['اتصرف بس بتاريخ تاني','a'], ok:['✓ مظبوط','g'], 'ok?':['✓ اتصرف (من غير تحويل للمقارنة)','b'], less:['ناقص','r'], more:['زيادة','a'], dup:['متكرر — اتصرف أكتر من مرة','r'], 'done-no-move':['متعلّم «اتصرف» بس مفيش حركة','r'], pending:['لسه ما اتصرفش','']};
 function boAuditModal(D){
   const A=boAudit(D); const bad=A.rows.filter(r=>['less','more','dup','done-no-move'].includes(r.st)); const od=A.rows.filter(r=>r.st==='other-day'); const dnm=A.rows.filter(r=>r.st==='done-no-move');
