@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-11 · 15:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '25-11 · 16:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3494,10 +3494,11 @@ function bpOrderTable(o){ const T=_bt, live=o.status==='sent'||o.status==='recei
     :`<th>${T('Item','الصنف')}</th><th class="n">${T('Ordered','طلبت')}</th>`;
   return `<table style="margin-top:8px" data-notr><thead><tr>${head}</tr></thead><tbody>
     ${o.lines.map((l,ix)=>`<tr><td>${esc(l.name)} <span class="hint">${esc(l.unit||'')}</span></td>
-      ${live?`<td class="n">${fmtP(l.sent||0)}</td>`:`<td class="n">${fmtP(l.qty)}</td>`}
+      ${live?`<td class="n">${fmtP(l.sent||0)}${Math.abs((+l.sent||0)-(+l.qty||0))>0.0001?`<div style="font-size:11px;color:#b45309;font-weight:600">${T('You ordered','طلبت')} ${fmtP(l.qty)}</div>`:''}</td>`:`<td class="n">${fmtP(l.qty)}</td>`}
       ${o.status==='sent'?`<td class="n"><input type="number" min="0" step="any" data-br="${o.id}:${ix}" value="${l.sent||0}" style="width:74px;text-align:center"></td>`:''}
       ${o.status==='received'?`<td class="n" style="${Math.abs((l.recv||0)-(l.sent||0))>0.0001?'color:var(--red);font-weight:600':''}">${fmtP(l.recv||0)}</td>`:''}</tr>`).join('')}
   </tbody></table>
+  ${o.byFactory?`<div class="hint" style="margin-top:4px">📞 ${T('This order was placed by the factory for you','الطلبية دي اتعملت من المصنع ليك')}</div>`:''}
   ${o.status==='sent'?`<div class="hint" style="margin-top:6px">عدّ اللي وصلك فعلًا وعدّل الرقم لو فيه نقص أو زيادة، وبعدين أكّد.</div><button class="btn p" data-bp="recv" data-id="${o.id}" style="margin-top:8px">أكّد الاستلام</button>`:''}
   ${o.status==='new'?(koOpen()?`<button class="btn" data-bp="edit" data-id="${o.id}" style="margin-top:8px" data-notr>✏️ ${T('Edit order','عدّل الطلبية')}</button>`
     :`<div class="hint" style="margin-top:8px" data-notr>${T('You can edit this order between 10:00 pm and 12:00 midnight.','تقدر تعدّل الطلبية من 10 بالليل لحد 12 نص الليل.')}</div>`):''}`; }
@@ -3613,6 +3614,10 @@ async function koLoad(){
 }
 // طلبية من فترة التجربة: اتبعتت في التجربة، أو اتلغت/فضلت جديدة من قبل ليلة 30/11 (طلبيات ليلة 30/11 حقيقية لتوصيل 1/12)
 const koIsTrialOrder=o=>!!o.trial || koIsTestBranch(o.branch) || ((o.status==='cancelled'||o.status==='new') && koDxbOf(o.createdAt||'').ymd<'2026-11-30');
+const koHasDiff=o=>o.status==='received' && o.lines.some(l=>Math.abs((+l.recv||0)-(+l.sent||0))>0.0001);
+const koDiffOpen=o=>koHasDiff(o) && !o.diffRes;
+const KO_DEC={back:'رجع للمخزن (ما اتحمّلش أو اتحسب غلط)', loss:'هالك / عجز على المصنع', driver:'عجز على السواق', extra:'اتبعت زيادة فعلًا (يتسجل منصرف)', brerr:'غلط عدّ من الفرع (مفيش زيادة)'};
+const koBilled=l=>l.billed!=null?+l.billed:(+l.sent||0); // اللي الفرع بيتحاسب عليه
 const koLateDays=o=>o.sentAt?Math.floor((Date.now()-Date.parse(o.sentAt))/864e5):0;
 function koDiffText(o){ const A={}, B={}; (o.origLines||[]).forEach(l=>A[l.itemId]=l); o.lines.forEach(l=>B[l.itemId]=l); const out=[];
   o.lines.forEach(l=>{ const a=A[l.itemId]; if(!a) out.push(`＋ ${esc(l.name)} ${fmtP(l.qty)}`); else if(+a.qty!==+l.qty) out.push(`${esc(l.name)} من ${fmtP(a.qty)} لـ ${fmtP(l.qty)}`); });
@@ -3647,6 +3652,28 @@ function koBranchSlips(orders){ const brandOf=o=>o.brand||((KO.cfg.brands||{})[o
       ${lines.map((x,i)=>`<tr><td class="n" style="font-size:13px">${i+1}</td><td>${esc(x.l.name)}</td><td class="n">${fmtP(x.q)} ${esc(x.l.unit||'')}</td><td></td><td></td></tr>`).join('')}</tbody></table>
       <div class="s">${lines.length} صنف</div>
       <div class="sig"><div>المصنع (جهّز)</div><div>السواق (استلم)</div><div>الفرع (استلم)</div></div></div>`; }).join('')); }
+function koManualModal(){ const M=ui.kom||{}; const pins=Object.keys(KO.cfg.pins||{}).sort((a,b)=>a.localeCompare(b,'ar')); const brand=M.branch?((KO.cfg.brands||{})[M.branch]||''):'';
+  const allowed=new Set(KO.cfg.items||[]); const q=arNorm((M.q||'').trim()).toLowerCase();
+  const its=M.branch?S.items.filter(it=>allowed.has(it.id)&&koItemForBrand(KO.cfg,it.id,brand)).sort((a,b)=>a.name.localeCompare(b.name,'ar')):[];
+  const chosen=its.filter(it=>+M.qty[it.id]>0); const shown=its.filter(it=>!q||arNorm(it.name).toLowerCase().includes(q));
+  return `<div class="modal"><div class="box" style="max-width:720px;display:flex;flex-direction:column;overflow:hidden"><h3>📞 طلبية لفرع (من المصنع)</h3>
+    <div style="padding:10px 16px;border-bottom:1px solid var(--line);background:#FAF7F2;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div><label class="f">الفرع</label><select id="kom-br"><option value="">— اختار —</option>${pins.map(b=>`<option ${b===M.branch?'selected':''}>${esc(b)}</option>`).join('')}</select></div>
+      <div><label class="f">مطلوبة يوم</label><input type="date" id="kom-need" value="${esc(M.need||koDxb().ymd)}"></div>
+      <div style="flex:1;min-width:180px"><label class="f">ملاحظة</label><input type="text" id="kom-note" value="${esc(M.note||'')}" placeholder="مثلًا: كلّم بالتليفون الساعة 1" style="width:100%"></div></div>
+    <div class="pad" style="flex:1 1 auto;min-height:160px;overflow:auto">
+      ${M.branch?`<div class="hint" style="margin-bottom:6px">لطلب طارئ أو فرع نسي يطلب — الطلبية بتتسجل باسم الفرع وبتمشي زي أي طلبية (إذن، صرف، تأكيد من الفرع). ${chosen.length?`<b>${chosen.length} صنف</b>`:''}</div>
+        <input type="text" id="kom-q" placeholder="دوّر على صنف…" value="${esc(M.q||'')}" style="width:100%;margin-bottom:8px" autocomplete="off">
+        <table><tbody>${shown.map(it=>{ const u=koUnitOf(KO.cfg,it); return `<tr${+M.qty[it.id]>0?' style="background:#FFF7E6"':''}><td>${esc(it.name)}</td><td class="n" style="white-space:nowrap"><input type="number" min="0" step="any" data-komq="${it.id}" value="${M.qty[it.id]||''}" style="width:80px;text-align:center"> <span class="hint">${esc(u.unit)}</span></td></tr>`; }).join('')||'<tr><td class="empty">مفيش أصناف</td></tr>'}</tbody></table>`
+      :'<div class="empty">اختار الفرع الأول</div>'}
+    </div>
+    <div class="foot"><button class="btn p" data-act="ko-mansave">حفظ الطلبية</button><button class="btn" data-act="ko-manclose">إلغاء</button></div></div></div>`; }
+function koManualBind(){ const M=ui.kom; const re=()=>{ ui.modal=koManualModal(); render(); koManualBind(); };
+  const br=$('#kom-br'); if(br) br.onchange=()=>{ M.branch=br.value; M.qty={}; re(); };
+  const nd=$('#kom-need'); if(nd) nd.onchange=()=>{ M.need=nd.value; };
+  const nt=$('#kom-note'); if(nt) nt.oninput=()=>{ M.note=nt.value; };
+  const q=$('#kom-q'); if(q) q.oninput=()=>{ M.q=q.value; const p=q.selectionStart; re(); const n=$('#kom-q'); if(n){ n.focus(); try{ n.setSelectionRange(p,p); }catch(e){} } };
+  document.querySelectorAll('[data-komq]').forEach(i=>i.oninput=()=>{ M.qty[i.dataset.komq]=i.value===''?'':+i.value; }); }
 function viewKOrders(){
   if(!DB.on) return `<div class="panel"><div class="pad"><div class="warnbar">طلبيات الفروع محتاجة اتصال بالقاعدة.</div></div></div>`;
   if(!KO.loaded || Date.now()-KO.at>20000) koLoad();
@@ -3654,13 +3681,13 @@ function viewKOrders(){
   const isOwner=ROLE!=='manager';
   const brandOfOrder = o => o.brand || ((KO.cfg.brands||{})[o.branch]) || '';
   const L = KO.brand ? KO.list.filter(o=>brandOfOrder(o)===KO.brand) : KO.list;
-  const fresh=L.filter(o=>o.status==='new'), sent=L.filter(o=>o.status==='sent'), done=L.filter(o=>o.status==='received').slice(0,15);
+  const fresh=L.filter(o=>o.status==='new'), sent=L.filter(o=>o.status==='sent'), openDiff=L.filter(koDiffOpen), done=[...openDiff, ...L.filter(o=>o.status==='received'&&!koDiffOpen(o)).slice(0,15)];
   const bl=koBrands();
   // ملخص الشهر الحالي لكل براند: عدد الطلبيات وقيمة اللي اتبعت (بسعر الكارت)
   const brandSummary = bl.length ? (()=>{
     const inP = o => !o.trial && (o.period ? o.period===S.period : String(o.sentAt||'').slice(0,7)===S.period) && (o.status==='sent'||o.status==='received');
     const rows = bl.map(b=>{ const os=KO.list.filter(o=>inP(o)&&brandOfOrder(o)===b.id);
-      const val=os.reduce((t,o)=>t+o.lines.reduce((u,l)=>u+(+l.sent||0)*koLineSize(l)*((item(l.itemId)||{}).price||0),0),0);
+      const val=os.reduce((t,o)=>t+o.lines.reduce((u,l)=>u+koBilled(l)*koLineSize(l)*((item(l.itemId)||{}).price||0),0),0);
       return {b, n:os.length, val}; });
     const none=KO.list.filter(o=>inP(o)&&!brandOfOrder(o));
     return `<div class="panel"><h2>صرف الشهر حسب البراند <em>${periodLabel(S.period)}</em></h2><div class="pad"><div class="cards">
@@ -3677,7 +3704,7 @@ function viewKOrders(){
   const orderCard=(o,mode)=>`<div class="pad" style="border-top:1px solid var(--line)">
     <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${koBrandChip(koBrand(brandOfOrder(o)))}<b style="font-size:16px">${esc(o.branch)}</b> <span class="hint">· اتطلبت ${koTime(o.createdAt)} · مطلوبة ${esc(o.needDate||'—')}</span></div>
-      <span style="display:flex;gap:6px;flex-wrap:wrap">${o.trial?'<span class="chip">🧪 تجريبي</span>':''}${mode==='new'&&o.editedAt?`<span class="chip a">✏️ الفرع عدّلها ${koTime(o.editedAt)}</span>`:''}${mode==='sent'&&koLateDays(o)>=1?`<span class="chip r">⏰ الفرع ما أكدش من ${koLateDays(o)} يوم</span>`:''}<span class="chip ${mode==='sent'?'a':mode==='done'?'b':''}">${KO_STATUS[o.status]}</span></span></div>
+      <span style="display:flex;gap:6px;flex-wrap:wrap">${o.byFactory?'<span class="chip b">📞 اتعملت من المصنع</span>':''}${o.trial?'<span class="chip">🧪 تجريبي</span>':''}${mode==='new'&&o.editedAt?`<span class="chip a">✏️ الفرع عدّلها ${koTime(o.editedAt)}</span>`:''}${mode==='sent'&&koLateDays(o)>=1?`<span class="chip r">⏰ الفرع ما أكدش من ${koLateDays(o)} يوم</span>`:''}<span class="chip ${mode==='sent'?'a':mode==='done'?'b':''}">${KO_STATUS[o.status]}</span></span></div>
     ${mode==='new'&&o.origLines?`<div class="hint" style="margin-top:4px;color:#8A4A0B">اتغيّر: ${koDiffText(o)}</div>`:''}
     ${o.note?`<div class="warnbar" style="margin-top:6px">ملاحظة الفرع: ${esc(o.note)}</div>`:''}
     <div class="tblwrap" style="margin-top:8px;max-height:none"><table><thead><tr><th>الصنف</th><th class="n">مطلوب</th>
@@ -3694,7 +3721,14 @@ function viewKOrders(){
       <button class="btn" data-act="ko-slip" data-id="${o.id}">🖨️ إذن الفرع</button>
       ${ROLE==='owner'?`<button class="btn danger" data-act="ko-cancel" data-id="${o.id}">إلغاء</button>`:''}</div>
       <div class="hint" style="margin-top:6px">عدّل عمود «هيتبعت» لو هتبعت أقل أو أكتر. الأصناف اللي رصيدها مش كفاية متعلّمة بالأحمر.</div>`:''}
-    ${mode==='done'&&o.lines.some(l=>Math.abs((l.recv||0)-(l.sent||0))>0.0001)?`<div class="warnbar" style="margin-top:8px">فيه فرق بين اللي اتبعت واللي الفرع استلمه — راجعه مع الفرع والسواق.</div>`:''}
+    ${mode==='done'&&(o.diffRes||koHasDiff(o))?(o.diffRes?`<div style="margin-top:8px;background:#F0FAF1;border:1px solid #9BCBA4;border-radius:10px;padding:8px 12px;font-size:13px"><b>✓ الفرق اتعتمد</b> ${koTime(o.diffRes.at)}${o.diffRes.by?` · ${esc(o.diffRes.by)}`:''}<br>${o.diffRes.lines.map(x=>`${esc(o.lines[x.ix].name)}: ${x.diff>0?'+':''}${fmtP(x.diff)} ← ${esc(KO_DEC[x.dec]||x.dec)}`).join(' · ')}${o.diffRes.note?`<br>ملاحظة: ${esc(o.diffRes.note)}`:''}</div>`
+      :`<div style="margin-top:8px;background:#FFF6F6;border:1.5px solid #E9A3A3;border-radius:10px;padding:10px 12px">
+        <b>⚖️ فيه فرق — اختار حصل إيه لكل صنف واعتمده</b>
+        <div class="hint" style="margin:2px 0 8px">من غير اعتماد، المخزن هيفضل شايل إنه صرف اللي اتبعت، والفرع شايف إنه استلم أقل — والفرق ده هيبان عجز آخر الشهر.</div>
+        ${o.lines.map((l,ix)=>{ const df=n2((+l.recv||0)-(+l.sent||0)); if(Math.abs(df)<=0.0001) return ''; const opts=df<0?['back','loss','driver']:['extra','brerr'];
+          return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><b style="min-width:150px">${esc(l.name)}</b><span class="chip ${df<0?'r':'a'}">${df<0?'ناقص':'زيادة'} ${fmtP(Math.abs(df))} ${esc(l.unit||'')}</span>
+            <select data-kodec="${o.id}:${ix}"><option value="">— اختار —</option>${opts.map(k=>`<option value="${k}">${KO_DEC[k]}</option>`).join('')}</select></div>`; }).join('')}
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px"><input type="text" data-kodecnote="${o.id}" placeholder="ملاحظة (اختياري): مين قال إيه…" style="flex:1;min-width:200px"><button class="btn p" data-act="ko-diff" data-id="${o.id}">✓ اعتماد الفرق</button></div></div>`):''}
   </div>`;
   return `
   ${isOwner?`<div class="panel"><div class="pad">
@@ -3714,11 +3748,11 @@ function viewKOrders(){
   ${(()=>{ const W=koLastWindowDate(); const pinned=Object.keys(KO.cfg.pins||{}).filter(b=>!koIsTestBranch(b)).filter(b=>!KO.brand||((KO.cfg.brands||{})[b]||'')===KO.brand);
      const did=new Set(KO.list.filter(o=>o.status!=='cancelled'&&koInWindow(o,W)).map(o=>o.branch)); const miss=pinned.filter(b=>!did.has(b)).sort((a,b)=>a.localeCompare(b,'ar'));
      return pinned.length?`<div class="panel"><h2>طلبيات ليلة ${W.slice(8,10)}/${W.slice(5,7)} <em>${did.size} من ${pinned.length} فرع</em></h2><div class="pad">${miss.length?`<div class="hint" style="margin-bottom:6px">ما طلبوش (من 10 لـ 12 بالليل):</div><div style="display:flex;flex-wrap:wrap;gap:6px">${miss.map(b=>`<span class="chip r">${esc(b)}</span>`).join('')}</div>`:'<span class="chip g">✓ كل الفروع طلبت</span>'}</div></div>`:''; })()}
-  <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em>${brandFilter}${fresh.length?`<button class="btn sm p" data-act="ko-pick" style="${bl.length?'':'margin-inline-start:auto'}">🖨️ ورقة التجهيز</button><button class="btn sm" data-act="ko-slips">🖨️ أذونات الفروع (كل فرع صفحة)</button>`:''}<button class="btn sm" data-act="ko-refresh" style="${bl.length||fresh.length?'':'margin-inline-start:auto'}">تحديث</button></h2>
+  <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em>${brandFilter}<button class="btn sm" data-act="ko-manual" title="طلب طارئ أو فرع نسي يطلب">📞 + طلبية لفرع</button>${fresh.length?`<button class="btn sm p" data-act="ko-pick" style="${bl.length?'':'margin-inline-start:auto'}">🖨️ ورقة التجهيز</button><button class="btn sm" data-act="ko-slips">🖨️ أذونات الفروع (كل فرع صفحة)</button>`:''}<button class="btn sm" data-act="ko-refresh" style="${bl.length||fresh.length?'':'margin-inline-start:auto'}">تحديث</button></h2>
     ${fresh.length?fresh.slice().reverse().map(o=>orderCard(o,'new')).join(''):'<div class="empty">مفيش طلبيات جديدة</div>'}</div>
   <div class="panel"><h2>اتبعتت ومستنية تأكيد الفرع <em>${sent.length}</em>${sent.filter(o=>koLateDays(o)>=1).length?`<span class="chip r" style="margin-inline-start:8px">⏰ ${sent.filter(o=>koLateDays(o)>=1).length} متأخرة</span>`:''}</h2>
     ${sent.length?sent.map(o=>orderCard(o,'sent')).join(''):'<div class="empty">مفيش</div>'}</div>
-  <div class="panel"><h2>اتسلمت <em>آخر ${done.length}</em></h2>
+  <div class="panel"><h2>اتسلمت <em>آخر ${done.length}</em>${openDiff.length?`<span class="chip r" style="margin-inline-start:8px">⚖️ ${openDiff.length} فرق مستني اعتماد</span>`:''}</h2>
     ${done.length?done.map(o=>orderCard(o,'done')).join(''):'<div class="empty">مفيش</div>'}</div>`;
 }
 function koSetupView(branches){
@@ -3821,6 +3855,35 @@ async function koAct(a,d){
   }
   if(a==='ko-unpin'){ if(!confirm(`قفل دخول فرع "${d.b}"؟ مش هيقدر يطلب لحد ما تعمله باسورد جديد.`)) return; delete KO.cfg.pins[d.b]; await koSaveCfg(KO.cfg); return render(); }
   if(a==='ko-pick'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koPickSheet(L); }
+  if(a==='ko-diff'){ const o=KO.list.find(x=>x.id===d.id); if(!o||!koDiffOpen(o)) return;
+    const L=[]; let miss=0;
+    o.lines.forEach((l,ix)=>{ const df=n2((+l.recv||0)-(+l.sent||0)); if(Math.abs(df)<=0.0001) return; const v=((document.querySelector(`[data-kodec="${o.id}:${ix}"]`)||{}).value)||''; if(!v) miss++; L.push({ix,diff:df,dec:v}); });
+    if(miss) return toast(`اختار حصل إيه في ${miss} صنف`,1);
+    const live=!o.trial && !koIsTestBranch(o.branch);
+    const plan=L.map(x=>{ const l=o.lines[x.ix]; const q=n2(Math.abs(x.diff)*koLineSize(l)); const u=l.baseUnit||(item(l.itemId)||{}).unit||'';
+      return `• ${l.name}: ${x.diff>0?'+':''}${fmtP(x.diff)} ← ${KO_DEC[x.dec]}${live?(x.dec==='back'?` (هيرجع ${fmtP(q)} ${u} للمخزن)`:x.dec==='extra'?` (هيتسجل منصرف ${fmtP(q)} ${u})`:''):''}`; }).join('\n');
+    if(!confirm(`اعتماد الفرق لفرع ${o.branch}:\n\n${plan}\n\n${live?'':'🧪 تجريبي — من غير حركات مخزن.\n\n'}تأكيد؟`)) return;
+    const fresh=(await koList()).find(x=>x.id===o.id); if(!fresh||fresh.diffRes){ KO.at=0; toast('الطلبية اتغيرت — اتحدثت',1); return koLoad(); }
+    SUBMITTING++;
+    try{ const mv=[];
+      for(const x of L){ const l=fresh.lines[x.ix]; const it=item(l.itemId); const q=n2(Math.abs(x.diff)*koLineSize(l));
+        if(x.dec==='back'){ if(live&&it){ const m={id:uid('m'),dir:'in',itemId:it.id,qty:q,date:today(),price:+it.price||0,party:`مرتجع صرف — ${fresh.branch}`,reason:'تصحيح صرف: الفرع استلم أقل والكمية فضلت في المصنع'}; S.moves.push(m); mv.push(m.id); } l.sent=+l.recv||0; }
+        else if(x.dec==='extra'){ if(live&&it){ const res=dispenseOut(it.id,q,today(),fresh.branch,'صرف للفروع'); if(res.error){ toast(`${l.name}: ${res.error}`,1); continue; } if(res.move) mv.push(res.move.id); } l.sent=+l.recv||0; }
+        else if(x.dec==='loss'||x.dec==='driver'){ l.billed=+l.recv||0; l.lossBy=x.dec; }
+        // brerr: الفرع كتب زيادة غلط — بيتحاسب على اللي اتبعت
+      }
+      if(mv.length) await saveTx();
+      fresh.diffRes={at:new Date().toISOString(), by:((AUTH&&AUTH.user&&AUTH.user.email)||'')||'', lines:L, note:(((document.querySelector(`[data-kodecnote="${o.id}"]`)||{}).value)||'').trim(), moveIds:mv};
+      await koSave(fresh); KO.at=0; toast(`✓ الفرق اتعتمد لفرع ${fresh.branch}${mv.length?` — ${mv.length} حركة مخزن`:''}`); return koLoad();
+    } finally { SUBMITTING--; } }
+  if(a==='ko-manual'){ ui.kom={branch:'',q:'',qty:{},need:'',note:''}; ui.modal=koManualModal(); render(); koManualBind(); return; }
+  if(a==='ko-mansave'){ const M=ui.kom; if(!M.branch) return toast('اختار الفرع',1); const brand=(KO.cfg.brands||{})[M.branch]||'';
+    const lines=Object.keys(M.qty).filter(id=>+M.qty[id]>0).map(id=>{ const it=item(id); const u=koUnitOf(KO.cfg,it); return {itemId:id,name:it.name,unit:u.unit,qty:+M.qty[id],size:u.size,baseUnit:u.base}; });
+    if(!lines.length) return toast('اكتب الكميات',1);
+    if(!confirm(`طلبية لفرع ${M.branch} (من المصنع):\n\n${lines.map(l=>`• ${l.name}: ${fmtP(l.qty)} ${l.unit}`).join('\n')}\n\nهتظهر في «طلبيات جديدة» وعند الفرع في «طلبياتي». تأكيد؟`)) return;
+    const o={id:'o'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), branch:M.branch, brand, createdAt:new Date().toISOString(), needDate:M.need||koDxb().ymd, note:M.note||'', status:'new', lines, byFactory:((AUTH&&AUTH.user&&AUTH.user.email)||'')||'المصنع'};
+    await koSave(o); ui.modal=null; KO.at=0; toast(`📞 اتعملت طلبية لفرع ${M.branch}`); return koLoad(); }
+  if(a==='ko-manclose'){ ui.modal=null; return render(); }
   if(a==='ko-slips'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koBranchSlips(L); }
   if(a==='ko-slip'){ const o=KO.list.find(x=>x.id===d.id); if(o) koBranchSlips([o]); return; }
   if(a==='ko-clear-trial'){ const L=KO.list.filter(o=>koIsTrialOrder(o)); if(!L.length) return;
