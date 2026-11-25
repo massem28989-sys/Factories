@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-11 · 14:05'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '25-11 · 15:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -4797,7 +4797,7 @@ function recipeSyncState(){
   for(const {item:o,list} of byOut.values()){
     const costs=list.map(x=>x.uc); const mn=Math.min(...costs), mx=Math.max(...costs);
     if(list.length>1 && mx-mn>0.01){ if(!list.some(x=>Math.abs(x.uc-(+o.price||0))<=0.01)) multi.push({item:o, list}); continue; }
-    if(Math.abs(costs[0]-(+o.price||0))>0.01) stale.push({item:o, from:+o.price||0, to:costs[0]});
+    if(Math.abs(costs[0]-(+o.price||0))>0.01) stale.push({item:o, from:+o.price||0, to:costs[0], r:list[0].r});
   }
   return {stale, multi};
 }
@@ -12667,8 +12667,10 @@ function _healthCheck(){
   } else add({id:'bo',lvl:'info',title:'صرف الفروع: افتح طلبيات النهارده عشان نقارنها',desc:'من «الإنتاج ← طلبيات الفروع» اختار يوم النهارده، وبعدين ارجع للفحص.'});
   { const {stale, multi}=recipeSyncState();
     add({id:'psync',lvl:stale.length?'warn':'ok',title:stale.length?`${stale.length} منتج سعره في الكارت غير تكلفة وصفته`:'أسعار المنتجات مطابقة لتكلفة الوصفات',
-      desc:stale.length?'أسعار خامات اتغيرت في الاستلام. زامن قبل الصرف — السعر اللي بيتكتب على فاتورة الفرع بيتثبت وقت الصرف.'+(multi.length?` (و${multi.length} منتج ليه أكتر من وصفة — اختار تكلفته من شاشة الوصفات)`:''):'',
-      rows:stale.map(x=>({c:[x.item.name, `${fmt(x.from)} ← ${fmt(x.to)}`]})), act:stale.length?['sync-prices','💲 حدّث الأسعار']:null}); }
+      desc:stale.length?'الرقمين لنفس الوحدة اللي في الكارت (للصاج، للباكيت، للحبة…) — الأول السعر المكتوب في الكارت، والتاني تكلفة الوصفة من أسعار خاماتها دلوقتي. لو الوصفة معمولة لحبة والكارت بالصاج، السيستم بيحوّلها للصاج قبل المقارنة. جنب كل صنف أكبر خامة في تكلفته — لو الفرق غريب، ابدأ بسعرها. زامن قبل الصرف: السعر اللي بيتكتب على فاتورة الفرع بيتثبت وقت الصرف.'+(multi.length?` (و${multi.length} منتج ليه أكتر من وصفة — اختار تكلفته من شاشة الوصفات)`:''):'',
+      rows:stale.map(x=>{ const u=x.item.unit||''; const tot=recipeCost(x.r)||1; const top=(x.r.lines||[]).filter(l=>!l.by).map(l=>{ const it=item(l.itemId)||{}; return {n:it.name||'', v:(+it.price||0)*l.qty}; }).sort((a,b)=>b.v-a.v)[0];
+        const pct=x.from>0?Math.round((x.to-x.from)/x.from*100):null;
+        return {c:[x.item.name, `${fmt(x.from)} ← ${fmt(x.to)} لكل ${u}${pct!=null?` (${pct>0?'+':''}${pct}%)`:' (كان من غير سعر)'}`, top?`أكبر خامة: ${top.n} ${Math.round(top.v/tot*100)}%`:'']}; }), act:stale.length?['sync-prices','💲 حدّث الأسعار']:null}); }
   // 7) أصناف من غير سعر عليها حركة
   const used=new Set(S.moves.map(m=>m.itemId));
   const noPrice=S.items.filter(it=>used.has(it.id) && !(+it.price>0) && !isUntracked(it.id));
