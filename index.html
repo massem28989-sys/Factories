@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '25-11 · 16:30'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '26-11 · 11:20'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -3614,6 +3614,8 @@ async function koLoad(){
 }
 // طلبية من فترة التجربة: اتبعتت في التجربة، أو اتلغت/فضلت جديدة من قبل ليلة 30/11 (طلبيات ليلة 30/11 حقيقية لتوصيل 1/12)
 const koIsTrialOrder=o=>!!o.trial || koIsTestBranch(o.branch) || ((o.status==='cancelled'||o.status==='new') && koDxbOf(o.createdAt||'').ymd<'2026-11-30');
+// طلبية جديدة فات يوم توصيلها ومتصرفتش — بتتنقل لقسم لوحدها عشان «طلبيات جديدة» يبقى فيها طلبيات النهارده بس
+const koIsStale=o=>o.status==='new' && String(o.needDate||koDxbOf(o.createdAt||'').ymd) < koDxb().ymd;
 const koHasDiff=o=>o.status==='received' && o.lines.some(l=>Math.abs((+l.recv||0)-(+l.sent||0))>0.0001);
 const koDiffOpen=o=>koHasDiff(o) && !o.diffRes;
 const KO_DEC={back:'رجع للمخزن (ما اتحمّلش أو اتحسب غلط)', loss:'هالك / عجز على المصنع', driver:'عجز على السواق', extra:'اتبعت زيادة فعلًا (يتسجل منصرف)', brerr:'غلط عدّ من الفرع (مفيش زيادة)'};
@@ -3681,7 +3683,7 @@ function viewKOrders(){
   const isOwner=ROLE!=='manager';
   const brandOfOrder = o => o.brand || ((KO.cfg.brands||{})[o.branch]) || '';
   const L = KO.brand ? KO.list.filter(o=>brandOfOrder(o)===KO.brand) : KO.list;
-  const fresh=L.filter(o=>o.status==='new'), sent=L.filter(o=>o.status==='sent'), openDiff=L.filter(koDiffOpen), done=[...openDiff, ...L.filter(o=>o.status==='received'&&!koDiffOpen(o)).slice(0,15)];
+  const fresh=L.filter(o=>o.status==='new'&&!koIsStale(o)), stale=L.filter(koIsStale), sent=L.filter(o=>o.status==='sent'), openDiff=L.filter(koDiffOpen), done=[...openDiff, ...L.filter(o=>o.status==='received'&&!koDiffOpen(o)).slice(0,15)];
   const bl=koBrands();
   // ملخص الشهر الحالي لكل براند: عدد الطلبيات وقيمة اللي اتبعت (بسعر الكارت)
   const brandSummary = bl.length ? (()=>{
@@ -3750,6 +3752,8 @@ function viewKOrders(){
      return pinned.length?`<div class="panel"><h2>طلبيات ليلة ${W.slice(8,10)}/${W.slice(5,7)} <em>${did.size} من ${pinned.length} فرع</em></h2><div class="pad">${miss.length?`<div class="hint" style="margin-bottom:6px">ما طلبوش (من 10 لـ 12 بالليل):</div><div style="display:flex;flex-wrap:wrap;gap:6px">${miss.map(b=>`<span class="chip r">${esc(b)}</span>`).join('')}</div>`:'<span class="chip g">✓ كل الفروع طلبت</span>'}</div></div>`:''; })()}
   <div class="panel"><h2>طلبيات جديدة <em>${fresh.length}</em>${brandFilter}<button class="btn sm" data-act="ko-manual" title="طلب طارئ أو فرع نسي يطلب">📞 + طلبية لفرع</button>${fresh.length?`<button class="btn sm p" data-act="ko-pick" style="${bl.length?'':'margin-inline-start:auto'}">🖨️ ورقة التجهيز</button><button class="btn sm" data-act="ko-slips">🖨️ أذونات الفروع (كل فرع صفحة)</button>`:''}<button class="btn sm" data-act="ko-refresh" style="${bl.length||fresh.length?'':'margin-inline-start:auto'}">تحديث</button></h2>
     ${fresh.length?fresh.slice().reverse().map(o=>orderCard(o,'new')).join(''):'<div class="empty">مفيش طلبيات جديدة</div>'}</div>
+  ${stale.length?`<details class="panel" style="padding:0"><summary style="cursor:pointer;padding:14px 18px;font-weight:700;display:flex;gap:10px;align-items:center;flex-wrap:wrap">⏳ طلبيات فات يوم توصيلها ومتصرفتش <span class="chip a">${stale.length}</span><span class="hint" style="font-weight:400">— لو اتبعتت فعلًا افتحها ودوس «جهزت واتبعتت»، ولو لأ الغيها</span>${isOwner?`<button class="btn sm danger" data-act="ko-stale-cancel" style="margin-inline-start:auto">إلغاء الكل</button>`:''}</summary>
+    ${stale.map(o=>orderCard(o,'new')).join('')}</details>`:''}
   <div class="panel"><h2>اتبعتت ومستنية تأكيد الفرع <em>${sent.length}</em>${sent.filter(o=>koLateDays(o)>=1).length?`<span class="chip r" style="margin-inline-start:8px">⏰ ${sent.filter(o=>koLateDays(o)>=1).length} متأخرة</span>`:''}</h2>
     ${sent.length?sent.map(o=>orderCard(o,'sent')).join(''):'<div class="empty">مفيش</div>'}</div>
   <div class="panel"><h2>اتسلمت <em>آخر ${done.length}</em>${openDiff.length?`<span class="chip r" style="margin-inline-start:8px">⚖️ ${openDiff.length} فرق مستني اعتماد</span>`:''}</h2>
@@ -3854,7 +3858,7 @@ async function koAct(a,d){
     return render();
   }
   if(a==='ko-unpin'){ if(!confirm(`قفل دخول فرع "${d.b}"؟ مش هيقدر يطلب لحد ما تعمله باسورد جديد.`)) return; delete KO.cfg.pins[d.b]; await koSaveCfg(KO.cfg); return render(); }
-  if(a==='ko-pick'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koPickSheet(L); }
+  if(a==='ko-pick'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'&&!koIsStale(o)); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koPickSheet(L); }
   if(a==='ko-diff'){ const o=KO.list.find(x=>x.id===d.id); if(!o||!koDiffOpen(o)) return;
     const L=[]; let miss=0;
     o.lines.forEach((l,ix)=>{ const df=n2((+l.recv||0)-(+l.sent||0)); if(Math.abs(df)<=0.0001) return; const v=((document.querySelector(`[data-kodec="${o.id}:${ix}"]`)||{}).value)||''; if(!v) miss++; L.push({ix,diff:df,dec:v}); });
@@ -3884,7 +3888,11 @@ async function koAct(a,d){
     const o={id:'o'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), branch:M.branch, brand, createdAt:new Date().toISOString(), needDate:M.need||koDxb().ymd, note:M.note||'', status:'new', lines, byFactory:((AUTH&&AUTH.user&&AUTH.user.email)||'')||'المصنع'};
     await koSave(o); ui.modal=null; KO.at=0; toast(`📞 اتعملت طلبية لفرع ${M.branch}`); return koLoad(); }
   if(a==='ko-manclose'){ ui.modal=null; return render(); }
-  if(a==='ko-slips'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koBranchSlips(L); }
+  if(a==='ko-slips'){ const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(o=>o.status==='new'&&!koIsStale(o)); if(!L.length) return toast('مفيش طلبيات جديدة',1); return koBranchSlips(L); }
+  if(a==='ko-stale-cancel'){ if(!isOwner()) return; const brandOfOrder=o=>o.brand||((KO.cfg.brands||{})[o.branch])||''; const L=(KO.brand?KO.list.filter(o=>brandOfOrder(o)===KO.brand):KO.list).filter(koIsStale); if(!L.length) return;
+    if(!confirm(`هيتلغي ${L.length} طلبية فات يوم توصيلها ومتصرفتش:\n${L.map(o=>`• ${o.branch} — مطلوبة ${o.needDate||''}`).join('\n')}\n\nمفيش أي حركة مخزن بتتأثر. تكمل؟`)) return;
+    for(const o of L){ const f=(await koList()).find(x=>x.id===o.id); if(!f||f.status!=='new') continue; f.status='cancelled'; f.cancelledAt=new Date().toISOString(); f.cancelReason='فات يوم التوصيل ومتصرفتش'; await koSave(f); }
+    KO.at=0; toast(`اتلغى ${L.length} طلبية قديمة`); return koLoad(); }
   if(a==='ko-slip'){ const o=KO.list.find(x=>x.id===d.id); if(o) koBranchSlips([o]); return; }
   if(a==='ko-clear-trial'){ const L=KO.list.filter(o=>koIsTrialOrder(o)); if(!L.length) return;
     if(!confirm(`هيتمسح ${L.length} طلبية من فترة التجربة نهائي (من عند المصنع والفروع).\nالطلبيات اللي اتبعتت في التجربة ما سجلتش منصرف، فالمخزن مش هيتأثر.\n\nتكمل؟`)) return;
