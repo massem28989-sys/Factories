@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '26-11 · 11:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-11 · 04:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -1575,8 +1575,17 @@ async function sb(path,opts={}){
   let r=await go(await authToken());
   if(r.status===401 && AUTH && await authRefresh()) r=await go(AUTH.access_token); // الجلسة خلصت في النص — نجددها ونعيد الطلب مرة
   if(!r.ok){ const t=await r.text(); throw new Error(t.slice(0,180)||('HTTP '+r.status)); }
+  if(opts.method && opts.method!=='GET') revNoteWrite(path,opts);
   const t=await r.text(); return t?JSON.parse(t):null;
 }
+/* 📶 توفير الباندويث: كل كتابة على بيانات المخزن بتعلّم «rev» صغير في stock_settings.
+   الأجهزة اللي بتحدّث تلقائي بتقرا الـrev ده بس (بايتات)، وبتسحب كل البيانات بس لو اتغيّر — بدل ما تسحب آلاف الحركات كل 25 ثانية */
+let _revT=null, REV_SEEN=null;
+function revNoteWrite(path,opts){ try{
+  if(/^stock_(moves|items|counts|recipes|runs|periods)\b/.test(path) || (/^stock_settings/.test(path) && Array.isArray(opts.body) && opts.body.some(x=>x&&x.k==='state'))){
+    clearTimeout(_revT); _revT=setTimeout(()=>{ const v={t:Date.now()}; REV_SEEN=v.t;
+      sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'rev',v}]}).catch(()=>{}); },1500); } }catch(e){} }
+async function revGet(){ try{ const r=await sb('stock_settings?'+fEq()+'&k=eq.rev&select=v',{prefer:'return=representation'}); return (r&&r[0]&&r[0].v&&r[0].v.t)||0; }catch(e){ return -1; } }
 // جدول التشغيلات في القاعدة مفيهوش عمود «تلقائي» — بنعرفه من حركات التشغيلة نفسها
 function markAutoRuns(){ const au=new Set(), ne=new Set(); (S.moves||[]).forEach(m=>{ if(!m.runId) return; if(m.dir==='in' && /^إنتاج تلقائي/.test(m.party||'')) au.add(m.runId); if(/وسيطة/.test(m.reason||'')) ne.add(m.runId); });
   (S.runs||[]).forEach(r=>{ if(au.has(r.id)) r.auto=true; if(ne.has(r.id)) r.nested=true; }); }
@@ -2358,6 +2367,7 @@ async function pullAll(silent){
   DB.busy=true; DB.err=''; if(!silent) render();
   try{
     const F=FACTORY;
+    { const rv=await revGet(); if(rv!==-1) REV_SEEN=rv; window.__lastFull=Date.now(); } // نعلّم النسخة قبل السحب — أي كتابة بعدها هتتلقط في المرة الجاية
     const st=await sb('stock_settings?'+fEq()+'&k=eq.state&select=v',{prefer:'return=representation'});
     const period=(st&&st[0]&&st[0].v&&st[0].v.period)||S.period||'2026-07';
     const items=await sbAll('stock_items?'+fEq()+'&select=*',{prefer:'return=representation'})||[];
@@ -15367,6 +15377,7 @@ async function boot(){
   // (مثلاً بعد تبديل خامة) من غير ما حد يعمل ريفريش. الوصفة اللي اتعدلت على الجهاز ده ولسه ما اترفعتش ما بتتلمسش.
   if(ROLE!=='owner' && DB.on){
     setInterval(async ()=>{ if(document.hidden || DB.busy || DB.dirty || !REC_SIG.size) return;
+      const rv=await revGet(); if(rv!==-1 && rv===window.__recRev) return; window.__recRev=rv;
       try{ const rc=await sbAll('stock_recipes?'+fEq()+'&select=*',{prefer:'return=representation'}); if(!rc || DB.busy || DB.dirty) return;
         const loc=new Map(S.recipes.map(r=>[r.id,r])); const srvIds=new Set(); let ch=0; const out=[];
         rc.forEach(x=>{ srvIds.add(x.id); const nr={id:x.id,name:x.name,outItemId:x.out_item,outQty:+x.out_qty,lines:x.lines||[]}; const l=loc.get(x.id);
@@ -15384,6 +15395,9 @@ async function boot(){
       // لو المستخدم واقف في أي خانة (بيختار صنف أو بيكتب كمية/سعر) ما نحدّثش الشاشة خالص — كانت بتمسح الصنف اللي اختاره
       const ae=document.activeElement, inField = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.id!=='lang-select';
       if(liveTabs.includes(tab) && !typing && !inField && !SUBMITTING && !DB.busy && !DB.dirty && !ui.modal){
+        if(document.hidden) return; // التاب مش قدامك — ما نسحبش
+        const rv=await revGet(); const stale=Date.now()-(window.__lastFull||0)>10*60*1000;
+        if(rv!==-1 && rv===REV_SEEN && !stale) return; // مفيش أي تغيير من آخر سحب — ما نسحبش حاجة
         const draft=captureMoveDraft();
         await pullAll(true);
         if((tab==='purchase'||tab==='in') && Date.now()-PR_FETCHED_AT>30000){ try{ await fetchPurchaseRequests(); }catch(e){} }
