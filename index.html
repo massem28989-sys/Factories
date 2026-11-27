@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-11 · 17:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-11 · 21:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -9067,12 +9067,13 @@ async function swLoad(){ const out={}; try{ const rows=await sb('stock_settings?
 // كل الاستلامات اللي الميزان فيها مختلف عن الفاتورة — من sw:* + من طلبات الشراء القديمة (اللي الوزن الفعلي محفوظ فيها)
 async function swRows(){ const SW=await swLoad(); const map=new Map();
   S.moves.forEach(m=>{ if(m.dir!=='in') return; const x=SW[m.id]||(m.scaleWt>0?{w:m.scaleWt}:null); if(x&&x.w>0) map.set(m.id,{m,w:+x.w,src:'sw'}); });
+  const nomOk=(it,w,q)=>Math.abs(nomRound(it,w)-q)<0.005; // الوزن القديم من طلب الشراء ينفع بس لو تقريبه = المتسجل (غير كده يبقى اتعدل بعدها)
   try{ await fetchPurchaseRequests(); }catch(e){}
   (PURCHASE_REQUESTS||[]).forEach(r=>{ const ids=r.moveIds||(r.linkedMoveId?[r.linkedMoveId]:[]); if(!ids.length) return;
     const ms=ids.map(id=>S.moves.find(m=>m.id===id)).filter(Boolean); if(!ms.length) return;
     if(ms.length===1 && ids.length===1){ const m=ms[0]; if(map.has(m.id)) return; const it=item(m.itemId); if(!it||!nomPackOf(it)) return;
-      const w=(r.weights&&r.weights.length===1)?+r.weights[0].kg:+r.receivedQty; if(w>0 && Math.abs(w-(+m.qty))>0.004) map.set(m.id,{m,w,src:'po'}); }
-    else if(r.weights && r.weights.length===ms.length){ ms.forEach((m,i)=>{ if(map.has(m.id)) return; const w=+r.weights[i].kg; if(w>0&&Math.abs(w-(+m.qty))>0.004) map.set(m.id,{m,w,src:'po'}); }); } });
+      const w=(r.weights&&r.weights.length===1)?+r.weights[0].kg:+r.receivedQty; if(w>0 && Math.abs(w-(+m.qty))>0.004 && nomOk(it,w,+m.qty)) map.set(m.id,{m,w,src:'po'}); }
+    else if(r.weights && r.weights.length===ms.length){ ms.forEach((m,i)=>{ if(map.has(m.id)) return; const w=+r.weights[i].kg; const it=item(m.itemId); if(w>0&&Math.abs(w-(+m.qty))>0.004&&it&&nomPackOf(it)&&nomOk(it,w,+m.qty)) map.set(m.id,{m,w,src:'po'}); }); } });
   return [...map.values()].map(x=>({...x, it:item(x.m.itemId), q:+x.m.qty, d:Math.round((x.w-(+x.m.qty))*1000)/1000})).filter(x=>x.it && Math.abs(x.d)>0.004).sort((a,b)=>String(b.m.date).localeCompare(String(a.m.date))); }
 function swModal(){ const W=ui.sw||{}; const rows=W.rows;
   let body;
@@ -10169,6 +10170,12 @@ function bind(){
     }
     const oldQ=+m.qty||0; m.qty = r4(v);
     let prodMsg='';
+    // وارد صنف بالكرتونة الاسمية (صدر/شاورما…): الرقم اللي بيتكتب هو وزن الميزان، والمخزن بيتسجل بالكراتين الكاملة
+    if(m.dir==='in'){ const it=item(m.itemId); if(it && nomPackOf(it)){ delete m.scaleWt; nomFix(it,m);
+        if(!m.scaleWt) swSave({...m, scaleWt:m.qty}); // مفيش تقريب ← امسح أي وزن قديم
+        if(m.scaleWt) prodMsg=` — الميزان ${fmt(m.scaleWt)} واتسجل ${fmt(m.qty)} (${fmt(m.qty/nomPackOf(it))} كرتونة)`;
+        try{ await fetchPurchaseRequests(); const r=(PURCHASE_REQUESTS||[]).find(r=>(r.moveIds||[r.linkedMoveId]).includes(m.id));
+          if(r && (r.moveIds||[r.linkedMoveId]).length===1){ const w=m.scaleWt||m.qty; if(r.weights&&r.weights.length===1) r.weights[0].kg=w; else r.receivedQty=n2(w); await savePurchaseRequests(); } }catch(e){} } }
     if(m.dir==='out' && !m.runId && activeRecipeOf(m.itemId)){ const dq=r4(m.qty-oldQ);
       if(dq<0 && prodRelease(m.itemId, m.date, -dq)>0) prodMsg=' — والإنتاج التلقائي اتقلل والخامات رجعت';
       if(dq>0 && prodExtend(m.itemId, m.date, dq)>0) prodMsg=' — واتصنّع الزيادة من الوصفة'; }
