@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-11 · 04:40'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-11 · 11:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5618,6 +5618,25 @@ function _decFlush(kind){
   return Q.run;
 }
 function _decLocal(list, ids, decision){ (list||[]).forEach(r=>{ if(ids.includes(r.id) || (r.dupIds||[]).some(x=>ids.includes(x))) r.status=decision; }); }
+// بلاغ فيه أكتر من صنف: كل صنف بيتقرر لوحده — «الفرع صح» يعدّل الصرف، «الفرع غلطان» يسيب الصرف زي ما هو
+let FS_REJ={};
+function fsRejKey(r,name){ return String(r.branch)+'|'+String(r.date)+'|'+String(name); }
+async function fsRejLoad(){ try{ const x=await sb('stock_settings?'+fEq()+'&k=eq.fs_rej&select=v',{prefer:'return=representation'}); FS_REJ=(x&&x[0]&&x[0].v)||{}; }catch(e){} return FS_REJ; }
+async function fsRejAdd(r,names){ await fsRejLoad(); names.forEach(n=>FS_REJ[fsRejKey(r,n)]=Date.now()); try{ await sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'fs_rej',v:FS_REJ}]}); }catch(e){ toast('ما اتحفظش قرار «الفرع غلطان» — جرّب تاني',1); } }
+function fsPickModal(){ const P=BO.fsPick; if(!P) return null; const r=(BO.shortages||[]).find(x=>String(x.id)===String(P.id)); if(!r) return null;
+  const nOk=P.ok.filter(Boolean).length, nNo=P.ok.length-nOk;
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:620px"><h3>بلاغ ${esc(r.branch)} — ${esc(r.date)}</h3><div class="pad">
+    <div class="hint" style="margin-bottom:10px;line-height:1.7">قرّر في كل صنف لوحده: <b>الفرع صح</b> ← الصرف وفاتورة الفرع يتعدلوا على اللي استلمه. <b>الفرع غلطان</b> ← الصرف يفضل زي ما اتبعت.</div>
+    ${P.plan.map((x,k)=>{ const on=P.ok[k]; return `<div style="border:1px solid ${on?'#BFDABF':'#F0CACA'};background:${on?'#F4FAF4':'#FDF4F4'};border-radius:10px;padding:10px 12px;margin-bottom:8px">
+      <div style="font-weight:700">${esc(boLabel(x.it.name))}</div>
+      <div class="hint" style="margin:3px 0 8px">اتبعت ${fmt(x.it.sentQty)} · الفرع استلم ${fmt(x.it.receivedQty)} ${esc(x.it.unit||'')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn sm ${on?'g':''}" data-act="fs-pick" data-i="${k}" data-v="1">✓ الفرع صح — الصرف ${fmt(x.cur)} ← ${fmt(x.target)} ${esc(x.m.unit||'')}</button>
+        <button class="btn sm ${!on?'danger':''}" data-act="fs-pick" data-i="${k}" data-v="0">✗ الفرع غلطان — الصرف يفضل ${fmt(x.cur)}</button>
+      </div></div>`; }).join('')}
+    ${P.skip.length?`<div class="hint">مش هيتعدل: ${esc(P.skip.join('، '))}</div>`:''}
+  </div><div class="foot"><button class="btn p" data-act="fs-apply">نفّذ واقفل البلاغ (${nOk} يتعدل${nNo?` · ${nNo} يفضل`:''})</button><button class="btn" data-close="1">إلغاء</button></div></div></div>`; }
+
 async function decideFactoryShortageReport(id, decision){
   const grp=(BO.shortages||[]).find(r=>(r.dupIds||[r.id]).includes(id)); const ids=grp&&grp.dupIds?grp.dupIds:[id];
   _decLocal(BO.shortages, ids, decision); BO.shortagesCount=(BO.shortages||[]).filter(r=>r.status==='pending').length;
@@ -14140,8 +14159,13 @@ async function _act(a,d){
     { const nd=(r.items||[]).filter(it=>{ const m=findMatchingLocalItem(it.name); return m && (+it.sentQty||0)>0 && boDispTotal(r.branch, m.id, D)<0.0005; });
       if(nd.length){ alert(`⛔ طلبية ${r.branch} يوم ${D} لسه ما اتصرفتش على السيستم في:\n${nd.slice(0,8).map(it=>'• '+boLabel(it.name)).join('\n')}\n\nاصرف الطلبية الأول من «طلبيات الفروع»، وبعدين ارجع حل البلاغ — عشان الصرف يتعدل على اللي الفرع استلمه، مش يتسجل مرتين.`); return; } }
     if(!plan.length){ if(!confirm(`مفيش حاجة تتعدل في الصرف${skip.length?` (${skip.join('، ')})`:''} — الصرف المتسجل مطابق للي الفرع استلمه.\n\nأعلّم البلاغ «اتحل»؟`)) return; return decideFactoryShortageReport(r.id,'resolved'); }
-    const msg=`بلاغ ${r.branch} — يوم ${D}:\n\n${plan.map(x=>`• ${boLabel(x.it.name)}: الفرع استلم ${fmt(x.it.receivedQty)} بدل ${fmt(x.it.sentQty)} ← الصرف ${fmt(x.cur)} يبقى ${fmt(x.target)} ${x.m.unit||''} (${x.diff<0?`يرجع ${fmt(-x.diff)} للمخزن`:`يتصرف ${fmt(x.diff)} زيادة`})`).join('\n')}${skip.length?`\n\nمش هيتعدل: ${skip.join('، ')}`:''}\n\n• «OK»: أعدّل الصرف وفاتورة الفرع على كده، وأعلّم البلاغ «اتحل».\n• «Cancel»: ما أغيّرش حاجة.`;
-    if(!confirm(msg)){ if(confirm('تعلّم البلاغ «اتحل» من غير ما تعدّل الصرف؟ (يعني الفرق اتعالج بطريقة تانية، زي إن الفرع هيستلم الناقص بكرة)')) return decideFactoryShortageReport(r.id,'resolved'); return; }
+    BO.fsPick={id:r.id, plan, skip, ok:plan.map(()=>true)}; ui.modal=fsPickModal(); return render(); }
+  if(a==='fs-pick'){ const P=BO.fsPick; if(!P) return; P.ok[+d.i]=d.v==='1'; ui.modal=fsPickModal(); return render(); }
+  if(a==='fs-apply'){ const P=BO.fsPick; if(!P) return; const r=(BO.shortages||[]).find(x=>String(x.id)===String(P.id)); if(!r) return;
+    const D=r.date; const plan=P.plan.filter((x,k)=>P.ok[k]); const rej=P.plan.filter((x,k)=>!P.ok[k]);
+    ui.modal=null; BO.fsPick=null;
+    if(rej.length){ await fsRejAdd(r, rej.map(x=>x.it.name)); }
+    if(!plan.length){ await decideFactoryShortageReport(r.id,'resolved'); toast(`اتعلّم البلاغ «اتحل» — الصرف ما اتغيرش (${rej.length} صنف الفرع غلطان فيه)`,0); return render(); }
     const g=await guardBulk('بلاغ فرق '+r.branch+' — '+D); if(!g) return;
     for(const x of plan){
       if(x.diff<0){ let need=-x.diff; const mv=S.moves.filter(m=>m.dir==='out'&&m.reason==='صرف للفروع'&&m.party===r.branch&&m.itemId===x.m.id&&m.date===D).reverse();
@@ -14154,10 +14178,10 @@ async function _act(a,d){
     if(inv<plan.length) setTimeout(()=>alert(`⚠ الصرف اتعدل، بس ${plan.length-inv} من فواتير الفرع ما اتحدثتش (السيرفر ما ردش).\n\nدوس «🔍 افحص البلاغات اللي اتحلت» وبعدين «حدّث الفاتورة».`),300);
     await logOp(g, plan.map(x=>`${boLabel(x.it.name)} ${fmt(x.cur)}←${fmt(x.target)}`).join('، '));
     await decideFactoryShortageReport(r.id,'resolved');
-    toast(`اتعدل الصرف (${plan.length} صنف) وفاتورة الفرع (${inv}) واتعلّم البلاغ «اتحل» ✓`, 0); return render(); }
-  if(a==='fs-audit'){ BO.fsAuditBusy=true; render(); const out=[];
+    toast(`اتعدل الصرف في ${plan.length} صنف${rej.length?` · ${rej.length} صنف فضل زي ما هو`:''} واتعلّم البلاغ «اتحل» ✓`, 0); return render(); }
+  if(a==='fs-audit'){ BO.fsAuditBusy=true; render(); const out=[]; await fsRejLoad();
     try{ for(const r of (BO.shortages||[]).filter(x=>x.status==='resolved')){ const D=r.date;
-        for(const it of (r.items||[])){ const m=findMatchingLocalItem(it.name); if(!m) continue;
+        for(const it of (r.items||[])){ const m=findMatchingLocalItem(it.name); if(!m) continue; if(FS_REJ[fsRejKey(r,it.name)]) continue;
           const cur=boDispTotal(r.branch, m.id, D), sent=+it.sentQty||0, rec=+it.receivedQty||0;
           const o=await boOrderFor(r.branch, D).catch(()=>null);
           // معامل التحويل (وحدة الفرع ← وحدة المصنع) من سطر الفاتورة نفسه — مش من الصرف الحالي،
