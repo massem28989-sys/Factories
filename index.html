@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-11 · 12:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-11 · 17:45'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -2932,7 +2932,7 @@ function viewSuppliers(){
 
   <div class="panel">
     <h2>كشف حساب الموردين <em>${accs.length} مورد</em>
-      <button class="btn sm" data-act="ih-open" style="margin-inline-start:auto">📈 تاريخ صنف</button><button class="btn sm g" data-act="sup-export">تصدير CSV</button></h2>
+      <button class="btn sm" data-act="ih-open" style="margin-inline-start:auto">📈 تاريخ صنف</button><button class="btn sm" data-act="sw-open">⚖️ فرق الميزان</button><button class="btn sm g" data-act="sup-export">تصدير CSV</button></h2>
     <div class="tblwrap"><table class="gridcols">
       <thead><tr><th>المورد</th><th class="n">عدد فواتير الوارد</th><th class="n">قيمة المشتريات</th><th class="n">عدد المرتجعات</th><th class="n">قيمة المرتجعات</th><th class="n">الصافي المستحق</th><th></th></tr></thead>
       <tbody>${accs.map(a=>`<tr${(a.buyN||a.retN)?'':' style="opacity:.5"'}>
@@ -9059,7 +9059,36 @@ const prFmtD=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'';
 /* ⚖️ الكرتونة الاسمية: المورد بيفوتر بالوزن الاسمي (40 كرتونة × 20 = 800) حتى لو الميزان قال 803.2 أو 799 —
    فلو اتكتب وزن الميزان، الوارد بيتسجل بالكراتين الكاملة (800) وبنفس سعر الكيلو اللي في الفاتورة. الوزن الفعلي بيتحفظ للمعلومة بس */
 const NOM_PARTY='تسوية جرد — فرق وزن كرتونة';
-function nomFix(it,m){ const n=nomPackOf(it); if(!n||!(+m.qty>0)) return m; const w=+m.qty, q=nomRound(it,w); if(Math.abs(q-w)<1e-9) return m; m.scaleWt=w; m.qty=q; return m; }
+function nomFix(it,m){ const n=nomPackOf(it); if(!n||!(+m.qty>0)) return m; const w=+m.qty, q=nomRound(it,w); if(Math.abs(q-w)<1e-9) return m; m.scaleWt=w; m.qty=q; swSave(m); return m; }
+// ⚖️ وزن الميزان الفعلي بيتحفظ لوحده (sw:<id>) عشان نقدر نشوف فرق الميزان عن الفاتورة بعدين
+function swSave(m){ if(!DB_CONFIGURED||!m||!m.id||!(m.scaleWt>0)) return; const v={w:+m.scaleWt,q:+m.qty,item:m.itemId,date:m.date,party:m.party||'',at:Date.now()};
+  setTimeout(()=>{ sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'sw:'+m.id,v}]}).catch(()=>{ setTimeout(()=>sb('stock_settings',{...UPSERT,body:[{factory:FACTORY,k:'sw:'+m.id,v}]}).catch(()=>{}),5000); }); },300); }
+async function swLoad(){ const out={}; try{ const rows=await sb('stock_settings?'+fEq()+'&k=like.'+encodeURIComponent('sw:*')+'&select=k,v',{prefer:'return=representation'}); (rows||[]).forEach(r=>{ out[r.k.slice(3)]=r.v; }); }catch(e){} return out; }
+// كل الاستلامات اللي الميزان فيها مختلف عن الفاتورة — من sw:* + من طلبات الشراء القديمة (اللي الوزن الفعلي محفوظ فيها)
+async function swRows(){ const SW=await swLoad(); const map=new Map();
+  S.moves.forEach(m=>{ if(m.dir!=='in') return; const x=SW[m.id]||(m.scaleWt>0?{w:m.scaleWt}:null); if(x&&x.w>0) map.set(m.id,{m,w:+x.w,src:'sw'}); });
+  try{ await fetchPurchaseRequests(); }catch(e){}
+  (PURCHASE_REQUESTS||[]).forEach(r=>{ const ids=r.moveIds||(r.linkedMoveId?[r.linkedMoveId]:[]); if(!ids.length) return;
+    const ms=ids.map(id=>S.moves.find(m=>m.id===id)).filter(Boolean); if(!ms.length) return;
+    if(ms.length===1 && ids.length===1){ const m=ms[0]; if(map.has(m.id)) return; const it=item(m.itemId); if(!it||!nomPackOf(it)) return;
+      const w=(r.weights&&r.weights.length===1)?+r.weights[0].kg:+r.receivedQty; if(w>0 && Math.abs(w-(+m.qty))>0.004) map.set(m.id,{m,w,src:'po'}); }
+    else if(r.weights && r.weights.length===ms.length){ ms.forEach((m,i)=>{ if(map.has(m.id)) return; const w=+r.weights[i].kg; if(w>0&&Math.abs(w-(+m.qty))>0.004) map.set(m.id,{m,w,src:'po'}); }); } });
+  return [...map.values()].map(x=>({...x, it:item(x.m.itemId), q:+x.m.qty, d:Math.round((x.w-(+x.m.qty))*1000)/1000})).filter(x=>x.it && Math.abs(x.d)>0.004).sort((a,b)=>String(b.m.date).localeCompare(String(a.m.date))); }
+function swModal(){ const W=ui.sw||{}; const rows=W.rows;
+  let body;
+  if(!rows) body='<div class="hint" style="padding:20px">بيحمّل…</div>';
+  else if(!rows.length) body='<div class="hint" style="padding:20px">مفيش استلام وزن الميزان فيه مختلف عن الفاتورة في الشهر ده.</div>';
+  else { const byIt=new Map(); rows.forEach(r=>{ const k=r.it.id; const o=byIt.get(k)||{it:r.it,n:0,w:0,q:0,v:0}; o.n++; o.w+=r.w; o.q+=r.q; o.v+=r.d*(+r.m.price||0); byIt.set(k,o); });
+    const tot=[...byIt.values()];
+    body=`<div class="hint" style="margin-bottom:8px;line-height:1.7">الكمية في المخزن والفاتورة بتتسجل بالكراتين الكاملة (زي فاتورة المورد). هنا الوزن اللي الميزان قاله وقت الاستلام. <b style="color:var(--green)">+ يعني وصل أكتر من الفاتورة</b>، <b style="color:var(--red)">− أقل</b>.</div>
+    <div class="tblwrap"><table><thead><tr><th>الصنف</th><th class="n">مرات</th><th class="n">الفاتورة</th><th class="n">الميزان</th><th class="n">الفرق</th><th class="n">قيمة الفرق</th></tr></thead><tbody>
+    ${tot.map(o=>{ const d=o.w-o.q; return `<tr><td><b>${esc(o.it.name)}</b></td><td class="n">${o.n}</td><td class="n">${fmt(o.q)}</td><td class="n">${fmt(o.w)}</td><td class="n" style="color:${d<0?'var(--red)':'var(--green)'};font-weight:700"><bdi dir="ltr">${d>0?'+':''}${fmt(Math.round(d*1000)/1000)}</bdi> ${esc(o.it.unit||'')}</td><td class="n"><bdi dir="ltr">${money(o.v)}</bdi></td></tr>`; }).join('')}
+    </tbody></table></div>
+    <h3 style="margin:14px 0 6px;font-size:15px">كل استلام</h3>
+    <div class="tblwrap"><table><thead><tr><th>التاريخ</th><th>الصنف</th><th>المورد</th><th class="n">الفاتورة</th><th class="n">الميزان</th><th class="n">الفرق</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td>${esc(r.m.date)}</td><td>${esc(r.it.name)}</td><td>${esc(r.m.party||'')}</td><td class="n">${fmt(r.q)}</td><td class="n">${fmt(r.w)}</td><td class="n" style="color:${r.d<0?'var(--red)':'var(--green)'};font-weight:700"><bdi dir="ltr">${r.d>0?'+':''}${fmt(r.d)}</bdi></td></tr>`).join('')}
+    </tbody></table></div>`; }
+  return `<div class="modal" data-close="1"><div class="box" style="max-width:760px"><h3>⚖️ فرق الميزان عن الفاتورة — ${esc(S.period||'')}</h3><div class="pad">${body}</div><div class="foot"><button class="btn" data-close="1">قفل</button></div></div></div>`; }
 // تصليح اللي اتسجل بالطرق القديمة: (1) 800 بسعر متعدل → سعر الفاتورة، (2) 803.2 + حركة تسوية فرق وزن → 800 من غير تسوية
 function nomMigrate(){ let n=0;
   S.moves.forEach(m=>{ if(m.dir==='in' && m.actualWt){ const q=+m.qty, w=+m.actualWt; m.price=Math.round((+m.price||0)*q/w*100)/100; m.scaleWt=w; delete m.actualWt; n++; } });
@@ -13555,6 +13584,7 @@ async function _act(a,d){
     toast(`اتبعت إشعار لـ"${toFac?toFac.name:target}"`);
     return render();
   }
+  if(a==='sw-open'){ ui.sw={rows:null}; ui.modal=swModal(); render(); swRows().then(rows=>{ ui.sw={rows}; if(ui.modal&&ui.modal.includes('فرق الميزان')){ ui.modal=swModal(); render(); } }); return; }
   if(a==='ih-open'){ ui.ih=null; if(d.id) ui.ih={id:d.id, from:'', to:S.period, data:null}; ui.modal=ihModal(); render(); ihBind(); if(d.id) ihLoad(); return; }
   if(a==='ih-load'){ return ihLoad(); }
   if(a==='ih-export'){ const H=ui.ih; if(!H||!H.data) return; const it=item(H.id)||{name:H.name||'',unit:H.unit||''};
