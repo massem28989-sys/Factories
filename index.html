@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-11 · 21:00'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-11 · 21:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -10199,6 +10199,9 @@ function bind(){
     }
     render();
   });
+  // نفس الرقم اتكتب تاني (المتصفح مش بيعتبره تغيير) — لو صنف بالكرتونة ولسه مش متقرّب، قرّبه
+  root.querySelectorAll('[data-mvqty]').forEach(inp=>inp.addEventListener('blur',()=>{ const m=S.moves.find(x=>x.id===inp.dataset.mvqty); if(!m||m.dir!=='in'||m.scaleWt) return; const it=item(m.itemId);
+    if(!it||!nomPackOf(it)||String(+inp.value)!==String(+m.qty)) return; if(Math.abs(nomRound(it,+m.qty)-(+m.qty))<1e-9) return; inp.onchange({target:inp}); }));
   root.querySelectorAll('[data-mvprice]').forEach(inp=>inp.onchange=async e=>{
     if(ROLE!=='owner') return;
     const m=S.moves.find(x=>x.id===e.target.dataset.mvprice); if(!m) return;
