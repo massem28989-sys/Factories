@@ -1248,7 +1248,7 @@ const priceF = v => { const x=Math.round((+v||0)*10000)/10000; return x.toLocale
 // تاريخ اليوم بالتوقيت المحلي (دبي) — مش UTC، عشان بعد نص الليل ما يرجعش لليوم اللي فات زي تطبيق الفروع
 const ymdLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const today = () => ymdLocal(new Date());
-const APP_BUILD = '27-11 · 11:50'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
+const APP_BUILD = '27-11 · 12:10'; function isSettleParty(p){ return /^تسوي[ةه]\s*(ال)?جرد/.test(String(p||'').trim()); }; window.__BUILD__ = APP_BUILD;
 const uid = p => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); // فيها وقت الإنشاء — بتساعد نعرف ترتيب الحركات لو احتجنا نراجع
 const item = id => S.items.find(i=>i.id===id);
 const periodLabel = p => { const [y,m]=p.split('-'); return `شهر ${+m} / ${y}`; };
@@ -5637,6 +5637,12 @@ function fsPickModal(){ const P=BO.fsPick; if(!P) return null; const r=(BO.short
     ${P.skip.length?`<div class="hint">مش هيتعدل: ${esc(P.skip.join('، '))}</div>`:''}
   </div><div class="foot"><button class="btn p" data-act="fs-apply">نفّذ واقفل البلاغ (${nOk} يتعدل${nNo?` · ${nNo} يفضل`:''})</button><button class="btn" data-close="1">إلغاء</button></div></div></div>`; }
 
+// فرع بلّغ «ناقص» في صنف، وفرع تاني نفس اليوم بلّغ «زيادة» في نفس الصنف ← غالبًا البضاعة راحت للفرع الغلط
+function fsSwapHint(r,it){ const nm=String(it.name||'').trim().toLowerCase(), want=it.type==='surplus'?'shortage':'surplus';
+  const hits=(BO.shortages||[]).filter(o=>o!==r && o.date===r.date && o.branch!==r.branch && o.status!=='rejected' && (o.items||[]).some(x=>String(x.name||'').trim().toLowerCase()===nm && (x.type||'shortage')===want));
+  if(!hits.length) return '';
+  return ` <span class="chip" style="background:#EEF2FF;color:#3730A3" title="فرع تاني نفس اليوم بلّغ العكس في نفس الصنف — غالبًا اتبدلت بين الفرعين">↔ ${want==='surplus'?'زيادة عند':'ناقص عند'} ${hits.map(o=>esc(o.branch)).join('، ')}</span>`; }
+
 async function decideFactoryShortageReport(id, decision){
   const grp=(BO.shortages||[]).find(r=>(r.dupIds||[r.id]).includes(id)); const ids=grp&&grp.dupIds?grp.dupIds:[id];
   _decLocal(BO.shortages, ids, decision); BO.shortagesCount=(BO.shortages||[]).filter(r=>r.status==='pending').length;
@@ -6077,7 +6083,8 @@ function viewBranchOrders(){
           const badge = isSurplus
             ? `<span class="chip b">زيادة ${fmt(it.extraQty)} ${esc(it.unit||'')}</span>`
             : `<span class="chip r">ناقص ${fmt(it.missingQty)} ${esc(it.unit||'')}</span>`;
-          return `${esc(it.name)}: أرسل ${fmt(it.sentQty)}، استلم ${fmt(it.receivedQty)} ${badge}`;
+          const sw=fsSwapHint(r,it); const fc=it.firstCount!=null&&Math.abs(+it.firstCount-(+it.receivedQty||0))>0.004?` <span class="hint" title="الفرع عدّه مرتين">(عدّة أولى ${fmt(it.firstCount)})</span>`:'';
+          return `${esc(it.name)}: أرسل ${fmt(it.sentQty)}، استلم ${fmt(it.receivedQty)} ${badge}${fc}${sw}`;
         }).join('<br>');
         return `<tr>
           <td><div class="iname">${esc(r.branch)}</div></td>
